@@ -81,7 +81,8 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
             Text(stringResource(R.string.no_interfaces))
         } else {
             share.interfaces.forEach { iface ->
-                Text("${if (iface.isSelected) "✓ " else "  "}${iface.name}   ${iface.cidr}")
+                val selected = iface.id in ui.settings.selectedInterfaceIds
+                Text("${if (selected) "✓ " else "  "}${iface.name}   ${iface.cidr}")
             }
         }
 

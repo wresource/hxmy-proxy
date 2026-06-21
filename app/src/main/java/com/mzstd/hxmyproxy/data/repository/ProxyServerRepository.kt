@@ -107,6 +107,22 @@ class ProxyServerRepository @Inject constructor(
         _state.value = ShareState()
     }
 
+    /** 停止态也扫描接口，便于用户先选接口再启动（运行态由 [refresh] 维护，故此处直接返回）。 */
+    suspend fun refreshInterfaces() {
+        if (running) return
+        val s = settingsRepository.settings.first()
+        currentSettings = s
+        val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
+        val perm = localNetworkPermissionManager.isGranted()
+        _state.update {
+            it.copy(
+                interfaces = interfaces,
+                localNetworkPermissionGranted = perm,
+                diagnostics = it.diagnostics.copy(localNetworkPermissionGranted = perm),
+            )
+        }
+    }
+
     private fun applyTunables(s: ProxySettings) {
         registry.maxGlobal = s.limits.maxGlobalConnections
         registry.maxPerClient = s.limits.maxPerClientConnections

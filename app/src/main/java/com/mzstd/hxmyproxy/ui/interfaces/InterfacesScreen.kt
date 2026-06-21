@@ -58,7 +58,7 @@ fun InterfacesScreen(ui: MainUiState, viewModel: MainViewModel) {
                         Text(iface.cidr, style = MaterialTheme.typography.bodyMedium)
                     }
                     Switch(
-                        checked = iface.isSelected,
+                        checked = iface.id in ui.settings.selectedInterfaceIds,
                         onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
                     )
                 }

@@ -1,7 +1,9 @@
 package com.mzstd.hxmyproxy.ui.locale
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
+import android.content.res.Resources
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -36,8 +38,15 @@ fun ProvideAppLocale(language: AppLanguage, content: @Composable () -> Unit) {
     val localizedConfig = remember(locale, baseConfig) {
         Configuration(baseConfig).apply { setLocale(locale) }
     }
-    val localizedContext = remember(locale, baseContext, baseConfig) {
-        baseContext.createConfigurationContext(localizedConfig)
+    // 关键：保持 baseContext（Activity）作为 ContextWrapper 的 base，仅覆盖 resources，
+    // 这样 findActivity()/ActivityResultRegistryOwner 等 Activity 作用域查找仍可用。
+    val localizedContext = remember(locale, baseContext, localizedConfig) {
+        object : ContextWrapper(baseContext) {
+            private val localizedResources: Resources =
+                baseContext.createConfigurationContext(localizedConfig).resources
+
+            override fun getResources(): Resources = localizedResources
+        }
     }
     CompositionLocalProvider(
         LocalConfiguration provides localizedConfig,

@@ -27,13 +27,23 @@ data class MainUiState(
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
-    proxyServerRepository: ProxyServerRepository,
+    private val proxyServerRepository: ProxyServerRepository,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainUiState> =
         combine(proxyServerRepository.state, settingsRepository.settings) { share, settings ->
             MainUiState(share, settings)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
+
+    init {
+        // 停止态也扫描接口，让用户先选接口再启动
+        viewModelScope.launch { proxyServerRepository.refreshInterfaces() }
+    }
+
+    /** 重新扫描接口（停止态）。 */
+    fun refreshInterfaces() {
+        viewModelScope.launch { proxyServerRepository.refreshInterfaces() }
+    }
 
     fun setLanguage(language: AppLanguage) = update { it.copy(language = language) }
 
