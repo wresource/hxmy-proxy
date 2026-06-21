@@ -29,13 +29,6 @@ class HttpProxyServer(
     private val limitsProvider: () -> ConnectionLimits,
 ) : TcpProxyServerBase(ProxyProtocol.HTTP, ioDispatcher, accessController, registry) {
 
-    private companion object {
-        val HOP_BY_HOP = setOf(
-            "connection", "proxy-connection", "proxy-authorization",
-            "proxy-authenticate", "keep-alive", "te", "trailer", "upgrade",
-        )
-    }
-
     override suspend fun handle(client: Socket) {
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
         val input = client.getInputStream()
@@ -59,7 +52,7 @@ class HttpProxyServer(
     }
 
     private suspend fun handleConnect(client: Socket, output: OutputStream, target: String) {
-        val hp = parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
+        val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         val upstream = try {
             connector.connect(hp.first, hp.second)
         } catch (e: ProxyException) {
@@ -100,7 +93,7 @@ class HttpProxyServer(
         var hasHost = false
         for ((name, value) in headers) {
             val lower = name.lowercase()
-            if (lower in HOP_BY_HOP) continue
+            if (lower in HttpParsing.HOP_BY_HOP) continue
             if (lower == "host") hasHost = true
             sb.append(name).append(": ").append(value).append("\r\n")
         }
@@ -142,22 +135,6 @@ class HttpProxyServer(
         val idx = decoded.indexOf(':')
         if (idx < 0) return false
         return auth.verify(decoded.substring(0, idx), decoded.substring(idx + 1))
-    }
-
-    /** 解析 authority-form `host:port` 或 `[v6]:port`（端口必填）。 */
-    private fun parseHostPort(s: String): Pair<String, Int>? {
-        if (s.startsWith("[")) {
-            val end = s.indexOf(']')
-            if (end < 0) return null
-            val h = s.substring(1, end)
-            val rest = s.substring(end + 1)
-            val p = if (rest.startsWith(":")) rest.substring(1).toIntOrNull() else null
-            return p?.let { h to it }
-        }
-        val i = s.lastIndexOf(':')
-        if (i < 0) return null
-        val p = s.substring(i + 1).toIntOrNull() ?: return null
-        return s.substring(0, i) to p
     }
 
     private fun writeStatus(output: OutputStream, code: Int, reason: String) {

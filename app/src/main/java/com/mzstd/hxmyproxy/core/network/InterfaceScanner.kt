@@ -49,21 +49,9 @@ class InterfaceScanner {
         return result
     }
 
-    private fun classify(name: String, addr: InetAddress): InterfaceType {
-        val n = name.lowercase()
-        return when {
-            n.startsWith("ap") || n.startsWith("softap") || n.startsWith("swlan") -> InterfaceType.HOTSPOT
-            n.startsWith("rndis") || n.startsWith("usb") || n.startsWith("ncm") -> InterfaceType.USB
-            n.startsWith("bt-pan") || n.startsWith("bt") -> InterfaceType.BLUETOOTH
-            n.startsWith("eth") -> InterfaceType.ETHERNET
-            n.startsWith("wlan") -> if (isGatewayLike(addr)) InterfaceType.HOTSPOT else InterfaceType.WIFI
-            else -> InterfaceType.UNKNOWN
-        }
-    }
+    private fun classify(name: String, addr: InetAddress): InterfaceType =
+        InterfaceClassifier.classify(name, isGatewayLike(addr))
 
-    /** 手机是否持网关式地址（末位 .1）——热点/USB/蓝牙主端的典型特征。 */
-    private fun isGatewayLike(addr: InetAddress): Boolean {
-        val b = addr.address
-        return b.size == 4 && (b[3].toInt() and 0xFF) == 1
-    }
+    private fun isGatewayLike(addr: InetAddress): Boolean =
+        InterfaceClassifier.isGatewayLike(addr.address)
 }

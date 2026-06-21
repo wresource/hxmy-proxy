@@ -12,6 +12,7 @@ import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
+import com.mzstd.hxmyproxy.core.proxy.PacGenerator
 import com.mzstd.hxmyproxy.core.proxy.PacServer
 import com.mzstd.hxmyproxy.core.proxy.ProxyServer
 import com.mzstd.hxmyproxy.core.proxy.RelayEngine
@@ -163,19 +164,8 @@ class ProxyServerRepository @Inject constructor(
         if (specs.isNotEmpty()) mdnsPublisher.publish(specs)
     }
 
-    /** 动态 PAC：`hxmyproxy.local` 在前，随后各接口 IP 兜底，最后 DIRECT（D1）。 */
-    fun generatePac(): String {
-        val entries = _state.value.recommendedEntries
-        val socks = entries.filter { it.protocol == ProxyProtocol.SOCKS5 }
-        val http = entries.filter { it.protocol == ProxyProtocol.HTTP }
-        val tokens = ArrayList<String>()
-        socks.firstOrNull { it.mdnsEndpoint != null }?.let { tokens.add("SOCKS5 ${it.mdnsEndpoint}") }
-        socks.forEach { tokens.add("SOCKS5 ${it.ipEndpoint}") }
-        http.firstOrNull { it.mdnsEndpoint != null }?.let { tokens.add("PROXY ${it.mdnsEndpoint}") }
-        http.forEach { tokens.add("PROXY ${it.ipEndpoint}") }
-        tokens.add("DIRECT")
-        return "function FindProxyForURL(url, host) {\n  return \"${tokens.joinToString("; ")}\";\n}\n"
-    }
+    /** 动态 PAC（委托 [PacGenerator]）。 */
+    fun generatePac(): String = PacGenerator.generate(_state.value.recommendedEntries)
 
     private companion object {
         const val MDNS_HOST = "hxmyproxy.local"
