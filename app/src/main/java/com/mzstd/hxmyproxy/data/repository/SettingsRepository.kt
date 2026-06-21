@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
@@ -52,6 +53,7 @@ class SettingsRepository @Inject constructor(
         val LIM_PARALLEL = intPreferencesKey("lim_parallel")
         val LIM_BUFFER = intPreferencesKey("lim_buffer")
         val LIM_IDLE = intPreferencesKey("lim_idle")
+        val LANGUAGE = stringPreferencesKey("language")
     }
 
     private fun Preferences.toSettings(): ProxySettings {
@@ -77,6 +79,7 @@ class SettingsRepository @Inject constructor(
             blockPrivateLanEgress = this[BLOCK_PRIVATE] ?: d.blockPrivateLanEgress,
             preset = this[PRESET]?.let { runCatching { PerformancePreset.valueOf(it) }.getOrNull() } ?: d.preset,
             limits = limits,
+            language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
         )
     }
 
@@ -98,5 +101,6 @@ class SettingsRepository @Inject constructor(
         prefs[LIM_PARALLEL] = limits.relayParallelism
         prefs[LIM_BUFFER] = limits.relayBufferBytes
         prefs[LIM_IDLE] = limits.idleTimeoutSeconds
+        prefs[LANGUAGE] = language.name
     }
 }

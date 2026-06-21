@@ -1,0 +1,91 @@
+<resources>
+    <string name="app_name">hxmy proxy</string>
+
+    <!-- 导航 -->
+    <string name="nav_dashboard">主页</string>
+    <string name="nav_interfaces">入口</string>
+    <string name="nav_diagnostics">诊断</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- 主页 -->
+    <string name="status_running">共享中</string>
+    <string name="status_stopped">已停止</string>
+    <string name="vpn_detected">VPN：已检测到</string>
+    <string name="vpn_not_detected">VPN：未检测到</string>
+    <string name="clients_count">客户端：%1$d</string>
+    <string name="recommended_entry">推荐入口</string>
+    <string name="no_entry">暂无入口——请先勾选一个接口</string>
+    <string name="copy">复制</string>
+    <string name="copied">已复制</string>
+    <string name="start_sharing">开始共享</string>
+    <string name="stop_sharing">停止共享</string>
+    <string name="shareable_interfaces">可分享入口</string>
+    <string name="no_interfaces">未发现可用接口</string>
+
+    <!-- 接口类型 -->
+    <string name="iface_wifi">Wi-Fi</string>
+    <string name="iface_hotspot">热点</string>
+    <string name="iface_usb">USB</string>
+    <string name="iface_bluetooth">蓝牙</string>
+    <string name="iface_ethernet">以太网</string>
+    <string name="iface_unknown">未知</string>
+    <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
+
+    <!-- 诊断 -->
+    <string name="diag_local_net_perm">本地网络权限</string>
+    <string name="diag_notif_perm">通知权限</string>
+    <string name="diag_http_port">HTTP 端口</string>
+    <string name="diag_socks_port">SOCKS5 端口</string>
+    <string name="diag_pac_port">PAC 端口</string>
+    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
+    <string name="diag_vpn">VPN 出口</string>
+    <string name="diag_ok">正常</string>
+    <string name="diag_fail">异常</string>
+
+    <!-- 设置 -->
+    <string name="settings_language">语言</string>
+    <string name="lang_system">跟随系统</string>
+    <string name="lang_english">English</string>
+    <string name="lang_chinese">中文</string>
+    <string name="settings_preset">性能预设</string>
+    <string name="preset_battery">省电</string>
+    <string name="preset_balanced">均衡</string>
+    <string name="preset_high">高吞吐</string>
+    <string name="preset_custom">自定义</string>
+    <string name="settings_protocols">协议</string>
+    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_socks">SOCKS5</string>
+    <string name="proto_pac">PAC</string>
+    <string name="settings_ports">端口</string>
+    <string name="port_http">HTTP 端口</string>
+    <string name="port_socks">SOCKS5 端口</string>
+    <string name="port_pac">PAC 端口</string>
+    <string name="settings_auth">认证</string>
+    <string name="auth_enable">要求认证</string>
+    <string name="auth_username">用户名</string>
+    <string name="auth_password">密码</string>
+    <string name="auth_warning">未开启认证。同一网络内的设备可能连接你的代理，建议仅在可信网络下使用。</string>
+    <string name="settings_vpn_strategy">VPN 断开时</string>
+    <string name="vpn_continue">继续走普通网络</string>
+    <string name="vpn_block">阻断（fail closed）</string>
+    <string name="vpn_warn">警告但继续</string>
+    <string name="settings_mdns">发布 mDNS (hxmyproxy.local)</string>
+    <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
+    <string name="settings_limits">连接上限</string>
+    <string name="limit_global">最大连接数</string>
+    <string name="limit_per_client">单客户端上限</string>
+    <string name="limit_parallelism">转发并行度</string>
+    <string name="limit_buffer">缓冲（KiB）</string>
+    <string name="limit_idle">空闲超时（秒）</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel">代理服务</string>
+    <string name="notif_starting">正在启动…</string>
+    <string name="notif_running">推荐 %1$s · 客户端 %2$d</string>
+    <string name="notif_running_no_entry">运行中——未选择入口</string>
+    <string name="notif_stopped">已停止</string>
+    <string name="notif_stop">停止</string>
+
+    <!-- 权限 -->
+    <string name="perm_local_net_msg">hxmy proxy 需要本地网络访问权限，才能接受其它设备的连接。</string>
+</resources>

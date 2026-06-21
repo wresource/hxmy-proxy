@@ -1,3 +1,91 @@
 <resources>
     <string name="app_name">hxmy proxy</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_interfaces">Interfaces</string>
+    <string name="nav_diagnostics">Diagnostics</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Dashboard -->
+    <string name="status_running">Sharing</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="vpn_detected">VPN: detected</string>
+    <string name="vpn_not_detected">VPN: not detected</string>
+    <string name="clients_count">Clients: %1$d</string>
+    <string name="recommended_entry">Recommended entry</string>
+    <string name="no_entry">No entry — select an interface</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="start_sharing">Start sharing</string>
+    <string name="stop_sharing">Stop sharing</string>
+    <string name="shareable_interfaces">Shareable interfaces</string>
+    <string name="no_interfaces">No interfaces found</string>
+
+    <!-- Interface types -->
+    <string name="iface_wifi">Wi-Fi</string>
+    <string name="iface_hotspot">Hotspot</string>
+    <string name="iface_usb">USB</string>
+    <string name="iface_bluetooth">Bluetooth</string>
+    <string name="iface_ethernet">Ethernet</string>
+    <string name="iface_unknown">Unknown</string>
+    <string name="interfaces_hint">Select which networks may connect to the proxy.</string>
+
+    <!-- Diagnostics -->
+    <string name="diag_local_net_perm">Local network permission</string>
+    <string name="diag_notif_perm">Notification permission</string>
+    <string name="diag_http_port">HTTP port</string>
+    <string name="diag_socks_port">SOCKS5 port</string>
+    <string name="diag_pac_port">PAC port</string>
+    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
+    <string name="diag_vpn">VPN egress</string>
+    <string name="diag_ok">OK</string>
+    <string name="diag_fail">Problem</string>
+
+    <!-- Settings -->
+    <string name="settings_language">Language</string>
+    <string name="lang_system">System default</string>
+    <string name="lang_english">English</string>
+    <string name="lang_chinese">中文</string>
+    <string name="settings_preset">Performance preset</string>
+    <string name="preset_battery">Battery saver</string>
+    <string name="preset_balanced">Balanced</string>
+    <string name="preset_high">High throughput</string>
+    <string name="preset_custom">Custom</string>
+    <string name="settings_protocols">Protocols</string>
+    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_socks">SOCKS5</string>
+    <string name="proto_pac">PAC</string>
+    <string name="settings_ports">Ports</string>
+    <string name="port_http">HTTP port</string>
+    <string name="port_socks">SOCKS5 port</string>
+    <string name="port_pac">PAC port</string>
+    <string name="settings_auth">Authentication</string>
+    <string name="auth_enable">Require authentication</string>
+    <string name="auth_username">Username</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_warning">Authentication is off. Devices on the same network may use your proxy. Use only on trusted networks.</string>
+    <string name="settings_vpn_strategy">When VPN is down</string>
+    <string name="vpn_continue">Continue on plain network</string>
+    <string name="vpn_block">Block (fail closed)</string>
+    <string name="vpn_warn">Warn but continue</string>
+    <string name="settings_mdns">Publish mDNS (hxmyproxy.local)</string>
+    <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
+    <string name="settings_limits">Connection limits</string>
+    <string name="limit_global">Max connections</string>
+    <string name="limit_per_client">Per-client max</string>
+    <string name="limit_parallelism">Relay parallelism</string>
+    <string name="limit_buffer">Buffer (KiB)</string>
+    <string name="limit_idle">Idle timeout (s)</string>
+
+    <!-- Notification -->
+    <string name="notif_channel">Proxy service</string>
+    <string name="notif_starting">Starting…</string>
+    <string name="notif_running">Recommended %1$s · clients %2$d</string>
+    <string name="notif_running_no_entry">Running — no interface selected</string>
+    <string name="notif_stopped">Stopped</string>
+    <string name="notif_stop">Stop</string>
+
+    <!-- Permission -->
+    <string name="perm_local_net_msg">hxmy proxy needs local network access to accept connections from other devices.</string>
 </resources>

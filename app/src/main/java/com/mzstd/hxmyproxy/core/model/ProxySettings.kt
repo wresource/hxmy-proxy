@@ -21,4 +21,5 @@ data class ProxySettings(
     val blockPrivateLanEgress: Boolean = false,
     val preset: PerformancePreset = PerformancePreset.BALANCED,
     val limits: ConnectionLimits = PerformancePreset.BALANCED.toLimits(),
+    val language: AppLanguage = AppLanguage.SYSTEM,
 )

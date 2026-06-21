@@ -10,9 +10,13 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.mzstd.hxmyproxy.MainActivity
+import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
+import com.mzstd.hxmyproxy.data.repository.SettingsRepository
+import com.mzstd.hxmyproxy.ui.locale.localizedFor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,19 +26,20 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 代理前台服务（`foregroundServiceType=connectedDevice`）。承载代理引擎生命周期与常驻通知。
- *
- * Service 自有 `CoroutineScope(SupervisorJob + Dispatchers.IO)`，于 [onDestroy] 取消。
- * （此自定义 Scope 写法见 version-md NEEDS VERIFICATION，对照 coroutines best-practices。）
+ * 代理前台服务（`foregroundServiceType=connectedDevice`）。承载引擎生命周期与常驻通知。
+ * 通知文案随所选语言本地化（用 locale-wrapped Context 取字符串，D-D）。
  */
 @AndroidEntryPoint
 class ProxyForegroundService : Service() {
 
     @Inject lateinit var repository: ProxyServerRepository
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var started = false
+    @Volatile private var language = AppLanguage.SYSTEM
+    @Volatile private var lastState = ShareState()
 
     override fun onCreate() {
         super.onCreate()
@@ -47,13 +52,15 @@ class ProxyForegroundService : Service() {
             return START_NOT_STICKY
         }
         startForeground(
-            NOTIF_ID, buildNotification("正在启动…"),
+            NOTIF_ID,
+            buildNotification(localized().getString(R.string.notif_starting)),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         if (!started) {
             started = true
             scope.launch { repository.start(scope) }
-            scope.launch { repository.state.collect { updateNotification(it) } }
+            scope.launch { repository.state.collect { lastState = it; pushNotification() } }
+            scope.launch { settingsRepository.settings.collect { language = it.language; pushNotification() } }
         }
         return START_STICKY
     }
@@ -72,15 +79,33 @@ class ProxyForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "代理服务", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "hxmy proxy 前台服务运行状态"
-            setShowBadge(false)
+    private fun localized() = localizedFor(language)
+
+    private fun pushNotification() {
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(statusText()))
+    }
+
+    private fun statusText(): String {
+        val loc = localized()
+        val state = lastState
+        val entry = state.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.SOCKS5 }
+            ?: state.recommendedEntries.firstOrNull()
+        return when {
+            !state.running -> loc.getString(R.string.notif_stopped)
+            entry == null -> loc.getString(R.string.notif_running_no_entry)
+            else -> loc.getString(R.string.notif_running, entry.ipEndpoint, state.clients.size)
         }
+    }
+
+    private fun createChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID, localized().getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW,
+        ).apply { setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun buildNotification(text: String): Notification {
+        val loc = localized()
         val contentIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
@@ -90,23 +115,12 @@ class ProxyForegroundService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("hxmy proxy")
+            .setContentTitle(loc.getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(contentIntent)
-            .addAction(0, "停止共享", stopIntent)
+            .addAction(0, loc.getString(R.string.notif_stop), stopIntent)
             .build()
-    }
-
-    private fun updateNotification(state: ShareState) {
-        val entry = state.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.SOCKS5 }
-            ?: state.recommendedEntries.firstOrNull()
-        val text = when {
-            !state.running -> "未运行"
-            entry == null -> "运行中（未选择入口）"
-            else -> "推荐 ${entry.ipEndpoint} · 客户端 ${state.clients.size}"
-        }
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
     }
 
     companion object {
