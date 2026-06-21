@@ -2,7 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 出站上网：代理转发的上行连接走默认网络（通常携带系统 VPN） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 读取网络状态 / registerDefaultNetworkCallback / NetworkCapabilities -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- 本地网络访问（Android 17 / targetSdk 37 day-one 硬门）：入站 accept + mDNS 多播 -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- mDNS / NSD 多播 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- 前台服务：connectedDevice 类型 + 其限定权限（CHANGE_NETWORK_STATE/CHANGE_WIFI_STATE 满足前置） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- 常驻通知（Android 13+ 运行时权限） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 电池优化白名单引导（Play 敏感权限，仅用于减少后台被杀） -->
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        tools:ignore="BatteryLife" />
+
     <application
+        android:name=".HxmyProxyApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -23,6 +50,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 代理前台服务（承载 HTTP/SOCKS5/PAC 监听 + mDNS + 常驻通知）。详见 version-md/v1-service-permissions-compat.md -->
+        <service
+            android:name=".service.ProxyForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 
 </manifest>
