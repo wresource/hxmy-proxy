@@ -28,7 +28,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,12 +52,19 @@ class ProxyServerRepository @Inject constructor(
     private val accessController: SubnetAccessController,
 ) {
     private val registry = ConnectionRegistry()
-    private val relay = RelayEngine()
+    private val totalUp = AtomicLong(0)
+    private val totalDown = AtomicLong(0)
+    private val relay = RelayEngine { up, down ->
+        if (up > 0) totalUp.addAndGet(up)
+        if (down > 0) totalDown.addAndGet(down)
+    }
     private val connector = OutboundConnector(egressGuard)
 
     @Volatile private var currentSettings = ProxySettings()
     @Volatile private var running = false
     private var servers: List<ProxyServer> = emptyList()
+    @Volatile private var engineScope: CoroutineScope? = null
+    @Volatile private var lastServerKey: String = ""
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -69,17 +79,9 @@ class ProxyServerRepository @Inject constructor(
         currentSettings = s
         applyTunables(s)
 
-        val ioDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
-        val http = HttpProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
-        val socks = Socks5ProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
-        val pac = PacServer(ioDispatcher, accessController, registry) { generatePac() }
-        servers = listOf(http, socks, pac)
-
+        engineScope = scope
+        startServers(scope, s)
         refresh()
-
-        if (s.httpEnabled) http.start(scope, s.httpPort)
-        if (s.socksEnabled) socks.start(scope, s.socksPort)
-        if (s.pacEnabled) pac.start(scope, s.pacPort)
 
         connectivityObserver.start()
         scope.launch { connectivityObserver.networkChanges.collect { refresh() } }
@@ -92,7 +94,33 @@ class ProxyServerRepository @Inject constructor(
             settingsRepository.settings.collect { ns ->
                 currentSettings = ns
                 applyTunables(ns)
+                if (serverKey(ns) != lastServerKey) {
+                    // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
+                    stopServers()
+                    startServers(scope, ns)
+                }
                 refresh()
+            }
+        }
+        // 实时速率 + 活跃连接（约 1s 窗口）
+        scope.launch {
+            var lastUp = 0L
+            var lastDown = 0L
+            while (isActive) {
+                delay(1000)
+                val up = totalUp.get()
+                val down = totalDown.get()
+                val upRate = (up - lastUp).coerceAtLeast(0)
+                val downRate = (down - lastDown).coerceAtLeast(0)
+                lastUp = up
+                lastDown = down
+                _state.update {
+                    it.copy(
+                        activeConnections = registry.activeGlobal,
+                        uploadRateBps = upRate,
+                        downloadRateBps = downRate,
+                    )
+                }
             }
         }
         _state.update { it.copy(running = true) }
@@ -100,12 +128,43 @@ class ProxyServerRepository @Inject constructor(
 
     fun stop() {
         running = false
-        servers.forEach { it.stop() }
-        servers = emptyList()
+        stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
+        engineScope = null
+        totalUp.set(0)
+        totalDown.set(0)
         _state.value = ShareState()
     }
+
+    /** 只启动用户开启的协议监听（关掉的不占端口）。 */
+    private fun startServers(scope: CoroutineScope, s: ProxySettings) {
+        val ioDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
+        val list = mutableListOf<ProxyServer>()
+        if (s.httpEnabled) {
+            HttpProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
+                .also { it.start(scope, s.httpPort); list += it }
+        }
+        if (s.socksEnabled) {
+            Socks5ProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
+                .also { it.start(scope, s.socksPort); list += it }
+        }
+        if (s.pacEnabled) {
+            PacServer(ioDispatcher, accessController, registry) { generatePac() }
+                .also { it.start(scope, s.pacPort); list += it }
+        }
+        servers = list
+        lastServerKey = serverKey(s)
+    }
+
+    private fun stopServers() {
+        servers.forEach { it.stop() }
+        servers = emptyList()
+    }
+
+    /** 影响监听结构的设置指纹（端口/协议开关/并行度）；变化即触发热重启。 */
+    private fun serverKey(s: ProxySettings): String =
+        "${s.httpEnabled}:${s.httpPort}|${s.socksEnabled}:${s.socksPort}|${s.pacEnabled}:${s.pacPort}|${s.limits.relayParallelism}"
 
     /** 停止态也扫描接口，便于用户先选接口再启动（运行态由 [refresh] 维护，故此处直接返回）。 */
     suspend fun refreshInterfaces() {

@@ -4,6 +4,7 @@ import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
+import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import java.io.InputStream
 import java.io.OutputStream
@@ -70,6 +71,7 @@ class Socks5ProxyServer(
 
         if (cmd != 0x01) { reply(output, 0x07); return }   // 仅 CONNECT
 
+        Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         // 4) 连上游
         val upstream = try {
             if (addr != null) connector.connect(addr, port) else connector.connect(host!!, port)

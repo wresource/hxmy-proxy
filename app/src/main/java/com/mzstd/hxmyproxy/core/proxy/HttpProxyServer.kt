@@ -4,6 +4,7 @@ import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
+import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import java.io.InputStream
 import java.io.OutputStream
@@ -53,6 +54,7 @@ class HttpProxyServer(
 
     private suspend fun handleConnect(client: Socket, output: OutputStream, target: String) {
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
+        Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
         val upstream = try {
             connector.connect(hp.first, hp.second)
         } catch (e: ProxyException) {
@@ -81,6 +83,7 @@ class HttpProxyServer(
             uri.rawQuery?.let { append('?').append(it) }
         }
 
+        Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
             connector.connect(host, port)
         } catch (e: ProxyException) {

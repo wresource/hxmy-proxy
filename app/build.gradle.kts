@@ -23,9 +23,14 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true       // R8 代码混淆+缩减
+            isShrinkResources = true     // 资源缩减
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // 临时用 debug 签名以便实测 minified 构建；正式发布请换成正式 keystore
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -34,6 +39,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    lint {
+        // release 不跑 lintVital（其与配置缓存/网络代理冲突，且不影响 R8 验证）
+        checkReleaseBuilds = false
     }
 }
 

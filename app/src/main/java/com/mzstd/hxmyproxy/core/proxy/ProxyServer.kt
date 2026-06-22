@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import android.util.Log
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.security.AccessController
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,6 +17,8 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+
+private const val TAG = "hxmyproxy"
 
 interface ProxyServer {
     val protocol: ProxyProtocol
@@ -70,15 +73,21 @@ abstract class TcpProxyServerBase(
                     if (remote == null || local == null || !accessController.admit(local, remote)) {
                         client.closeQuietly(); continue
                     }
-                    if (!registry.tryAcquire(remote)) { client.closeQuietly(); continue }
+                    if (!registry.tryAcquire(remote)) {
+                        Log.i(TAG, "$protocol reject ${remote.hostAddress} (limit; active=${registry.activeGlobal})")
+                        client.closeQuietly(); continue
+                    }
+                    runCatching { client.tcpNoDelay = true }
+                    Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
                     launch(ioDispatcher) {
                         try {
                             handle(client)
                         } catch (e: Throwable) {
-                            // 单连接错误不影响其它连接
+                            Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
                         } finally {
                             client.closeQuietly()
                             registry.release(remote)
+                            Log.i(TAG, "$protocol close ${remote.hostAddress} (active=${registry.activeGlobal})")
                         }
                     }
                 }

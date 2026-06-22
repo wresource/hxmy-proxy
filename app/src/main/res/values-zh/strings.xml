@@ -13,6 +13,8 @@
     <string name="vpn_detected">VPN：已检测到</string>
     <string name="vpn_not_detected">VPN：未检测到</string>
     <string name="clients_count">客户端：%1$d</string>
+    <string name="active_conns">活跃连接：%1$d</string>
+    <string name="rate_line">↓ %1$s · ↑ %2$s</string>
     <string name="recommended_entry">推荐入口</string>
     <string name="no_entry">暂无入口——请先勾选一个接口</string>
     <string name="copy">复制</string>
@@ -81,7 +83,7 @@
     <!-- 通知 -->
     <string name="notif_channel">代理服务</string>
     <string name="notif_starting">正在启动…</string>
-    <string name="notif_running">推荐 %1$s · 客户端 %2$d</string>
+    <string name="notif_running">%1$s · %2$d 连接 · ↓%3$s ↑%4$s</string>
     <string name="notif_running_no_entry">运行中——未选择入口</string>
     <string name="notif_stopped">已停止</string>
     <string name="notif_stop">停止</string>

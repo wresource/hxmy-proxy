@@ -13,6 +13,8 @@
     <string name="vpn_detected">VPN: detected</string>
     <string name="vpn_not_detected">VPN: not detected</string>
     <string name="clients_count">Clients: %1$d</string>
+    <string name="active_conns">Active connections: %1$d</string>
+    <string name="rate_line">↓ %1$s · ↑ %2$s</string>
     <string name="recommended_entry">Recommended entry</string>
     <string name="no_entry">No entry — select an interface</string>
     <string name="copy">Copy</string>
@@ -81,7 +83,7 @@
     <!-- Notification -->
     <string name="notif_channel">Proxy service</string>
     <string name="notif_starting">Starting…</string>
-    <string name="notif_running">Recommended %1$s · clients %2$d</string>
+    <string name="notif_running">%1$s · %2$d conns · ↓%3$s ↑%4$s</string>
     <string name="notif_running_no_entry">Running — no interface selected</string>
     <string name="notif_stopped">Stopped</string>
     <string name="notif_stop">Stop</string>

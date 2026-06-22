@@ -54,7 +54,17 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(stringResource(if (share.vpn.detected) R.string.vpn_detected else R.string.vpn_not_detected))
-                Text(stringResource(R.string.clients_count, share.clients.size))
+                Text(stringResource(R.string.active_conns, share.activeConnections))
+                if (share.running) {
+                    Text(
+                        stringResource(
+                            R.string.rate_line,
+                            com.mzstd.hxmyproxy.ui.formatRate(share.downloadRateBps),
+                            com.mzstd.hxmyproxy.ui.formatRate(share.uploadRateBps),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
 

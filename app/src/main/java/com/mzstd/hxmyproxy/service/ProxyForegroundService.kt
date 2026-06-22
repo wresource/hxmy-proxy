@@ -93,7 +93,13 @@ class ProxyForegroundService : Service() {
         return when {
             !state.running -> loc.getString(R.string.notif_stopped)
             entry == null -> loc.getString(R.string.notif_running_no_entry)
-            else -> loc.getString(R.string.notif_running, entry.ipEndpoint, state.clients.size)
+            else -> loc.getString(
+                R.string.notif_running,
+                entry.ipEndpoint,
+                state.activeConnections,
+                com.mzstd.hxmyproxy.ui.formatRate(state.downloadRateBps),
+                com.mzstd.hxmyproxy.ui.formatRate(state.uploadRateBps),
+            )
         }
     }
 

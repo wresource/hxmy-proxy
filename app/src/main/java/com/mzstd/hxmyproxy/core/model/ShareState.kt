@@ -25,4 +25,9 @@ data class ShareState(
     val recommendedEntries: List<ProxyEntry> = emptyList(),
     val clients: List<ClientSession> = emptyList(),
     val diagnostics: DiagnosticsSummary = DiagnosticsSummary(),
+    /** 当前活跃连接数。 */
+    val activeConnections: Int = 0,
+    /** 实时上行/下行速率（字节/秒，约 1s 窗口）。 */
+    val uploadRateBps: Long = 0,
+    val downloadRateBps: Long = 0,
 )
