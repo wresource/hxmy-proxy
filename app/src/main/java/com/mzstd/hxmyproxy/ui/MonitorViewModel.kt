@@ -2,7 +2,6 @@ package com.mzstd.hxmyproxy.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.model.DEFAULT_MONITORED_SERVICES
 import com.mzstd.hxmyproxy.core.model.LatencyResult
 import com.mzstd.hxmyproxy.core.network.LatencyProbe
@@ -17,10 +16,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 监控页状态：服务延迟 + 错误日志（行）。
- *
- * 防崩设计：延迟**按需测**（开页 + 手动刷新），不做持续轮询；测量并发跑在 IO 上、一次性批量更新
- * （避免逐项刷新刷爆重组）；日志读取也在 IO 线程。UI 列表用 LazyColumn 仅渲染可见项。
+ * 监控页延迟状态。防崩：**按需测**（开页 + 手动刷新），不持续轮询；并发跑 IO、一次性批量更新。
  */
 @HiltViewModel
 class MonitorViewModel @Inject constructor() : ViewModel() {
@@ -31,12 +27,8 @@ class MonitorViewModel @Inject constructor() : ViewModel() {
     private val _measuring = MutableStateFlow(false)
     val measuring: StateFlow<Boolean> = _measuring.asStateFlow()
 
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
-    val logs: StateFlow<List<String>> = _logs.asStateFlow()
-
     init {
         refreshLatency()
-        reloadLogs()
     }
 
     fun refreshLatency() {
@@ -52,17 +44,5 @@ class MonitorViewModel @Inject constructor() : ViewModel() {
                 _measuring.value = false
             }
         }
-    }
-
-    fun reloadLogs() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val text = FileLog.snapshot()
-            _logs.value = text.lineSequence().filter { it.isNotBlank() }.toList().takeLast(300).asReversed()
-        }
-    }
-
-    fun clearLogs() {
-        FileLog.clear()
-        reloadLogs()
     }
 }

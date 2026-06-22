@@ -1,6 +1,5 @@
 package com.mzstd.hxmyproxy.data.repository
 
-import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
@@ -94,7 +93,6 @@ class ProxyServerRepository @Inject constructor(
 
         engineScope = scope
         startServers(scope, s)
-        FileLog.i("engine", "session start: http=${s.httpEnabled}:${s.httpPort} socks=${s.socksEnabled}:${s.socksPort} pac=${s.pacEnabled}:${s.pacPort} preset=${s.preset}")
         refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
 
         connectivityObserver.start()
@@ -146,7 +144,6 @@ class ProxyServerRepository @Inject constructor(
 
     fun stop() {
         running = false
-        FileLog.i("engine", "session stop: total up=${totalUp.get()} down=${totalDown.get()} bytes")
         stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()

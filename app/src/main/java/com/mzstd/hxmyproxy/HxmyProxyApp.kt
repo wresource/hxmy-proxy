@@ -14,7 +14,7 @@ class HxmyProxyApp : Application() {
     override fun onCreate() {
         super.onCreate()
         FileLog.init(File(filesDir, "logs"))
-        FileLog.i("app", "app start")
+        // 只记录错误/崩溃，不记常规信息日志（保持日志精简、便于分析）
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
             FileLog.e("crash", "Uncaught in thread ${thread.name}", ex)

@@ -20,6 +20,8 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.dashboard.DashboardScreen
 import com.mzstd.hxmyproxy.ui.diagnostics.DiagnosticsScreen
 import com.mzstd.hxmyproxy.ui.interfaces.InterfacesScreen
+import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
+import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
@@ -67,7 +69,19 @@ fun AppRoot(viewModel: MainViewModel) {
             composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
             composable(Dest.Interfaces.route) { InterfacesScreen(ui, viewModel) }
             composable(Dest.Diagnostics.route) { DiagnosticsScreen(ui) }
-            composable(Dest.Monitor.route) { MonitorScreen(ui, viewModel) }
+            composable(Dest.Monitor.route) {
+                MonitorScreen(
+                    ui,
+                    onOpenHistory = { navController.navigate("history_detail") },
+                    onOpenLogs = { navController.navigate("logs_detail") },
+                )
+            }
+            composable("history_detail") {
+                HistoryDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
+            }
+            composable("logs_detail") {
+                LogsDetailScreen(onBack = { navController.popBackStack() })
+            }
             composable(Dest.Settings.route) { SettingsScreen(ui, viewModel) }
         }
     }

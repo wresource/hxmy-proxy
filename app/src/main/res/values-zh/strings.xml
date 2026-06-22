@@ -25,6 +25,7 @@
     <string name="monitor_no_history">（暂无历史）</string>
     <string name="error_logs">错误日志</string>
     <string name="monitor_no_logs">（暂无日志）</string>
+    <string name="monitor_open_history">历史 IP</string>
     <string name="history_title">历史入口</string>
     <string name="history_unavailable">不可用（IP 或端口已变）</string>
     <string name="delete">删除</string>
