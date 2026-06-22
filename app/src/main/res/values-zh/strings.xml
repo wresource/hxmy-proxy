@@ -5,6 +5,7 @@
     <string name="nav_dashboard">主页</string>
     <string name="nav_interfaces">入口</string>
     <string name="nav_diagnostics">诊断</string>
+    <string name="nav_monitor">监控</string>
     <string name="nav_settings">设置</string>
 
     <!-- 主页 -->
@@ -16,7 +17,14 @@
     <string name="active_conns">活跃连接：%1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
     <string name="total_traffic">本次共享累计：%1$s</string>
-    <string name="signal_line">Wi-Fi 信号：%1$s (%2$d dBm)</string>
+    <string name="signal_label">Wi-Fi 信号：</string>
+    <string name="monitor_latency">服务延迟</string>
+    <string name="latency_timeout">超时</string>
+    <string name="refresh">刷新</string>
+    <string name="monitor_novpn_hint">未检测到 VPN，延迟不代表分享出口的质量</string>
+    <string name="monitor_no_history">（暂无历史）</string>
+    <string name="error_logs">错误日志</string>
+    <string name="monitor_no_logs">（暂无日志）</string>
     <string name="history_title">历史入口</string>
     <string name="history_unavailable">不可用（IP 或端口已变）</string>
     <string name="delete">删除</string>

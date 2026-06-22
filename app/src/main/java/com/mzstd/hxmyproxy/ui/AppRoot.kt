@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,12 +20,14 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.dashboard.DashboardScreen
 import com.mzstd.hxmyproxy.ui.diagnostics.DiagnosticsScreen
 import com.mzstd.hxmyproxy.ui.interfaces.InterfacesScreen
+import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
 private sealed class Dest(val route: String, val label: Int, val glyph: String) {
     data object Dashboard : Dest("dashboard", R.string.nav_dashboard, "⌂")
     data object Interfaces : Dest("interfaces", R.string.nav_interfaces, "⇄")
     data object Diagnostics : Dest("diagnostics", R.string.nav_diagnostics, "✓")
+    data object Monitor : Dest("monitor", R.string.nav_monitor, "◉")
     data object Settings : Dest("settings", R.string.nav_settings, "⚙")
 }
 
@@ -32,7 +35,7 @@ private sealed class Dest(val route: String, val label: Int, val glyph: String) 
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
-    val destinations = listOf(Dest.Dashboard, Dest.Interfaces, Dest.Diagnostics, Dest.Settings)
+    val destinations = listOf(Dest.Dashboard, Dest.Interfaces, Dest.Diagnostics, Dest.Monitor, Dest.Settings)
 
     Scaffold(
         bottomBar = {
@@ -49,7 +52,7 @@ fun AppRoot(viewModel: MainViewModel) {
                                 popUpTo(Dest.Dashboard.route)
                             }
                         },
-                        icon = { Text(dest.glyph) },
+                        icon = { Text(dest.glyph, fontSize = 22.sp) },
                         label = { Text(stringResource(dest.label)) },
                     )
                 }
@@ -64,6 +67,7 @@ fun AppRoot(viewModel: MainViewModel) {
             composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
             composable(Dest.Interfaces.route) { InterfacesScreen(ui, viewModel) }
             composable(Dest.Diagnostics.route) { DiagnosticsScreen(ui) }
+            composable(Dest.Monitor.route) { MonitorScreen(ui, viewModel) }
             composable(Dest.Settings.route) { SettingsScreen(ui, viewModel) }
         }
     }

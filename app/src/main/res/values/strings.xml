@@ -5,6 +5,7 @@
     <string name="nav_dashboard">Dashboard</string>
     <string name="nav_interfaces">Interfaces</string>
     <string name="nav_diagnostics">Diagnostics</string>
+    <string name="nav_monitor">Monitor</string>
     <string name="nav_settings">Settings</string>
 
     <!-- Dashboard -->
@@ -16,7 +17,14 @@
     <string name="active_conns">Active connections: %1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
     <string name="total_traffic">Total this session: %1$s</string>
-    <string name="signal_line">Wi-Fi signal: %1$s (%2$d dBm)</string>
+    <string name="signal_label">Wi-Fi signal:</string>
+    <string name="monitor_latency">Service latency</string>
+    <string name="latency_timeout">Timeout</string>
+    <string name="refresh">Refresh</string>
+    <string name="monitor_novpn_hint">No VPN detected — latency may not reflect the shared egress</string>
+    <string name="monitor_no_history">(No history yet)</string>
+    <string name="error_logs">Error logs</string>
+    <string name="monitor_no_logs">(No logs)</string>
     <string name="history_title">History entries</string>
     <string name="history_unavailable">Unavailable (IP or port changed)</string>
     <string name="delete">Delete</string>
