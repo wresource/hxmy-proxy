@@ -29,14 +29,18 @@ class OutboundConnector(
         } catch (e: UnknownHostException) {
             throw ProxyException(ProxyError.DnsFailure)
         }
-        val ordered = addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
-        return connectAny(ordered, port)
+        return connectAny(orderAddresses(addrs), port)
     }
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。 */
     fun connect(addr: InetAddress, port: Int): Socket = connectAny(listOf(addr), port)
 
-    private fun connectAny(addrs: List<InetAddress>, port: Int): Socket {
+    /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */
+    internal fun orderAddresses(addrs: List<InetAddress>): List<InetAddress> =
+        addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
+
+    /** 逐个地址尝试连接，失败回退下一个。 */
+    internal fun connectAny(addrs: List<InetAddress>, port: Int): Socket {
         if (addrs.isEmpty()) throw ProxyException(ProxyError.DnsFailure)
         var lastError: ProxyError = ProxyError.RemoteUnreachable
         for (addr in addrs) {
