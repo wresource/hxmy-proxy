@@ -28,16 +28,14 @@ import androidx.compose.foundation.layout.Row
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
+import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
-private val GREEN = Color(0xFF2E7D32)
-private val AMBER = Color(0xFFF9A825)
-private val RED = Color(0xFFC62828)
-
-internal fun latencyColor(millis: Long?): Color = when {
-    millis == null -> RED
-    millis <= 250 -> GREEN
-    millis <= 500 -> AMBER
-    else -> RED
+@Composable
+private fun latencyColor(millis: Long?): Color = when {
+    millis == null -> StatusColors.bad()
+    millis <= 250 -> StatusColors.good()
+    millis <= 500 -> StatusColors.warn()
+    else -> StatusColors.bad()
 }
 
 @Composable

@@ -6,12 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
 /**
  * 安卓 Wi-Fi 风格分格信号指示器：4 格递增高度，填充到 [level]（0..4）。
@@ -24,11 +25,11 @@ import androidx.compose.ui.unit.dp
 fun SignalBars(level: Int, modifier: Modifier = Modifier) {
     val lvl = level.coerceIn(0, 4)
     val filled = when {
-        lvl >= 3 -> Color(0xFF2E7D32) // green
-        lvl == 2 -> Color(0xFFF9A825) // amber
-        else -> Color(0xFFC62828)     // red
+        lvl >= 3 -> StatusColors.good()
+        lvl == 2 -> StatusColors.warn()
+        else -> StatusColors.bad()
     }
-    val empty = Color(0x33808080)
+    val empty = MaterialTheme.colorScheme.surfaceVariant
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.Bottom,
