@@ -1,5 +1,5 @@
-<!-- 通知小图标（单色剪影，系统着色）：粗体中心节点向四角辐射 = hxmy proxy “向外分享”品牌意象。
-     加粗以便在状态栏小尺寸下清晰可辨。 -->
+<!-- 通知小图标（单色剪影，显示在通知左侧，系统着色）：中心节点向四角辐射 = hxmy proxy
+     “向外分享/代理”意象。占满画布、加粗，便于状态栏小尺寸清晰可辨。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -7,13 +7,13 @@
     android:viewportHeight="24">
     <path
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.4"
+        android:strokeWidth="2.8"
         android:strokeLineCap="round"
-        android:pathData="M12,12 L6,6 M12,12 L18,6 M12,12 L6,18 M12,12 L18,18" />
+        android:pathData="M12,12 L5,5 M12,12 L19,5 M12,12 L5,19 M12,12 L19,19" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M12,8.2 a3.8,3.8 0 1,0 0.01,0 z" />
+        android:pathData="M12,7.7 a4.3,4.3 0 1,0 0.01,0 z" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M6,3.6 a2.4,2.4 0 1,0 0.01,0 z M18,3.6 a2.4,2.4 0 1,0 0.01,0 z M6,15.6 a2.4,2.4 0 1,0 0.01,0 z M18,15.6 a2.4,2.4 0 1,0 0.01,0 z" />
+        android:pathData="M5,2.4 a2.6,2.6 0 1,0 0.01,0 z M19,2.4 a2.6,2.6 0 1,0 0.01,0 z M5,16.4 a2.6,2.6 0 1,0 0.01,0 z M19,16.4 a2.6,2.6 0 1,0 0.01,0 z" />
 </vector>

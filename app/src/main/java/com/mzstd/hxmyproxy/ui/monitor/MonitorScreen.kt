@@ -43,7 +43,7 @@ private val RED = Color(0xFFC62828)
 
 private fun latencyColor(millis: Long?): Color = when {
     millis == null -> RED
-    millis <= 200 -> GREEN
+    millis <= 250 -> GREEN
     millis <= 500 -> AMBER
     else -> RED
 }

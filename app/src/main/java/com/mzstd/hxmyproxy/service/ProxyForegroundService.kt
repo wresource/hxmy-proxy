@@ -9,8 +9,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import com.mzstd.hxmyproxy.MainActivity
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.AppLanguage
@@ -121,18 +119,17 @@ class ProxyForegroundService : Service() {
             this, 1, Intent(this, ProxyForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_hxmy) // 品牌单色小图标（替换原系统上传图标）
+        // 只设小图标（品牌单色剪影，显示在通知左侧，与其它 App 一致）。
+        // 不设大图标——否则满色图标跑到右侧，左侧反而只剩不显眼的剪影。
+        // 平台约束：通知小图标必须单色，系统会着色，无法放满色 App 图标。
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_hxmy)
             .setContentTitle(loc.getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .addAction(0, loc.getString(R.string.notif_stop), stopIntent)
-        // 满色 App 图标作为大图标，提升通知辨识度
-        runCatching {
-            ContextCompat.getDrawable(this, R.mipmap.ic_launcher)?.toBitmap(128, 128)
-        }.getOrNull()?.let { builder.setLargeIcon(it) }
-        return builder.build()
+            .build()
     }
 
     companion object {
