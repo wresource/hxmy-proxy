@@ -26,6 +26,7 @@
     <string name="error_logs">Error logs</string>
     <string name="monitor_no_logs">(No logs)</string>
     <string name="monitor_open_history">History IPs</string>
+    <string name="back">Back</string>
     <string name="history_title">History entries</string>
     <string name="history_unavailable">Unavailable (IP or port changed)</string>
     <string name="delete">Delete</string>
