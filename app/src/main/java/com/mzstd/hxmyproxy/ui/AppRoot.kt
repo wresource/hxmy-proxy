@@ -1,6 +1,9 @@
 package com.mzstd.hxmyproxy.ui
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -60,11 +63,13 @@ fun AppRoot(viewModel: MainViewModel) {
                 }
             }
         },
+        // safeDrawing 让 innerPadding 携带 IME 插入：键盘弹出时内容区收缩，端口输入框不被遮挡。
+        contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         NavHost(
             navController = navController,
             startDestination = Dest.Dashboard.route,
-            modifier = Modifier.padding(padding),
+            modifier = Modifier.padding(padding).consumeWindowInsets(padding),
         ) {
             composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
             composable(Dest.Interfaces.route) { InterfacesScreen(ui, viewModel) }

@@ -18,6 +18,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 有底部 NavigationBar 时关闭系统对比层，避免三键导航下的半透明遮罩（edge-to-edge skill 要求，SDK 29+）。
+        window.isNavigationBarContrastEnforced = false
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val ui by viewModel.uiState.collectAsStateWithLifecycle()
