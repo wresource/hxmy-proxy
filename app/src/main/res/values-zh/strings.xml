@@ -15,6 +15,11 @@
     <string name="clients_count">客户端：%1$d</string>
     <string name="active_conns">活跃连接：%1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
+    <string name="total_traffic">本次共享累计：%1$s</string>
+    <string name="signal_line">Wi-Fi 信号：%1$s (%2$d dBm)</string>
+    <string name="history_title">历史入口</string>
+    <string name="history_unavailable">不可用（IP 或端口已变）</string>
+    <string name="delete">删除</string>
     <string name="recommended_entry">推荐入口</string>
     <string name="no_entry">暂无入口——请先勾选一个接口</string>
     <string name="copy">复制</string>
@@ -43,6 +48,11 @@
     <string name="diag_vpn">VPN 出口</string>
     <string name="diag_ok">正常</string>
     <string name="diag_fail">异常</string>
+    <string name="diag_logs_title">日志</string>
+    <string name="diag_logs_hint">记录错误、崩溃与会话事件。导出并发送该文件即可用于分析。</string>
+    <string name="export_logs">导出日志</string>
+    <string name="clear_logs">清空</string>
+    <string name="logs_cleared">日志已清空</string>
 
     <!-- 设置 -->
     <string name="settings_language">语言</string>

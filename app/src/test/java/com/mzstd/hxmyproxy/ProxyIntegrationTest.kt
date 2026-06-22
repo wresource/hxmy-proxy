@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -131,12 +132,40 @@ class ProxyIntegrationTest {
         client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             val ep = upstream.localPort
-            out.write("GET http://127.0.0.1:$ep/ HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\n\r\n".toByteArray()); out.flush()
+            // Connection: close → 客户端要求单次即关，readBytes 读到 EOF（不触发 keep-alive 等待）
+            out.write("GET http://127.0.0.1:$ep/ HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\nConnection: close\r\n\r\n".toByteArray()); out.flush()
             val text = String(inp.readBytes())
             assertTrue(text.contains("200"))
             assertTrue(text.endsWith("hi"))
         }
         scope.cancel(); upstream.close()
+    }
+
+    /**
+     * keep-alive 回归：同一客户端连接连发两个请求，取回两份**二进制**响应并逐字节校验。
+     * 这正是浏览器加载网页小图/资源的模式——旧实现一连接只处理一个请求，第二个请求会丢/挂死。
+     */
+    @Test fun httpKeepAliveServesMultipleBinaryRequests() = runBlocking {
+        val img1 = ByteArray(1500) { (it * 31 + 0x89).toByte() }   // 含 0x00/0xFF 等非 ASCII 字节
+        val img2 = ByteArray(900) { (255 - (it % 256)).toByte() }
+        val origin = startKeepAliveBinaryOrigin { path -> if (path.contains("img1")) img1 else img2 }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val server = http(scope, allowAll, NoAuthAuthenticator)
+        client(awaitPort(server)).use { sock ->
+            val out = sock.getOutputStream(); val inp = sock.getInputStream()
+            val ep = origin.localPort
+            // 请求 1
+            out.write("GET http://127.0.0.1:$ep/img1.png HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\n\r\n".toByteArray()); out.flush()
+            val (s1, b1) = readFramedResponse(inp)
+            assertEquals(200, s1)
+            assertArrayEquals("img1 二进制应逐字节一致", img1, b1)
+            // 请求 2（复用同一连接 —— 旧代码在此 EOF/超时）
+            out.write("GET http://127.0.0.1:$ep/img2.png HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\n\r\n".toByteArray()); out.flush()
+            val (s2, b2) = readFramedResponse(inp)
+            assertEquals(200, s2)
+            assertArrayEquals("img2 二进制应逐字节一致", img2, b2)
+        }
+        scope.cancel(); origin.close()
     }
 
     @Test fun httpConnectRequiresAuthWhenEnabled() = runBlocking {
@@ -237,6 +266,55 @@ class ProxyIntegrationTest {
                         val inp = c.getInputStream(); val out = c.getOutputStream()
                         val buf = ByteArray(4096)
                         while (true) { val r = inp.read(buf); if (r < 0) break; out.write(buf, 0, r); out.flush() }
+                    } catch (e: Exception) {
+                        // ignore
+                    } finally {
+                        c.close()
+                    }
+                }
+            }
+        }
+        return s
+    }
+
+    /** 读一个带 Content-Length 定界的 HTTP 响应：返回 (状态码, 响应体字节)。 */
+    private fun readFramedResponse(inp: InputStream): Pair<Int, ByteArray> {
+        val statusLine = readLine(inp)
+        val status = statusLine.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
+        var len = -1
+        while (true) {
+            val h = readLine(inp)
+            if (h.isEmpty()) break
+            val i = h.indexOf(':')
+            if (i > 0 && h.substring(0, i).trim().equals("Content-Length", true)) {
+                len = h.substring(i + 1).trim().toInt()
+            }
+        }
+        val body = if (len >= 0) readN(inp, len) else ByteArray(0)
+        return status to body
+    }
+
+    /**
+     * keep-alive 二进制源：单连接循环处理多个请求，每个请求回一份带 Content-Length 的二进制体，
+     * **不发 Connection: close**、保持连接打开供复用。
+     */
+    private fun startKeepAliveBinaryOrigin(payload: (String) -> ByteArray): ServerSocket {
+        val s = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        thread(isDaemon = true) {
+            while (!s.isClosed) {
+                val c = try { s.accept() } catch (e: Exception) { break }
+                thread(isDaemon = true) {
+                    try {
+                        val inp = c.getInputStream(); val out = c.getOutputStream()
+                        while (true) {
+                            val reqLine = readLine(inp)
+                            if (reqLine.isEmpty()) break // EOF / 客户端关闭
+                            val path = reqLine.split(" ").getOrElse(1) { "/" }
+                            while (true) { val h = readLine(inp); if (h.isEmpty()) break } // 排空头
+                            val body = payload(path)
+                            val head = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: ${body.size}\r\n\r\n"
+                            out.write(head.toByteArray(Charsets.ISO_8859_1)); out.write(body); out.flush()
+                        }
                     } catch (e: Exception) {
                         // ignore
                     } finally {

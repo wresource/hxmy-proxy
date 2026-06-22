@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class ConnectionRegistry(
     @Volatile var maxGlobal: Int = 256,
     @Volatile var maxPerClient: Int = 128,
+    /** 活跃连接数变化回调（accept/close/reset 后触发，传入当前在线数）；用于即时刷新 UI。 */
+    private val onChange: (Int) -> Unit = {},
 ) {
     private val global = AtomicInteger(0)
     private val perClient = ConcurrentHashMap<InetAddress, AtomicInteger>()
@@ -35,13 +37,25 @@ class ConnectionRegistry(
             }
             if (counter.compareAndSet(c, c + 1)) break
         }
+        onChange(global.get())
         return true
     }
 
     fun release(client: InetAddress) {
-        global.updateAndGet { if (it > 0) it - 1 else 0 }
+        val now = global.updateAndGet { if (it > 0) it - 1 else 0 }
         perClient[client]?.let { counter ->
             if (counter.decrementAndGet() <= 0) perClient.remove(client, counter)
         }
+        onChange(now)
+    }
+
+    /**
+     * 清零所有计数（共享会话边界用）。stop/start 时调用——否则停止后在途 relay 要等空闲超时
+     * 才 release()，残留计数会"卡高"带到下次会话，表现为连接数像累计而非在线。
+     */
+    fun reset() {
+        global.set(0)
+        perClient.clear()
+        onChange(0)
     }
 }

@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.core.proxy
 
 import android.util.Log
+import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.security.AccessController
 import kotlinx.coroutines.CoroutineDispatcher
@@ -84,6 +85,7 @@ abstract class TcpProxyServerBase(
                             handle(client)
                         } catch (e: Throwable) {
                             Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
+                            FileLog.w(TAG, "$protocol error ${remote.hostAddress}", e)
                         } finally {
                             client.closeQuietly()
                             registry.release(remote)

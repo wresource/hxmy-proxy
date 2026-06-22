@@ -1,0 +1,17 @@
+<!-- 通知小图标（单色剪影，系统会着色）：中心节点向四角辐射 = hxmy proxy 品牌的“向外分享”意象 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.6"
+        android:pathData="M12,12 L6,6 M12,12 L18,6 M12,12 L6,18 M12,12 L18,18" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,9 a3,3 0 1,0 0.01,0 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,4.5 a1.8,1.8 0 1,0 0.01,0 z M18,4.5 a1.8,1.8 0 1,0 0.01,0 z M6,16.4 a1.8,1.8 0 1,0 0.01,0 z M18,16.4 a1.8,1.8 0 1,0 0.01,0 z" />
+</vector>

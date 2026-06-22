@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.data.repository
 
+import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
@@ -50,14 +51,21 @@ class ProxyServerRepository @Inject constructor(
     private val egressGuard: DefaultEgressGuard,
     private val authenticator: SingleCredentialAuthenticator,
     private val accessController: SubnetAccessController,
+    private val signalProvider: com.mzstd.hxmyproxy.core.network.SignalProvider,
+    private val endpointHistoryRepository: EndpointHistoryRepository,
 ) {
-    private val registry = ConnectionRegistry()
+    // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
+    private val registry = ConnectionRegistry(onChange = { active ->
+        _state.update { it.copy(activeConnections = active) }
+    })
     private val totalUp = AtomicLong(0)
     private val totalDown = AtomicLong(0)
-    private val relay = RelayEngine { up, down ->
+    // 共享流量计量：RelayEngine（CONNECT/SOCKS）与 HttpProxyServer（普通 HTTP keep-alive 转发）共用。
+    private val trafficSink: (Long, Long) -> Unit = { up, down ->
         if (up > 0) totalUp.addAndGet(up)
         if (down > 0) totalDown.addAndGet(down)
     }
+    private val relay = RelayEngine(trafficSink)
     private val connector = OutboundConnector(egressGuard)
 
     @Volatile private var currentSettings = ProxySettings()
@@ -75,13 +83,26 @@ class ProxyServerRepository @Inject constructor(
     suspend fun start(scope: CoroutineScope) {
         if (running) return
         running = true
+        // 新会话边界：累计流量与连接计数归零（避免上次会话残留）。
+        totalUp.set(0)
+        totalDown.set(0)
+        registry.reset()
         val s = settingsRepository.settings.first()
         currentSettings = s
         applyTunables(s)
 
         engineScope = scope
         startServers(scope, s)
+        FileLog.i("engine", "session start: http=${s.httpEnabled}:${s.httpPort} socks=${s.socksEnabled}:${s.socksPort} pac=${s.pacEnabled}:${s.pacPort} preset=${s.preset}")
         refresh()
+        // 记录本次分享的入口到历史，便于下次复用
+        val entries = _state.value.recommendedEntries
+        if (entries.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            endpointHistoryRepository.record(
+                entries.map { com.mzstd.hxmyproxy.core.model.HistoryEndpoint(it.protocol, it.host, it.port, now) },
+            )
+        }
 
         connectivityObserver.start()
         scope.launch { connectivityObserver.networkChanges.collect { refresh() } }
@@ -114,11 +135,15 @@ class ProxyServerRepository @Inject constructor(
                 val downRate = (down - lastDown).coerceAtLeast(0)
                 lastUp = up
                 lastDown = down
+                val sig = signalProvider.current()
                 _state.update {
                     it.copy(
                         activeConnections = registry.activeGlobal,
                         uploadRateBps = upRate,
                         downloadRateBps = downRate,
+                        totalBytes = up + down,
+                        signalLevel = sig.level,
+                        signalDbm = sig.dbm,
                     )
                 }
             }
@@ -128,12 +153,14 @@ class ProxyServerRepository @Inject constructor(
 
     fun stop() {
         running = false
+        FileLog.i("engine", "session stop: total up=${totalUp.get()} down=${totalDown.get()} bytes")
         stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
         engineScope = null
         totalUp.set(0)
         totalDown.set(0)
+        registry.reset()
         _state.value = ShareState()
     }
 
@@ -142,7 +169,7 @@ class ProxyServerRepository @Inject constructor(
         val ioDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
-            HttpProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
+            HttpProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, trafficSink)
                 .also { it.start(scope, s.httpPort); list += it }
         }
         if (s.socksEnabled) {
@@ -173,11 +200,14 @@ class ProxyServerRepository @Inject constructor(
         currentSettings = s
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
         val perm = localNetworkPermissionManager.isGranted()
+        val sig = signalProvider.current()
         _state.update {
             it.copy(
                 interfaces = interfaces,
                 localNetworkPermissionGranted = perm,
                 diagnostics = it.diagnostics.copy(localNetworkPermissionGranted = perm),
+                signalLevel = sig.level,
+                signalDbm = sig.dbm,
             )
         }
     }
@@ -197,12 +227,15 @@ class ProxyServerRepository @Inject constructor(
         publishMdns(s)
         val entries = computeEntries(selected, s)
         val perm = localNetworkPermissionManager.isGranted()
+        val sig = signalProvider.current()
         _state.update { st ->
             st.copy(
                 running = running,
                 localNetworkPermissionGranted = perm,
                 interfaces = interfaces,
                 recommendedEntries = entries,
+                signalLevel = sig.level,
+                signalDbm = sig.dbm,
                 diagnostics = st.diagnostics.copy(
                     localNetworkPermissionGranted = perm,
                     httpPortUp = portUp(ProxyProtocol.HTTP),

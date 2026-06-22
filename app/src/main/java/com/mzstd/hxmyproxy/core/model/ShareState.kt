@@ -30,4 +30,9 @@ data class ShareState(
     /** 实时上行/下行速率（字节/秒，约 1s 窗口）。 */
     val uploadRateBps: Long = 0,
     val downloadRateBps: Long = 0,
+    /** 本次共享会话累计传输字节（上行+下行）；Start 时归零。 */
+    val totalBytes: Long = 0,
+    /** 当前上行 Wi-Fi 信号等级 0..4；-1 表示无 Wi-Fi。 */
+    val signalLevel: Int = -1,
+    val signalDbm: Int = 0,
 )

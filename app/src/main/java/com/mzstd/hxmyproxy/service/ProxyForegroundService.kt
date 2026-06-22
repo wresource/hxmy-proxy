@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.mzstd.hxmyproxy.MainActivity
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.AppLanguage
@@ -119,14 +121,18 @@ class ProxyForegroundService : Service() {
             this, 1, Intent(this, ProxyForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_hxmy) // 品牌单色小图标（替换原系统上传图标）
             .setContentTitle(loc.getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(contentIntent)
             .addAction(0, loc.getString(R.string.notif_stop), stopIntent)
-            .build()
+        // 满色 App 图标作为大图标，提升通知辨识度
+        runCatching {
+            ContextCompat.getDrawable(this, R.mipmap.ic_launcher)?.toBitmap(128, 128)
+        }.getOrNull()?.let { builder.setLargeIcon(it) }
+        return builder.build()
     }
 
     companion object {

@@ -8,6 +8,8 @@ object ProxyTuning {
     const val CONNECT_TIMEOUT_MS = 5_000
     /** 握手阶段（SOCKS 协商 / HTTP 请求行+头）读超时，防慢速攻击挂死。 */
     const val HANDSHAKE_TIMEOUT_MS = 15_000
+    /** HTTP keep-alive 连接两次请求之间的空闲等待；超时则关闭连接释放 FD。 */
+    const val KEEPALIVE_IDLE_MS = 15_000
     /** accept backlog。 */
     const val ACCEPT_BACKLOG = 128
 }

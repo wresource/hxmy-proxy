@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,7 +19,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -55,6 +58,16 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                 )
                 Text(stringResource(if (share.vpn.detected) R.string.vpn_detected else R.string.vpn_not_detected))
                 Text(stringResource(R.string.active_conns, share.activeConnections))
+                if (share.signalLevel >= 0) {
+                    Text(
+                        stringResource(
+                            R.string.signal_line,
+                            com.mzstd.hxmyproxy.ui.signalBars(share.signalLevel),
+                            share.signalDbm,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 if (share.running) {
                     Text(
                         stringResource(
@@ -62,6 +75,10 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                             com.mzstd.hxmyproxy.ui.formatRate(share.downloadRateBps),
                             com.mzstd.hxmyproxy.ui.formatRate(share.uploadRateBps),
                         ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        stringResource(R.string.total_traffic, com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes)),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -82,6 +99,35 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                         clipboard.setText(AnnotatedString(entry.mdnsEndpoint ?: entry.ipEndpoint))
                         Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                     }) { Text(stringResource(R.string.copy)) }
+                }
+            }
+        }
+
+        if (ui.history.isNotEmpty()) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.history_title), style = MaterialTheme.typography.titleMedium)
+                    ui.history.forEach { v ->
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${v.entry.protocol} ${v.entry.endpoint}")
+                                if (!v.available) {
+                                    Text(
+                                        stringResource(R.string.history_unavailable),
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(v.entry.endpoint))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            }) { Text(stringResource(R.string.copy)) }
+                            TextButton(onClick = { viewModel.removeHistoryEndpoint(v.entry) }) {
+                                Text(stringResource(R.string.delete))
+                            }
+                        }
+                    }
                 }
             }
         }

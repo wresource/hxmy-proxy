@@ -5,6 +5,7 @@ import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
 import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
+import com.mzstd.hxmyproxy.core.network.SignalProvider
 import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
 import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import com.mzstd.hxmyproxy.core.security.SubnetAccessController
@@ -37,6 +38,10 @@ object AppModule {
     @Provides @Singleton
     fun localNetworkPermissionManager(@ApplicationContext context: Context): LocalNetworkPermissionManager =
         LocalNetworkPermissionManager(context)
+
+    @Provides @Singleton
+    fun signalProvider(@ApplicationContext context: Context): SignalProvider =
+        SignalProvider(context)
 
     @Provides @Singleton
     fun egressGuard(): DefaultEgressGuard = DefaultEgressGuard()

@@ -15,6 +15,11 @@
     <string name="clients_count">Clients: %1$d</string>
     <string name="active_conns">Active connections: %1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
+    <string name="total_traffic">Total this session: %1$s</string>
+    <string name="signal_line">Wi-Fi signal: %1$s (%2$d dBm)</string>
+    <string name="history_title">History entries</string>
+    <string name="history_unavailable">Unavailable (IP or port changed)</string>
+    <string name="delete">Delete</string>
     <string name="recommended_entry">Recommended entry</string>
     <string name="no_entry">No entry — select an interface</string>
     <string name="copy">Copy</string>
@@ -43,6 +48,11 @@
     <string name="diag_vpn">VPN egress</string>
     <string name="diag_ok">OK</string>
     <string name="diag_fail">Problem</string>
+    <string name="diag_logs_title">Logs</string>
+    <string name="diag_logs_hint">Records errors, crashes and session events. Export and send the file for analysis.</string>
+    <string name="export_logs">Export logs</string>
+    <string name="clear_logs">Clear</string>
+    <string name="logs_cleared">Logs cleared</string>
 
     <!-- Settings -->
     <string name="settings_language">Language</string>
