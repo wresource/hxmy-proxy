@@ -73,6 +73,7 @@ class ProxyServerRepository @Inject constructor(
     private var servers: List<ProxyServer> = emptyList()
     @Volatile private var engineScope: CoroutineScope? = null
     @Volatile private var lastServerKey: String = ""
+    @Volatile private var lastRecordedEntryKey: String = ""
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -94,15 +95,7 @@ class ProxyServerRepository @Inject constructor(
         engineScope = scope
         startServers(scope, s)
         FileLog.i("engine", "session start: http=${s.httpEnabled}:${s.httpPort} socks=${s.socksEnabled}:${s.socksPort} pac=${s.pacEnabled}:${s.pacPort} preset=${s.preset}")
-        refresh()
-        // 记录本次分享的入口到历史，便于下次复用
-        val entries = _state.value.recommendedEntries
-        if (entries.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            endpointHistoryRepository.record(
-                entries.map { com.mzstd.hxmyproxy.core.model.HistoryEndpoint(it.protocol, it.host, it.port, now) },
-            )
-        }
+        refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
 
         connectivityObserver.start()
         scope.launch { connectivityObserver.networkChanges.collect { refresh() } }
@@ -160,6 +153,7 @@ class ProxyServerRepository @Inject constructor(
         engineScope = null
         totalUp.set(0)
         totalDown.set(0)
+        lastRecordedEntryKey = ""
         registry.reset()
         _state.value = ShareState()
     }
@@ -226,6 +220,19 @@ class ProxyServerRepository @Inject constructor(
         accessController.update(selected.map { it.address }.toSet())
         publishMdns(s)
         val entries = computeEntries(selected, s)
+        // 记录入口到历史（运行中、入口非空、且与上次不同才写——覆盖启动后选接口/IP 变化，避免重复写盘）
+        if (running && entries.isNotEmpty()) {
+            val entryKey = entries.joinToString("|") { "${it.protocol}:${it.host}:${it.port}" }
+            if (entryKey != lastRecordedEntryKey) {
+                lastRecordedEntryKey = entryKey
+                val now = System.currentTimeMillis()
+                engineScope?.launch {
+                    endpointHistoryRepository.record(
+                        entries.map { com.mzstd.hxmyproxy.core.model.HistoryEndpoint(it.protocol, it.host, it.port, now) },
+                    )
+                }
+            }
+        }
         val perm = localNetworkPermissionManager.isGranted()
         val sig = signalProvider.current()
         _state.update { st ->
