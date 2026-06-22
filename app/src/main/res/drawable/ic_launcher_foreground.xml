@@ -1,0 +1,23 @@
+<!-- 启动图标前景（矢量，108x108 自适应图标）：简洁的辐射节点标志 —— 中心节点向四角发出
+     白色射线、四角珊瑚节点 = hxmy proxy “向外分享/代理” 核心意象。去掉四字母，缩小到通知/
+     角标尺寸也清晰可辨。图形居中、在自适应图标安全区内（避免被裁切）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 四条射线（白，圆头加粗，高对比） -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L36,36 M54,54 L72,36 M54,54 L36,72 M54,54 L72,72" />
+    <!-- 四角节点（珊瑚） -->
+    <path
+        android:fillColor="#FFFF7A59"
+        android:pathData="M36,30 a6,6 0 1,0 0.01,0 z M72,30 a6,6 0 1,0 0.01,0 z M36,66 a6,6 0 1,0 0.01,0 z M72,66 a6,6 0 1,0 0.01,0 z" />
+    <!-- 中心节点（珊瑚，强调色） -->
+    <path
+        android:fillColor="#FFFF7A59"
+        android:pathData="M54,43 a11,11 0 1,0 0.01,0 z" />
+</vector>
