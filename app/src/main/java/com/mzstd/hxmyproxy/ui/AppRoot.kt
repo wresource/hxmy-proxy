@@ -8,6 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -40,6 +41,7 @@ fun AppRoot(viewModel: MainViewModel) {
                 val current = backStackEntry?.destination?.route
                 destinations.forEach { dest ->
                     NavigationBarItem(
+                        modifier = Modifier.testTag("nav_${dest.route}"),
                         selected = current == dest.route,
                         onClick = {
                             navController.navigate(dest.route) {

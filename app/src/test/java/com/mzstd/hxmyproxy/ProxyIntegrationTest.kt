@@ -45,7 +45,7 @@ class ProxyIntegrationTest {
         val echo = startEcho()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = socks(scope, allowAll, NoAuthAuthenticator)
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write(byteArrayOf(0x05, 0x01, 0x00)); out.flush()
             val method = readN(inp, 2)
@@ -63,7 +63,7 @@ class ProxyIntegrationTest {
         val echo = startEcho()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = socks(scope, allowAll, SingleCredentialAuthenticator("user", "pass", enabled = true))
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write(byteArrayOf(0x05, 0x01, 0x02)); out.flush()
             assertEquals(0x02, readN(inp, 2)[1].toInt() and 0xFF)
@@ -80,7 +80,7 @@ class ProxyIntegrationTest {
     @Test fun socks5AuthWrongPasswordRejected() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = socks(scope, allowAll, SingleCredentialAuthenticator("user", "pass", enabled = true))
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write(byteArrayOf(0x05, 0x01, 0x02)); out.flush()
             readN(inp, 2)
@@ -99,7 +99,7 @@ class ProxyIntegrationTest {
             OutboundConnector(DefaultEgressGuard()), RelayEngine(),
             { NoAuthAuthenticator }, { ConnectionLimits() },
         ).also { it.start(scope, 0) }
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write(byteArrayOf(0x05, 0x01, 0x00)); out.flush(); readN(inp, 2)
             connectSocks(out, echo.localPort)
@@ -112,7 +112,7 @@ class ProxyIntegrationTest {
         val echo = startEcho()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = http(scope, allowAll, NoAuthAuthenticator)
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             val ep = echo.localPort
             out.write("CONNECT 127.0.0.1:$ep HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\n\r\n".toByteArray()); out.flush()
@@ -128,7 +128,7 @@ class ProxyIntegrationTest {
         val upstream = startHttp("hi")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = http(scope, allowAll, NoAuthAuthenticator)
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             val ep = upstream.localPort
             out.write("GET http://127.0.0.1:$ep/ HTTP/1.1\r\nHost: 127.0.0.1:$ep\r\n\r\n".toByteArray()); out.flush()
@@ -142,7 +142,7 @@ class ProxyIntegrationTest {
     @Test fun httpConnectRequiresAuthWhenEnabled() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = http(scope, allowAll, SingleCredentialAuthenticator("u", "p", enabled = true))
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write("CONNECT 127.0.0.1:80 HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray()); out.flush()
             assertTrue(readLine(inp).contains("407"))
@@ -155,7 +155,7 @@ class ProxyIntegrationTest {
         val server = PacServer(Dispatchers.IO, AllowAllAccessController, ConnectionRegistry()) {
             "function FindProxyForURL(url, host) { return \"DIRECT\"; }"
         }.also { it.start(scope, 0) }
-        Socket("127.0.0.1", awaitPort(server)).use { sock ->
+        client(awaitPort(server)).use { sock ->
             sock.getOutputStream().write("GET /proxy.pac HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray())
             sock.getOutputStream().flush()
             val text = String(sock.getInputStream().readBytes())
@@ -199,6 +199,13 @@ class ProxyIntegrationTest {
         }
         throw AssertionError("server did not bind")
     }
+
+    /**
+     * 客户端连接，统一设置 SO_TIMEOUT。否则机器高负载时代理协程可能被饿死、响应迟迟不来，
+     * 阻塞 socket 读会永久挂起整个测试套件（JUnit @Test(timeout) 靠 Thread.interrupt 无法中断
+     * 阻塞 socket 读）。设超时后，卡住的读改为抛 SocketTimeoutException → 快速失败而非挂死。
+     */
+    private fun client(port: Int): Socket = Socket("127.0.0.1", port).apply { soTimeout = 8000 }
 
     private fun readN(input: InputStream, n: Int): ByteArray {
         val b = ByteArray(n); var off = 0

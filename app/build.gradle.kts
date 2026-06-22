@@ -44,6 +44,14 @@ android {
         // release 不跑 lintVital（其与配置缓存/网络代理冲突，且不影响 R8 验证）
         checkReleaseBuilds = false
     }
+    testOptions {
+        unitTests {
+            // 让未 mock 的 android.* 调用返回默认值而非抛异常（官方「本地单元测试」推荐）。
+            // 否则代理 accept 循环里的 android.util.Log.i 在 JVM 单测中抛异常，
+            // 连接处理协程未响应即崩溃，导致 ProxyIntegrationTest 全部超时。
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
