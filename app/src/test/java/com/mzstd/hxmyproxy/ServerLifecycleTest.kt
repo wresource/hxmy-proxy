@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
+import com.mzstd.hxmyproxy.core.proxy.ProxyError
 import com.mzstd.hxmyproxy.core.proxy.ProxyServer
 import com.mzstd.hxmyproxy.core.proxy.RelayEngine
 import com.mzstd.hxmyproxy.core.proxy.Socks5ProxyServer
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +37,11 @@ class ServerLifecycleTest {
 
     private fun awaitCleared(s: ProxyServer) {
         repeat(200) { if (s.boundPort.value == null) return; Thread.sleep(10) }
+    }
+
+    private fun awaitBindError(s: ProxyServer): ProxyError? {
+        repeat(300) { val e = s.bindError.value; if (e != null) return e; Thread.sleep(10) }
+        return null
     }
 
     @Test(timeout = 15000)
@@ -71,6 +78,28 @@ class ServerLifecycleTest {
         server2.start(scope, port)   // 同端口重启验证可重绑
         assertTrue(awaitPort(server2) == port)
         server2.stop()
+        scope.cancel()
+    }
+
+    /** 运行时改到被占用端口：bind 失败应暴露为 bindError（而非抛进 scope 崩溃），原监听不受影响。 */
+    @Test(timeout = 15000)
+    fun bindFailureSurfacesErrorWithoutCrashing() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val first = newServer()
+        first.start(scope, 0)
+        val port = awaitPort(first)
+
+        // 第二台抢同一正在监听的端口 → bind 必失败。
+        val second = newServer()
+        second.start(scope, port)
+
+        assertEquals(ProxyError.PortInUse, awaitBindError(second))
+        assertNull("bind 失败不应绑定端口", second.boundPort.value)
+        // scope 仍存活、第一台仍在监听（异常没有冒泡毁掉整个引擎）。
+        assertEquals(port, first.boundPort.value)
+
+        first.stop()
+        second.stop()
         scope.cancel()
     }
 }

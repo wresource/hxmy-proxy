@@ -82,10 +82,16 @@
     <string name="port_http">HTTP port</string>
     <string name="port_socks">SOCKS5 port</string>
     <string name="port_pac">PAC port</string>
+    <string name="port_error_range">Port must be 1024–65535</string>
+    <string name="port_error_duplicate">Port already used by another protocol</string>
+    <string name="port_error_in_use">Port in use — pick another</string>
     <string name="settings_auth">Authentication</string>
     <string name="auth_enable">Require authentication</string>
     <string name="auth_username">Username</string>
     <string name="auth_password">Password</string>
+    <string name="auth_show">Show</string>
+    <string name="auth_hide">Hide</string>
+    <string name="auth_incomplete">Set a username and password — until then no client can authenticate.</string>
     <string name="auth_warning">Authentication is off. Devices on the same network may use your proxy. Use only on trusted networks.</string>
     <string name="settings_vpn_strategy">When VPN is down</string>
     <string name="vpn_continue">Continue on plain network</string>

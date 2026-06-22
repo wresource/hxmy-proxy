@@ -23,6 +23,7 @@ class SingleCredentialAuthenticator(
     @Volatile var password: String = "",
     @Volatile override var enabled: Boolean = false,
 ) : Authenticator {
+    // 凭据未配置（空密码）时一律拒绝（fail-closed）：避免"开了认证但没设密码"时空凭据被放行。
     override fun verify(username: String, password: String): Boolean =
-        username == this.username && password == this.password
+        this.password.isNotEmpty() && username == this.username && password == this.password
 }

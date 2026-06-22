@@ -27,6 +27,9 @@ interface ProxyServer {
     /** 实际绑定端口；null 表示未运行。 */
     val boundPort: StateFlow<Int?>
 
+    /** bind 失败原因（端口被占用/无效）；null 表示无错误。运行时改端口可即时看到失败而非崩溃。 */
+    val bindError: StateFlow<ProxyError?>
+
     /** 在 [scope] 内绑定并启动 accept 循环。 */
     fun start(scope: CoroutineScope, port: Int)
 
@@ -47,10 +50,14 @@ abstract class TcpProxyServerBase(
     private val _boundPort = MutableStateFlow<Int?>(null)
     override val boundPort: StateFlow<Int?> = _boundPort.asStateFlow()
 
+    private val _bindError = MutableStateFlow<ProxyError?>(null)
+    override val bindError: StateFlow<ProxyError?> = _bindError.asStateFlow()
+
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var acceptJob: Job? = null
 
     override fun start(scope: CoroutineScope, port: Int) {
+        _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
             val server = ServerSocket()
             try {
@@ -58,10 +65,17 @@ abstract class TcpProxyServerBase(
                 server.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), ProxyTuning.ACCEPT_BACKLOG)
             } catch (e: Throwable) {
                 server.closeQuietly()
-                throw ProxyException(ProxyError.PortInUse)
+                // bind 失败（端口被占用/无效）：暴露为状态而非抛进 scope。
+                // 否则未捕获异常会冒泡到全局 handler 崩溃整个 App——运行时改到坏端口尤其如此。
+                _bindError.value = ProxyError.PortInUse
+                _boundPort.value = null
+                Log.w(TAG, "$protocol bind :$port failed: ${e.message}")
+                FileLog.w(TAG, "$protocol bind :$port failed", e)
+                return@launch
             }
             serverSocket = server
             _boundPort.value = server.localPort
+            _bindError.value = null
             try {
                 while (isActive) {
                     val client = try {
@@ -106,6 +120,7 @@ abstract class TcpProxyServerBase(
         acceptJob = null
         serverSocket = null
         _boundPort.value = null
+        _bindError.value = null
     }
 
     /**

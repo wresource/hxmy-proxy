@@ -6,7 +6,9 @@ import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.network.SignalProvider
+import com.mzstd.hxmyproxy.core.security.Crypto
 import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
+import com.mzstd.hxmyproxy.core.security.KeystoreCrypto
 import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import com.mzstd.hxmyproxy.core.security.SubnetAccessController
 import dagger.Module
@@ -48,6 +50,9 @@ object AppModule {
 
     @Provides @Singleton
     fun authenticator(): SingleCredentialAuthenticator = SingleCredentialAuthenticator()
+
+    @Provides @Singleton
+    fun crypto(): Crypto = KeystoreCrypto()
 
     @Provides @Singleton
     fun subnetAccessController(): SubnetAccessController = SubnetAccessController()

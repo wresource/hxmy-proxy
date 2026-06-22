@@ -11,6 +11,7 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
@@ -27,6 +28,7 @@ data class MainUiState(
     val share: ShareState = ShareState(),
     val settings: ProxySettings = ProxySettings(),
     val history: List<HistoryEndpointView> = emptyList(),
+    val credentials: CredentialStore.Credentials = CredentialStore.Credentials(),
 )
 
 @HiltViewModel
@@ -34,6 +36,7 @@ class MainViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val proxyServerRepository: ProxyServerRepository,
     private val endpointHistoryRepository: EndpointHistoryRepository,
+    private val credentialStore: CredentialStore,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainUiState> =
@@ -41,8 +44,9 @@ class MainViewModel @Inject constructor(
             proxyServerRepository.state,
             settingsRepository.settings,
             endpointHistoryRepository.history,
-        ) { share, settings, history ->
-            MainUiState(share, settings, historyViews(share, settings, history))
+            credentialStore.credentials,
+        ) { share, settings, history, credentials ->
+            MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
     /** 历史入口可用性：IP 仍是某个当前接口地址、且端口与当前对应协议配置一致。 */
@@ -98,6 +102,11 @@ class MainViewModel @Inject constructor(
     }
 
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }
+
+    /** 更新认证凭据（密码经 Keystore 加密后持久化）。 */
+    fun setCredentials(username: String, password: String) {
+        viewModelScope.launch { credentialStore.update(username.trim(), password) }
+    }
     fun setVpnStrategy(s: VpnDownStrategy) = update { it.copy(vpnDownStrategy = s) }
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
     fun setBlockPrivateLan(v: Boolean) = update { it.copy(blockPrivateLanEgress = v) }

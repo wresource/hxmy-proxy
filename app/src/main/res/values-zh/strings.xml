@@ -82,10 +82,16 @@
     <string name="port_http">HTTP 端口</string>
     <string name="port_socks">SOCKS5 端口</string>
     <string name="port_pac">PAC 端口</string>
+    <string name="port_error_range">端口需在 1024–65535</string>
+    <string name="port_error_duplicate">端口与其他协议重复</string>
+    <string name="port_error_in_use">端口被占用，请更换</string>
     <string name="settings_auth">认证</string>
     <string name="auth_enable">要求认证</string>
     <string name="auth_username">用户名</string>
     <string name="auth_password">密码</string>
+    <string name="auth_show">显示</string>
+    <string name="auth_hide">隐藏</string>
+    <string name="auth_incomplete">请设置用户名和密码，否则客户端无法通过认证。</string>
     <string name="auth_warning">未开启认证。同一网络内的设备可能连接你的代理，建议仅在可信网络下使用。</string>
     <string name="settings_vpn_strategy">VPN 断开时</string>
     <string name="vpn_continue">继续走普通网络</string>

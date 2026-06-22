@@ -23,6 +23,9 @@ import com.mzstd.hxmyproxy.core.security.SubnetAccessController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +55,7 @@ class ProxyServerRepository @Inject constructor(
     private val accessController: SubnetAccessController,
     private val signalProvider: com.mzstd.hxmyproxy.core.network.SignalProvider,
     private val endpointHistoryRepository: EndpointHistoryRepository,
+    private val credentialStore: CredentialStore,
 ) {
     // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
     private val registry = ConnectionRegistry(onChange = { active ->
@@ -69,8 +73,11 @@ class ProxyServerRepository @Inject constructor(
 
     @Volatile private var currentSettings = ProxySettings()
     @Volatile private var running = false
-    private var servers: List<ProxyServer> = emptyList()
+    @Volatile private var servers: List<ProxyServer> = emptyList()
     @Volatile private var engineScope: CoroutineScope? = null
+    // 本次会话的子 scope：所有会话内协程（监听/收集器/ticker）都挂这里，stop() 一次性取消，避免停后残留重启。
+    @Volatile private var sessionScope: CoroutineScope? = null
+    @Volatile private var serverObservers: Job? = null
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
 
@@ -90,32 +97,48 @@ class ProxyServerRepository @Inject constructor(
         val s = settingsRepository.settings.first()
         currentSettings = s
         applyTunables(s)
+        // 初始凭据就位（在 server 接受连接前），避免首个连接时认证器为空。
+        credentialStore.credentials.first().let { c ->
+            authenticator.username = c.username
+            authenticator.password = c.password
+        }
 
-        engineScope = scope
-        startServers(scope, s)
+        // 会话子 scope（SupervisorJob 挂在服务 scope 下）：stop() 取消它即停掉本会话全部协程，
+        // 服务 scope 仍存活以便下次 start；避免"停后残留的 settings 收集器又把监听重启起来"。
+        val session = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+        sessionScope = session
+        engineScope = session
+        startServers(session, s)
         refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
 
         connectivityObserver.start()
-        scope.launch { connectivityObserver.networkChanges.collect { refresh() } }
-        scope.launch {
+        session.launch { connectivityObserver.networkChanges.collect { refresh() } }
+        session.launch {
             connectivityObserver.vpnState.collect { vpn ->
                 _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
             }
         }
-        scope.launch {
+        session.launch {
             settingsRepository.settings.collect { ns ->
                 currentSettings = ns
                 applyTunables(ns)
-                if (serverKey(ns) != lastServerKey) {
+                if (running && serverKey(ns) != lastServerKey) {
                     // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
                     stopServers()
-                    startServers(scope, ns)
+                    startServers(session, ns)
                 }
                 refresh()
             }
         }
+        // 凭据变更即时推入认证器（与 server 生命周期解耦，无需重启）。
+        session.launch {
+            credentialStore.credentials.collect { c ->
+                authenticator.username = c.username
+                authenticator.password = c.password
+            }
+        }
         // 实时速率 + 活跃连接（约 1s 窗口）
-        scope.launch {
+        session.launch {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive) {
@@ -147,6 +170,9 @@ class ProxyServerRepository @Inject constructor(
         stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
+        // 取消本会话全部协程（收集器/ticker）：杜绝停止后 settings 收集器又把监听重启起来。
+        sessionScope?.cancel()
+        sessionScope = null
         engineScope = null
         totalUp.set(0)
         totalDown.set(0)
@@ -173,11 +199,39 @@ class ProxyServerRepository @Inject constructor(
         }
         servers = list
         lastServerKey = serverKey(s)
+        // 观察每台 server 的 bind 结果：失败（端口占用/无效）即时汇入 state 提示用户，而非崩溃或静默。
+        serverObservers?.cancel()
+        serverObservers = scope.launch {
+            list.forEach { srv ->
+                launch { srv.bindError.collect { recomputeServerStatus() } }
+                launch { srv.boundPort.collect { recomputeServerStatus() } }
+            }
+        }
     }
 
     private fun stopServers() {
+        serverObservers?.cancel()
+        serverObservers = null
         servers.forEach { it.stop() }
         servers = emptyList()
+        _state.update { it.copy(portBindErrors = emptySet()) }
+    }
+
+    /** 汇总各 server 的 bind 状态（端口是否起来 / bind 失败的协议）到 state，供诊断与设置页提示。 */
+    private fun recomputeServerStatus() {
+        // 停止后到来的滞后回调不再发布（stop() 已重置 state，避免被旧 server 列表覆盖）。
+        if (!running) return
+        val errs = servers.filter { it.bindError.value != null }.map { it.protocol }.toSet()
+        _state.update { st ->
+            st.copy(
+                portBindErrors = errs,
+                diagnostics = st.diagnostics.copy(
+                    httpPortUp = portUp(ProxyProtocol.HTTP),
+                    socksPortUp = portUp(ProxyProtocol.SOCKS5),
+                    pacPortUp = portUp(ProxyProtocol.PAC),
+                ),
+            )
+        }
     }
 
     /** 影响监听结构的设置指纹（端口/协议开关/并行度）；变化即触发热重启。 */

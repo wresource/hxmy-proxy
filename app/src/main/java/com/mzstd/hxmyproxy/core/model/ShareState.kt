@@ -35,4 +35,6 @@ data class ShareState(
     /** 当前上行 Wi-Fi 信号等级 0..4；-1 表示无 Wi-Fi。 */
     val signalLevel: Int = -1,
     val signalDbm: Int = 0,
+    /** bind 失败的协议（端口被占用/无效）。运行时改到坏端口会在此提示而非崩溃。 */
+    val portBindErrors: Set<ProxyProtocol> = emptySet(),
 )
