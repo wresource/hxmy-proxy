@@ -1,7 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.net.Socket
@@ -28,6 +27,7 @@ class RelayEngine(
         upstream: Socket,
         bufferBytes: Int,
         idleMillis: Int,
+        relayDispatcher: CoroutineDispatcher,
     ) = coroutineScope {
         val to = if (idleMillis > 0) idleMillis else 0
         client.soTimeout = to
@@ -36,13 +36,16 @@ class RelayEngine(
             client.closeQuietly()
             upstream.closeQuietly()
         }
-        // 上行：client -> upstream
-        val upJob = launch(Dispatchers.IO) {
+        // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。
+        // 与 handle 的建连派发器分离：新连接的握手/建连不会被搬字节占满线程而饿死（队头阻塞）。
+        val upJob = launch(relayDispatcher) {
             pump(client, upstream, bufferBytes, closeAll) { onTraffic(it, 0) }
         }
-        // 下行：upstream -> client（在当前协程跑）
-        pump(upstream, client, bufferBytes, closeAll) { onTraffic(0, it) }
+        val downJob = launch(relayDispatcher) {
+            pump(upstream, client, bufferBytes, closeAll) { onTraffic(0, it) }
+        }
         upJob.join()
+        downJob.join()
         closeAll()
     }
 

@@ -18,14 +18,16 @@ import java.net.Socket
  * 经 [OutboundConnector] 连上游（走默认网=VPN）→ 回复 → [RelayEngine] 双向转发。
  */
 class Socks5ProxyServer(
-    ioDispatcher: CoroutineDispatcher,
+    acceptDispatcher: CoroutineDispatcher,
     accessController: AccessController,
     registry: ConnectionRegistry,
     private val connector: OutboundConnector,
     private val relay: RelayEngine,
     private val authProvider: () -> Authenticator,
     private val limitsProvider: () -> ConnectionLimits,
-) : TcpProxyServerBase(ProxyProtocol.SOCKS5, ioDispatcher, accessController, registry) {
+    /** relay 搬字节的受限派发器（与 acceptDispatcher 建连派发器分离）。 */
+    private val relayDispatcher: CoroutineDispatcher,
+) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry) {
 
     override suspend fun handle(client: Socket) {
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
@@ -83,7 +85,7 @@ class Socks5ProxyServer(
         reply(output, 0x00)
         client.soTimeout = 0
         val limits = limitsProvider()
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000)
+        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher)
     }
 
     /** RFC1929：VER(0x01) ULEN UNAME PLEN PASSWD → VER(0x01) STATUS。 */

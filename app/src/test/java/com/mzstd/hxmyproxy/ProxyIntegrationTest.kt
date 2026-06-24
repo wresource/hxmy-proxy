@@ -98,7 +98,7 @@ class ProxyIntegrationTest {
         val server = Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
             OutboundConnector(DefaultEgressGuard()), RelayEngine(),
-            { NoAuthAuthenticator }, { ConnectionLimits() },
+            { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
         ).also { it.start(scope, 0) }
         client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
@@ -199,13 +199,13 @@ class ProxyIntegrationTest {
     private fun socks(scope: CoroutineScope, egress: EgressGuard, auth: com.mzstd.hxmyproxy.core.security.Authenticator): ProxyServer =
         Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() },
+            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
         ).also { it.start(scope, 0) }
 
     private fun http(scope: CoroutineScope, egress: EgressGuard, auth: com.mzstd.hxmyproxy.core.security.Authenticator): ProxyServer =
         HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() },
+            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
         ).also { it.start(scope, 0) }
 
     private fun connectSocks(out: java.io.OutputStream, port: Int) {

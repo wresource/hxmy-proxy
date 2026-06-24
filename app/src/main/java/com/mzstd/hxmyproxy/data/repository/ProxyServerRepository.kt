@@ -183,18 +183,23 @@ class ProxyServerRepository @Inject constructor(
 
     /** 只启动用户开启的协议监听（关掉的不占端口）。 */
     private fun startServers(scope: CoroutineScope, s: ProxySettings) {
-        val ioDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
+        // 两个派发器分工，解除"建连排在搬字节后面"的队头阻塞：
+        //  - acceptDispatcher：每连接的 handle（握手/读头/建连）。上限=最大连接数，
+        //    保证新连接的建连不被 relay 搬字节占满线程而饿死。
+        //  - relayDispatcher：relay 双向搬字节，受 relayParallelism 限（控制吞吐线程预算）。
+        val acceptDispatcher = Dispatchers.IO.limitedParallelism(s.limits.maxGlobalConnections)
+        val relayDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
-            HttpProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, trafficSink)
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, trafficSink)
                 .also { it.start(scope, s.httpPort); list += it }
         }
         if (s.socksEnabled) {
-            Socks5ProxyServer(ioDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits })
+            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher)
                 .also { it.start(scope, s.socksPort); list += it }
         }
         if (s.pacEnabled) {
-            PacServer(ioDispatcher, accessController, registry) { generatePac() }
+            PacServer(acceptDispatcher, accessController, registry) { generatePac() }
                 .also { it.start(scope, s.pacPort); list += it }
         }
         servers = list

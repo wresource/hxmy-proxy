@@ -9,7 +9,7 @@ data class ConnectionLimits(
     val maxGlobalConnections: Int = 256,
     /** 单台客户端的连接数上限。 */
     val maxPerClientConnections: Int = 128,
-    /** relay 并行度，映射到 Dispatchers.IO.limitedParallelism(N)。同刻并行搬字节的连接数。 */
+    /** relay 搬字节并行度，映射到 relay 专用 limitedParallelism(N)。每连接双向各占 1，故约 N/2 条连接可同时全速搬字节；握手/建连已分到独立 acceptDispatcher，不占此额度。 */
     val relayParallelism: Int = 32,
     /** 单连接 relay 缓冲（字节）。 */
     val relayBufferBytes: Int = 32 * 1024,

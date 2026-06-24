@@ -28,6 +28,7 @@ class ServerLifecycleTest {
     private fun newServer() = Socks5ProxyServer(
         Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
         OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
+        Dispatchers.IO,
     )
 
     private fun awaitPort(s: ProxyServer): Int {

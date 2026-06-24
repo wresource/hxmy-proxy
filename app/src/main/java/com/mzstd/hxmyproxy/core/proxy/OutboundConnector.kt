@@ -1,8 +1,10 @@
 package com.mzstd.hxmyproxy.core.proxy
 
 import com.mzstd.hxmyproxy.core.security.EgressGuard
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -17,6 +19,8 @@ import java.net.NoRouteToHostException
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -31,15 +35,28 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboundConnector(
     private val egressGuard: EgressGuard,
+    // DNS 解析专用调度器：独立于 relay 的 limitedParallelism(N) IO 池——
+    // relay 搬字节占满 IO 线程时，DNS 仍能在自己的池里解析，不被掐住（Stripe 首屏几十域名是重灾区）。
+    private val dnsDispatcher: CoroutineDispatcher = DEFAULT_DNS_DISPATCHER,
 ) {
+    /** 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。 */
+    private val dnsCache = ConcurrentHashMap<String, CachedAddrs>()
+
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。 */
-    suspend fun connect(host: String, port: Int): Socket {
+    suspend fun connect(host: String, port: Int): Socket =
+        connectAny(orderAddresses(resolve(host)), port)
+
+    /** 解析域名为全部地址；命中短 TTL 缓存则跳过系统解析。解析跑在独立 [dnsDispatcher]。 */
+    private suspend fun resolve(host: String): List<InetAddress> {
+        val now = System.currentTimeMillis()
+        dnsCache[host]?.let { if (now - it.atMs < DNS_TTL_MS) return it.addrs }
         val addrs = try {
-            withContext(Dispatchers.IO) { InetAddress.getAllByName(host).toList() }
+            withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
         } catch (e: UnknownHostException) {
             throw ProxyException(ProxyError.DnsFailure)
         }
-        return connectAny(orderAddresses(addrs), port)
+        dnsCache[host] = CachedAddrs(addrs, now)
+        return addrs
     }
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。 */
@@ -143,4 +160,21 @@ class OutboundConnector(
     }
 
     private class Outcome(val socket: Socket?, val error: ProxyError?)
+
+    private class CachedAddrs(val addrs: List<InetAddress>, val atMs: Long)
+
+    companion object {
+        /** DNS 缓存有效期；短到 VPN 切换/DNS 漂移很快自愈，长到覆盖一次页面加载的同域名复用。 */
+        private const val DNS_TTL_MS = 30_000L
+        private const val DNS_THREADS = 16
+
+        /**
+         * 默认 DNS 调度器：独立的 daemon 线程池，与 [Dispatchers.IO]（及其 limitedParallelism 视图）
+         * 的底层池隔离，确保 relay 搬字节不会把 DNS 解析线程挤光。
+         */
+        private val DEFAULT_DNS_DISPATCHER: CoroutineDispatcher =
+            Executors.newFixedThreadPool(DNS_THREADS) { r ->
+                Thread(r, "hxmy-dns").apply { isDaemon = true }
+            }.asCoroutineDispatcher()
+    }
 }

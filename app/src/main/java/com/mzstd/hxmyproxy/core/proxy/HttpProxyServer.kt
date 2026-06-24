@@ -24,16 +24,18 @@ import java.util.Base64
  * - 可选 HTTP Basic（`Proxy-Authorization`），每个请求校验。
  */
 class HttpProxyServer(
-    ioDispatcher: CoroutineDispatcher,
+    acceptDispatcher: CoroutineDispatcher,
     accessController: AccessController,
     registry: ConnectionRegistry,
     private val connector: OutboundConnector,
     private val relay: RelayEngine,
     private val authProvider: () -> Authenticator,
     private val limitsProvider: () -> ConnectionLimits,
+    /** relay 搬字节的受限派发器（与 acceptDispatcher 建连派发器分离）。 */
+    private val relayDispatcher: CoroutineDispatcher,
     /** 流量计量回调（up, down 字节增量）；普通 HTTP 转发不走 RelayEngine，故经此计量。 */
     private val onTraffic: (Long, Long) -> Unit = { _, _ -> },
-) : TcpProxyServerBase(ProxyProtocol.HTTP, ioDispatcher, accessController, registry) {
+) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry) {
 
     override suspend fun handle(client: Socket) {
         val input = client.getInputStream()
@@ -82,7 +84,7 @@ class HttpProxyServer(
         output.flush()
         client.soTimeout = 0
         val limits = limitsProvider()
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000)
+        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher)
     }
 
     /**

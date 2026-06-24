@@ -36,7 +36,7 @@ class RelayTrafficTest {
 
         // relay 跑在独立 scope（不被 runBlocking 等待）
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        scope.launch { relay.relay(relayClient, upstream, 8192, 5000) }
+        scope.launch { relay.relay(relayClient, upstream, 8192, 5000, Dispatchers.IO) }
 
         val payload = ByteArray(5000) { (it % 251).toByte() }
         testClient.getOutputStream().write(payload); testClient.getOutputStream().flush()
