@@ -89,7 +89,7 @@ class HttpProxyServer(
      * 转发一个普通 HTTP 请求/响应；每请求新建上游连接（对上游强制 close 以获干净定界），
      * 但**保持客户端连接**以复用。返回是否可继续在该客户端连接上读下一个请求（keep-alive）。
      */
-    private fun forwardPlainHttp(
+    private suspend fun forwardPlainHttp(
         client: Socket,
         input: InputStream,
         output: OutputStream,
