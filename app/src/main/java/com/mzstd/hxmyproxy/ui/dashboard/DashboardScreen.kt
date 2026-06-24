@@ -16,12 +16,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -34,12 +41,14 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
+import com.mzstd.hxmyproxy.ui.components.QrImage
 
 @Composable
 fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val share = ui.share
+    var showQr by remember { mutableStateOf(false) }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -102,12 +111,38 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                 } else {
                     entry.mdnsEndpoint?.let { Text("SOCKS5 $it") }
                     Text("SOCKS5 ${entry.ipEndpoint}", style = MaterialTheme.typography.bodyLarge)
-                    Button(onClick = {
-                        clipboard.setText(AnnotatedString(entry.mdnsEndpoint ?: entry.ipEndpoint))
-                        Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                    }) { Text(stringResource(R.string.copy)) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            clipboard.setText(AnnotatedString(entry.mdnsEndpoint ?: entry.ipEndpoint))
+                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                        }) { Text(stringResource(R.string.copy)) }
+                        OutlinedButton(onClick = { showQr = true }) { Text(stringResource(R.string.qr_setup)) }
+                    }
                 }
             }
+        }
+
+        if (showQr) {
+            val setupUrl = entry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
+            AlertDialog(
+                onDismissRequest = { showQr = false },
+                confirmButton = { TextButton(onClick = { showQr = false }) { Text(stringResource(R.string.setup_close)) } },
+                title = { Text(stringResource(R.string.qr_setup)) },
+                text = {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (!ui.settings.pacEnabled || setupUrl == null) {
+                            Text(stringResource(R.string.qr_need_pac))
+                        } else {
+                            QrImage(setupUrl, sizeDp = 220)
+                            Text(stringResource(R.string.qr_setup_hint), style = MaterialTheme.typography.bodyMedium)
+                            Text(setupUrl, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
+            )
         }
 
         Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)

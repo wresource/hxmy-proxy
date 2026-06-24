@@ -106,6 +106,12 @@
     <string name="limit_buffer">缓冲（KiB）</string>
     <string name="limit_idle">空闲超时（秒）</string>
 
+    <!-- 扫码配置 -->
+    <string name="qr_setup">扫码配置</string>
+    <string name="qr_setup_hint">用其他设备扫码，按页面提示一步步设置。</string>
+    <string name="qr_need_pac">请先在「设置」中开启 PAC，才能用扫码配置。</string>
+    <string name="setup_close">关闭</string>
+
     <!-- 通知 -->
     <string name="notif_channel">代理服务</string>
     <string name="notif_starting">正在启动…</string>
