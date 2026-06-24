@@ -65,7 +65,12 @@ private fun VpnDownStrategy.labelRes() = when (this) {
 }
 
 @Composable
-fun SettingsScreen(ui: MainUiState, viewModel: MainViewModel) {
+fun SettingsScreen(
+    ui: MainUiState,
+    viewModel: MainViewModel,
+    onOpenHelp: () -> Unit = {},
+    onReplayOnboarding: () -> Unit = {},
+) {
     val s = ui.settings
     Column(
         modifier = Modifier
@@ -130,6 +135,10 @@ fun SettingsScreen(ui: MainUiState, viewModel: MainViewModel) {
         HorizontalDivider()
         SwitchRow(stringResource(R.string.settings_mdns), s.mdnsEnabled, viewModel::setMdnsEnabled)
         SwitchRow(stringResource(R.string.settings_block_private), s.blockPrivateLanEgress, viewModel::setBlockPrivateLan)
+
+        HorizontalDivider()
+        TextButton(onClick = onOpenHelp) { Text(stringResource(R.string.help_open)) }
+        TextButton(onClick = onReplayOnboarding) { Text(stringResource(R.string.replay_onboarding)) }
     }
 }
 

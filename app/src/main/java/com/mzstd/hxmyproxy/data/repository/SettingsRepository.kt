@@ -35,6 +35,13 @@ class SettingsRepository @Inject constructor(
         ds.edit { prefs -> transform(prefs.toSettings()).writeTo(prefs) }
     }
 
+    /** 首次引导是否已完成（独立于代理配置的一次性标志）。 */
+    val onboardingCompleted: Flow<Boolean> = ds.data.map { it[ONBOARDING_DONE] ?: false }
+
+    suspend fun setOnboardingCompleted(done: Boolean) {
+        ds.edit { it[ONBOARDING_DONE] = done }
+    }
+
     private companion object {
         val HTTP_ENABLED = booleanPreferencesKey("http_enabled")
         val SOCKS_ENABLED = booleanPreferencesKey("socks_enabled")
@@ -54,6 +61,7 @@ class SettingsRepository @Inject constructor(
         val LIM_BUFFER = intPreferencesKey("lim_buffer")
         val LIM_IDLE = intPreferencesKey("lim_idle")
         val LANGUAGE = stringPreferencesKey("language")
+        val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
     }
 
     private fun Preferences.toSettings(): ProxySettings {

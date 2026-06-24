@@ -10,6 +10,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.ui.AppRoot
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.locale.ProvideAppLocale
+import com.mzstd.hxmyproxy.ui.onboarding.OnboardingScreen
 import com.mzstd.hxmyproxy.ui.theme.HxmyProxyTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -23,9 +24,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val ui by viewModel.uiState.collectAsStateWithLifecycle()
+            val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
             ProvideAppLocale(ui.settings.language) {
                 HxmyProxyTheme {
-                    AppRoot(viewModel)
+                    when (showOnboarding) {
+                        true -> OnboardingScreen(onFinish = viewModel::completeOnboarding)
+                        false -> AppRoot(viewModel)
+                        null -> {} // 首启标志加载中（极短），先不画避免闪烁
+                    }
                 }
             }
         }

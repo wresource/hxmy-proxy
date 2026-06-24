@@ -16,6 +16,7 @@ import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -48,6 +49,23 @@ class MainViewModel @Inject constructor(
         ) { share, settings, history, credentials ->
             MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
+
+    private val replayRequested = MutableStateFlow(false)
+
+    /** 是否显示首次引导：null=加载中；未完成、或用户「重新查看」→ true。 */
+    val showOnboarding: StateFlow<Boolean?> =
+        combine(settingsRepository.onboardingCompleted, replayRequested) { done, replay ->
+            !done || replay
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 走完/跳过引导：清「重看」请求并持久化完成标志。 */
+    fun completeOnboarding() {
+        replayRequested.value = false
+        viewModelScope.launch { settingsRepository.setOnboardingCompleted(true) }
+    }
+
+    /** 从设置里「重新查看引导」。 */
+    fun replayOnboarding() { replayRequested.value = true }
 
     /** 历史入口可用性：IP 仍是某个当前接口地址、且端口与当前对应协议配置一致。 */
     private fun historyViews(

@@ -33,6 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.dashboard.DashboardScreen
 import com.mzstd.hxmyproxy.ui.diagnostics.DiagnosticsScreen
+import com.mzstd.hxmyproxy.ui.help.HelpScreen
 import com.mzstd.hxmyproxy.ui.interfaces.InterfacesScreen
 import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
@@ -93,7 +94,14 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable("logs_detail") {
                         LogsDetailScreen(onBack = { navController.popBackStack() })
                     }
-                    composable(Dest.Settings.route) { SettingsScreen(ui, viewModel) }
+                    composable(Dest.Settings.route) {
+                        SettingsScreen(
+                            ui, viewModel,
+                            onOpenHelp = { navController.navigate("help") },
+                            onReplayOnboarding = viewModel::replayOnboarding,
+                        )
+                    }
+                    composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
                 }
             }
         }
