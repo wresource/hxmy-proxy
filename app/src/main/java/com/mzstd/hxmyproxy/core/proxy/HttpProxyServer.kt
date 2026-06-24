@@ -33,11 +33,12 @@ class HttpProxyServer(
     private val limitsProvider: () -> ConnectionLimits,
     /** relay 搬字节的受限派发器（与 acceptDispatcher 建连派发器分离）。 */
     private val relayDispatcher: CoroutineDispatcher,
+    accounting: TrafficAccounting? = null,
     /** 流量计量回调（up, down 字节增量）；普通 HTTP 转发不走 RelayEngine，故经此计量。 */
     private val onTraffic: (Long, Long) -> Unit = { _, _ -> },
-) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry) {
+) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry, accounting) {
 
-    override suspend fun handle(client: Socket) {
+    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
         val input = client.getInputStream()
         val output = client.getOutputStream()
         val auth = authProvider()
@@ -64,17 +65,18 @@ class HttpProxyServer(
             if (auth.enabled && !checkBasicAuth(headers, auth)) { writeProxyAuthRequired(output); return }
 
             if (method.equals("CONNECT", ignoreCase = true)) {
-                handleConnect(client, output, target) // 盲隧道，终结本连接
+                handleConnect(client, output, target, tracker) // 盲隧道，终结本连接
                 return
             }
-            val keepAlive = forwardPlainHttp(client, input, output, method, target, version, headers)
+            val keepAlive = forwardPlainHttp(client, input, output, method, target, version, headers, tracker)
             if (!keepAlive) return
         }
     }
 
-    private suspend fun handleConnect(client: Socket, output: OutputStream, target: String) {
+    private suspend fun handleConnect(client: Socket, output: OutputStream, target: String, tracker: TrafficAccounting.ConnTracker?) {
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
+        tracker?.bindHost(hp.first)
         val upstream = try {
             connector.connect(hp.first, hp.second)
         } catch (e: ProxyException) {
@@ -84,7 +86,8 @@ class HttpProxyServer(
         output.flush()
         client.soTimeout = 0
         val limits = limitsProvider()
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher)
+        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else onTraffic
+        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
     }
 
     /**
@@ -99,6 +102,7 @@ class HttpProxyServer(
         target: String,
         version: String,
         headers: List<Pair<String, String>>,
+        tracker: TrafficAccounting.ConnTracker?,
     ): Boolean {
         val uri = try { URI(target) } catch (e: Exception) { null }
         val host = uri?.host
@@ -109,6 +113,7 @@ class HttpProxyServer(
             uri.rawQuery?.let { append('?').append(it) }
         }
 
+        tracker?.bindHost(host)
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
             connector.connect(host, port)
@@ -140,7 +145,7 @@ class HttpProxyServer(
             // 2) 请求体（client → upstream），按客户端头定界
             val (reqFraming, reqLen) = HttpForwarding.requestFraming(headers)
             client.soTimeout = idle
-            HttpForwarding.copyBody(input, upOut, reqFraming, reqLen, buf) { onTraffic(it, 0) }
+            HttpForwarding.copyBody(input, upOut, reqFraming, reqLen, buf) { tracker?.add(it, 0) ?: onTraffic(it, 0) }
             upOut.flush()
 
             // 3) 上游响应行 + 头
@@ -164,7 +169,7 @@ class HttpProxyServer(
             output.write(rb.toString().toByteArray(Charsets.ISO_8859_1)); output.flush()
 
             // 6) 响应体（upstream → client）
-            HttpForwarding.copyBody(upIn, output, respFraming, respLen, buf) { onTraffic(0, it) }
+            HttpForwarding.copyBody(upIn, output, respFraming, respLen, buf) { tracker?.add(0, it) ?: onTraffic(0, it) }
             output.flush()
 
             return keepAlive

@@ -12,6 +12,9 @@ data class ClientSession(
     val activeConnections: Int = 0,
     val uploadBytes: Long = 0,
     val downloadBytes: Long = 0,
+    /** 1s 窗口实时速率（字节/秒）。 */
+    val uploadRateBps: Long = 0,
+    val downloadRateBps: Long = 0,
     val lastSeenAtEpochMs: Long = 0,
     val blocked: Boolean = false,
 )

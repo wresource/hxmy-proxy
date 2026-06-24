@@ -26,6 +26,9 @@
     <string name="error_logs">错误日志</string>
     <string name="monitor_no_logs">（暂无日志）</string>
     <string name="monitor_open_history">历史 IP</string>
+    <string name="monitor_clients">客户端</string>
+    <string name="monitor_client_conns">%1$d 个连接</string>
+    <string name="monitor_top_domains">目标域名</string>
     <string name="back">返回</string>
     <string name="history_title">历史入口</string>
     <string name="history_unavailable">不可用（IP 或端口已变）</string>

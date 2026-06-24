@@ -45,6 +45,8 @@ abstract class TcpProxyServerBase(
     private val ioDispatcher: CoroutineDispatcher,
     private val accessController: AccessController,
     private val registry: ConnectionRegistry,
+    /** 流量记账（按客户端 IP / 目标域名）；为 null 时不统计（如 PAC 服务）。 */
+    private val accounting: TrafficAccounting? = null,
 ) : ProxyServer {
 
     private val _boundPort = MutableStateFlow<Int?>(null)
@@ -94,14 +96,16 @@ abstract class TcpProxyServerBase(
                     }
                     runCatching { client.tcpNoDelay = true }
                     Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
+                    val tracker = accounting?.openConnection(remote)
                     launch(ioDispatcher) {
                         try {
-                            handle(client)
+                            handle(client, tracker)
                         } catch (e: Throwable) {
                             Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
                             FileLog.w(TAG, "$protocol error ${remote.hostAddress}", e)
                         } finally {
                             client.closeQuietly()
+                            tracker?.close()
                             registry.release(remote)
                             Log.i(TAG, "$protocol close ${remote.hostAddress} (active=${registry.activeGlobal})")
                         }
@@ -125,7 +129,7 @@ abstract class TcpProxyServerBase(
 
     /**
      * 处理单个已准入连接（可阻塞，运行在 [ioDispatcher]）：完成握手、连上游、relay。
-     * socket 最终由基类 finally 关闭（这里也可在 relay 内提前关闭）。
+     * [tracker] 为该连接的流量记账句柄（可空）；socket 最终由基类 finally 关闭。
      */
-    protected abstract suspend fun handle(client: Socket)
+    protected abstract suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?)
 }

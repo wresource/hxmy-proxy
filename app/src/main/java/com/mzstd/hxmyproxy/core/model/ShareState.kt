@@ -24,6 +24,8 @@ data class ShareState(
     val interfaces: List<ShareInterface> = emptyList(),
     val recommendedEntries: List<ProxyEntry> = emptyList(),
     val clients: List<ClientSession> = emptyList(),
+    /** 目标域名流量 Top-N（按上下行总字节降序）；隐私上只含 host + 字节。 */
+    val topDomains: List<DomainTraffic> = emptyList(),
     val diagnostics: DiagnosticsSummary = DiagnosticsSummary(),
     /** 当前活跃连接数。 */
     val activeConnections: Int = 0,

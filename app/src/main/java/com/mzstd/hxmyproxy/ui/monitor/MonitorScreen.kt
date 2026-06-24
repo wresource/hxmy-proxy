@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.ui.monitor
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,8 +20,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +40,10 @@ private fun latencyColor(millis: Long?): Color = when {
     millis <= 500 -> StatusColors.warn()
     else -> StatusColors.bad()
 }
+
+@Composable
+private fun fmtBytes(bytes: Long): String =
+    android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
 
 @Composable
 fun MonitorScreen(
@@ -79,6 +86,37 @@ fun MonitorScreen(
                     color = latencyColor(r.millis),
                     fontWeight = FontWeight.Medium,
                 )
+            }
+        }
+
+        // —— 客户端会话（按来源 IP 聚合）——
+        if (ui.share.clients.isNotEmpty()) {
+            item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
+            item { Text(stringResource(R.string.monitor_clients), style = MaterialTheme.typography.titleMedium) }
+            items(ui.share.clients, key = { it.clientIp.hostAddress ?: it.hashCode().toString() }) { c ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(c.clientIp.hostAddress ?: "?", fontWeight = FontWeight.Medium)
+                        Text(
+                            stringResource(R.string.monitor_client_conns, c.activeConnections),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("↓${fmtBytes(c.downloadBytes)}  ↑${fmtBytes(c.uploadBytes)}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        // —— 目标域名 Top N（隐私：只显示 host + 字节）——
+        if (ui.share.topDomains.isNotEmpty()) {
+            item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
+            item { Text(stringResource(R.string.monitor_top_domains), style = MaterialTheme.typography.titleMedium) }
+            items(ui.share.topDomains, key = { it.host }) { d ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.host, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(fmtBytes(d.uploadBytes + d.downloadBytes), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 

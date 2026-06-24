@@ -28,6 +28,7 @@ class RelayEngine(
         bufferBytes: Int,
         idleMillis: Int,
         relayDispatcher: CoroutineDispatcher,
+        onTraffic: (Long, Long) -> Unit = this.onTraffic,
     ) = coroutineScope {
         val to = if (idleMillis > 0) idleMillis else 0
         client.soTimeout = to

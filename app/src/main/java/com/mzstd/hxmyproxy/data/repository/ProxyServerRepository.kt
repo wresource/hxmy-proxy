@@ -17,6 +17,7 @@ import com.mzstd.hxmyproxy.core.proxy.PacServer
 import com.mzstd.hxmyproxy.core.proxy.ProxyServer
 import com.mzstd.hxmyproxy.core.proxy.RelayEngine
 import com.mzstd.hxmyproxy.core.proxy.Socks5ProxyServer
+import com.mzstd.hxmyproxy.core.proxy.TrafficAccounting
 import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
 import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import com.mzstd.hxmyproxy.core.security.SubnetAccessController
@@ -70,6 +71,8 @@ class ProxyServerRepository @Inject constructor(
     }
     private val relay = RelayEngine(trafficSink)
     private val connector = OutboundConnector(egressGuard)
+    // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down。
+    private val accounting = TrafficAccounting(globalSink = trafficSink)
 
     @Volatile private var currentSettings = ProxySettings()
     @Volatile private var running = false
@@ -94,6 +97,7 @@ class ProxyServerRepository @Inject constructor(
         totalUp.set(0)
         totalDown.set(0)
         registry.reset()
+        accounting.reset()
         val s = settingsRepository.settings.first()
         currentSettings = s
         applyTunables(s)
@@ -150,6 +154,8 @@ class ProxyServerRepository @Inject constructor(
                 lastUp = up
                 lastDown = down
                 val sig = signalProvider.current()
+                accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
+                val snap = accounting.snapshot(TOP_DOMAINS)
                 _state.update {
                     it.copy(
                         activeConnections = registry.activeGlobal,
@@ -158,6 +164,8 @@ class ProxyServerRepository @Inject constructor(
                         totalBytes = up + down,
                         signalLevel = sig.level,
                         signalDbm = sig.dbm,
+                        clients = snap.clients,
+                        topDomains = snap.topDomains,
                     )
                 }
             }
@@ -178,6 +186,7 @@ class ProxyServerRepository @Inject constructor(
         totalDown.set(0)
         lastRecordedEntryKey = ""
         registry.reset()
+        accounting.reset()
         _state.value = ShareState()
     }
 
@@ -191,11 +200,11 @@ class ProxyServerRepository @Inject constructor(
         val relayDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
-            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, trafficSink)
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink)
                 .also { it.start(scope, s.httpPort); list += it }
         }
         if (s.socksEnabled) {
-            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher)
+            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting)
                 .also { it.start(scope, s.socksPort); list += it }
         }
         if (s.pacEnabled) {
@@ -265,6 +274,7 @@ class ProxyServerRepository @Inject constructor(
     private fun applyTunables(s: ProxySettings) {
         registry.maxGlobal = s.limits.maxGlobalConnections
         registry.maxPerClient = s.limits.maxPerClientConnections
+        accounting.maxDomains = s.limits.maxTrackedDomains
         egressGuard.blockPrivateLan = s.blockPrivateLanEgress
         authenticator.enabled = s.authEnabled
     }
@@ -340,5 +350,7 @@ class ProxyServerRepository @Inject constructor(
 
     private companion object {
         const val MDNS_HOST = "hxmyproxy.local"
+        const val TOP_DOMAINS = 20
+        const val ACCOUNTING_AGE_OUT_MS = 5 * 60 * 1000L
     }
 }

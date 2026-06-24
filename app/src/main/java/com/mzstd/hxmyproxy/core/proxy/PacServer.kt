@@ -24,7 +24,7 @@ class PacServer(
     private val pacProvider: () -> String,
 ) : TcpProxyServerBase(ProxyProtocol.PAC, ioDispatcher, accessController, registry) {
 
-    override suspend fun handle(client: Socket) {
+    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
         val input = client.getInputStream()
         val output = client.getOutputStream()

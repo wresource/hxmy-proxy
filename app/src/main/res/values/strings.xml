@@ -26,6 +26,9 @@
     <string name="error_logs">Error logs</string>
     <string name="monitor_no_logs">(No logs)</string>
     <string name="monitor_open_history">History IPs</string>
+    <string name="monitor_clients">Clients</string>
+    <string name="monitor_client_conns">%1$d active</string>
+    <string name="monitor_top_domains">Top domains</string>
     <string name="back">Back</string>
     <string name="history_title">History entries</string>
     <string name="history_unavailable">Unavailable (IP or port changed)</string>

@@ -15,6 +15,8 @@ data class ConnectionLimits(
     val relayBufferBytes: Int = 32 * 1024,
     /** 无数据空闲多久断开（秒）。 */
     val idleTimeoutSeconds: Int = 300,
+    /** 域名流量统计最多跟踪多少个域名（Top-N + "(其他)" 兜底）；防统计内存无界。 */
+    val maxTrackedDomains: Int = 256,
 ) {
     companion object {
         val RANGE_GLOBAL = 32..1024
@@ -22,6 +24,7 @@ data class ConnectionLimits(
         val RANGE_PARALLELISM = 4..64
         val RANGE_BUFFER_BYTES = (8 * 1024)..(256 * 1024)
         val RANGE_IDLE_SECONDS = 30..1800
+        val RANGE_TRACKED_DOMAINS = 64..2048
     }
 
     /** 钳制到合法范围，防越界设置。 */
@@ -31,6 +34,7 @@ data class ConnectionLimits(
         relayParallelism = relayParallelism.coerceIn(RANGE_PARALLELISM),
         relayBufferBytes = relayBufferBytes.coerceIn(RANGE_BUFFER_BYTES),
         idleTimeoutSeconds = idleTimeoutSeconds.coerceIn(RANGE_IDLE_SECONDS),
+        maxTrackedDomains = maxTrackedDomains.coerceIn(RANGE_TRACKED_DOMAINS),
     )
 }
 

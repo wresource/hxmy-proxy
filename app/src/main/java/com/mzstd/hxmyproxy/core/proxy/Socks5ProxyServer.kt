@@ -27,9 +27,10 @@ class Socks5ProxyServer(
     private val limitsProvider: () -> ConnectionLimits,
     /** relay 搬字节的受限派发器（与 acceptDispatcher 建连派发器分离）。 */
     private val relayDispatcher: CoroutineDispatcher,
-) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry) {
+    accounting: TrafficAccounting? = null,
+) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry, accounting) {
 
-    override suspend fun handle(client: Socket) {
+    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
         val input = client.getInputStream()
         val output = client.getOutputStream()
@@ -74,6 +75,7 @@ class Socks5ProxyServer(
         if (cmd != 0x01) { reply(output, 0x07); return }   // 仅 CONNECT
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
+        tracker?.bindHost(host ?: addr?.hostAddress ?: "?")
         // 4) 连上游
         val upstream = try {
             if (addr != null) connector.connect(addr, port) else connector.connect(host!!, port)
@@ -85,7 +87,8 @@ class Socks5ProxyServer(
         reply(output, 0x00)
         client.soTimeout = 0
         val limits = limitsProvider()
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher)
+        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
+        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
     }
 
     /** RFC1929：VER(0x01) ULEN UNAME PLEN PASSWD → VER(0x01) STATUS。 */
