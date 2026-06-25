@@ -57,7 +57,12 @@ class PacServer(
         when (path) {
             "/proxy.pac" -> {
                 val body = pacProvider().toByteArray(Charsets.UTF_8)
-                writeResponse(output, 200, "OK", "application/x-ns-proxy-autoconfig", body)
+                // 给 PAC 明确缓存语义：iOS 对无 Cache-Control 的 PAC 可能在每个网络事件反复 fetch，
+                // 放大「某次 fetch 撞上不可达就超时」的概率；max-age 让其缓存一小段，降低撞窗口频率。
+                writeResponse(
+                    output, 200, "OK", "application/x-ns-proxy-autoconfig", body,
+                    cacheControl = "max-age=300",
+                )
             }
             "/", "/setup" -> {
                 if (base == null) { writeNoBase(output); return }
@@ -101,11 +106,13 @@ class PacServer(
         contentType: String?,
         body: ByteArray?,
         disposition: String? = null,
+        cacheControl: String? = null,
     ) {
         val sb = StringBuilder()
         sb.append("HTTP/1.1 ").append(code).append(' ').append(reason).append("\r\n")
         if (contentType != null) sb.append("Content-Type: ").append(contentType).append("\r\n")
         if (disposition != null) sb.append("Content-Disposition: ").append(disposition).append("\r\n")
+        if (cacheControl != null) sb.append("Cache-Control: ").append(cacheControl).append("\r\n")
         sb.append("Content-Length: ").append(body?.size ?: 0).append("\r\n")
         sb.append("Connection: close\r\n\r\n")
         output.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
