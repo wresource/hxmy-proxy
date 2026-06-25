@@ -57,6 +57,7 @@ class ProxyServerRepository @Inject constructor(
     private val signalProvider: com.mzstd.hxmyproxy.core.network.SignalProvider,
     private val endpointHistoryRepository: EndpointHistoryRepository,
     private val credentialStore: CredentialStore,
+    private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
 ) {
     // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
     private val registry = ConnectionRegistry(onChange = { active ->
@@ -204,11 +205,11 @@ class ProxyServerRepository @Inject constructor(
         val relayDispatcher = Dispatchers.IO.limitedParallelism(2 * s.limits.relayParallelism)
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
-            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink)
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine)
                 .also { it.start(scope, s.httpPort); list += it }
         }
         if (s.socksEnabled) {
-            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting)
+            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine)
                 .also { it.start(scope, s.socksPort); list += it }
         }
         if (s.pacEnabled) {

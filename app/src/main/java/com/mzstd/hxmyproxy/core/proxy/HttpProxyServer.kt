@@ -3,6 +3,8 @@ package com.mzstd.hxmyproxy.core.proxy
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
@@ -36,6 +38,8 @@ class HttpProxyServer(
     accounting: TrafficAccounting? = null,
     /** 流量计量回调（up, down 字节增量）；普通 HTTP 转发不走 RelayEngine，故经此计量。 */
     private val onTraffic: (Long, Long) -> Unit = { _, _ -> },
+    /** 规则引擎（可空，默认 null=不判定）；判为 REJECT 的域名直接拒绝连接。 */
+    private val ruleEngine: RuleEngine? = null,
 ) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry, accounting) {
 
     override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
@@ -77,6 +81,10 @@ class HttpProxyServer(
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
         tracker?.bindHost(hp.first)
+        if (ruleEngine?.decide(hp.first) == RuleAction.REJECT) {
+            Log.i("hxmyproxy", "REJECT CONNECT ${hp.first}")
+            writeStatus(output, 403, "Blocked"); return
+        }
         val upstream = try {
             connector.connect(hp.first, hp.second)
         } catch (e: ProxyException) {
@@ -114,6 +122,10 @@ class HttpProxyServer(
         }
 
         tracker?.bindHost(host)
+        if (ruleEngine?.decide(host) == RuleAction.REJECT) {
+            Log.i("hxmyproxy", "REJECT HTTP $host")
+            writeStatus(output, 403, "Blocked"); return false
+        }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
             connector.connect(host, port)

@@ -6,6 +6,7 @@ import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.network.SignalProvider
+import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.security.Crypto
 import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
 import com.mzstd.hxmyproxy.core.security.KeystoreCrypto
@@ -56,4 +57,7 @@ object AppModule {
 
     @Provides @Singleton
     fun subnetAccessController(): SubnetAccessController = SubnetAccessController()
+
+    @Provides @Singleton
+    fun ruleEngine(): RuleEngine = RuleEngine()
 }

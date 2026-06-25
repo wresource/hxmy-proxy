@@ -2,6 +2,8 @@ package com.mzstd.hxmyproxy.core.proxy
 
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
@@ -28,6 +30,8 @@ class Socks5ProxyServer(
     /** relay 搬字节的受限派发器（与 acceptDispatcher 建连派发器分离）。 */
     private val relayDispatcher: CoroutineDispatcher,
     accounting: TrafficAccounting? = null,
+    /** 规则引擎（可空，默认 null=不判定）；判为 REJECT 的目标直接拒绝（SOCKS reply 0x02）。 */
+    private val ruleEngine: RuleEngine? = null,
 ) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry, accounting) {
 
     override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
@@ -76,6 +80,11 @@ class Socks5ProxyServer(
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         tracker?.bindHost(host ?: addr?.hostAddress ?: "?")
+        val ruleHost = host ?: addr?.hostAddress
+        if (ruleHost != null && ruleEngine?.decide(ruleHost) == RuleAction.REJECT) {
+            Log.i("hxmyproxy", "REJECT SOCKS5 $ruleHost")
+            reply(output, 0x02); return
+        }
         // 4) 连上游
         val upstream = try {
             if (addr != null) connector.connect(addr, port) else connector.connect(host!!, port)
