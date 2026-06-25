@@ -62,6 +62,10 @@ class SettingsRepository @Inject constructor(
         val LIM_IDLE = intPreferencesKey("lim_idle")
         val LANGUAGE = stringPreferencesKey("language")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
+        val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
+        val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
+        val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
+        val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
     }
 
     private fun Preferences.toSettings(): ProxySettings {
@@ -88,6 +92,10 @@ class SettingsRepository @Inject constructor(
             preset = this[PRESET]?.let { runCatching { PerformancePreset.valueOf(it) }.getOrNull() } ?: d.preset,
             limits = limits,
             language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
+            ruleEngineEnabled = this[RULE_ENABLED] ?: d.ruleEngineEnabled,
+            enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
+            userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
+            ruleSubscriptionUrls = this[RULE_SUBS] ?: d.ruleSubscriptionUrls,
         )
     }
 
@@ -110,5 +118,9 @@ class SettingsRepository @Inject constructor(
         prefs[LIM_BUFFER] = limits.relayBufferBytes
         prefs[LIM_IDLE] = limits.idleTimeoutSeconds
         prefs[LANGUAGE] = language.name
+        prefs[RULE_ENABLED] = ruleEngineEnabled
+        prefs[RULE_GROUPS] = enabledRuleGroups
+        prefs[USER_DIRECT] = userDirectRules
+        prefs[RULE_SUBS] = ruleSubscriptionUrls
     }
 }

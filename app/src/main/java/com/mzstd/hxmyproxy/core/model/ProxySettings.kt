@@ -22,4 +22,13 @@ data class ProxySettings(
     val preset: PerformancePreset = PerformancePreset.BALANCED,
     val limits: ConnectionLimits = PerformancePreset.BALANCED.toLimits(),
     val language: AppLanguage = AppLanguage.SYSTEM,
+    // —— 规则分流（Phase 2）——
+    /** 规则分流总开关（默认关：保持「全部走代理」的现有行为，用户在规则页主动开启）。 */
+    val ruleEngineEnabled: Boolean = false,
+    /** 已启用的内置规则组 ID（见 core/rules）；广告组默认不在内（OISD small 默认关）。 */
+    val enabledRuleGroups: Set<String> = emptySet(),
+    /** 用户自定义直连白名单（域名后缀；优先级最高，防误杀）。 */
+    val userDirectRules: Set<String> = emptySet(),
+    /** 自定义规则订阅 URL。 */
+    val ruleSubscriptionUrls: Set<String> = emptySet(),
 )
