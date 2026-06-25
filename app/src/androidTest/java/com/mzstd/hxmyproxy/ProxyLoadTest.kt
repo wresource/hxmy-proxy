@@ -73,11 +73,11 @@ class ProxyLoadTest {
         originPort = origin.localPort
         http = HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
+            OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
         ).also { it.start(scope, 0) }
         socks = Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
+            OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
         ).also { it.start(scope, 0) }
         pac = PacServer(Dispatchers.IO, AllowAllAccessController, ConnectionRegistry()) {
             "function FindProxyForURL(url, host) { return \"PROXY 127.0.0.1:$httpPort; DIRECT\"; }"
