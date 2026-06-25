@@ -59,6 +59,7 @@ class ProxyServerRepository @Inject constructor(
     private val credentialStore: CredentialStore,
     private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
     private val ruleRepository: RuleRepository,
+    private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider,
 ) {
     // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
     private val registry = ConnectionRegistry(onChange = { active ->
@@ -72,7 +73,7 @@ class ProxyServerRepository @Inject constructor(
         if (down > 0) totalDown.addAndGet(down)
     }
     private val relay = RelayEngine(trafficSink)
-    private val connector = OutboundConnector(egressGuard)
+    private val connector = OutboundConnector(egressGuard, underlyingNetworkProvider = underlyingNetworkProvider)
     // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down。
     private val accounting = TrafficAccounting(globalSink = trafficSink)
 
@@ -118,6 +119,7 @@ class ProxyServerRepository @Inject constructor(
         refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
 
         connectivityObserver.start()
+        underlyingNetworkProvider.start()
         session.launch { connectivityObserver.networkChanges.collect { refresh() } }
         // mDNS 注册是异步的（系统 Probing ~1s）：注册真正完成/失败后刷新诊断，
         // 避免 mdnsPublished 停在 publish 那一刻的「未发布」假象（真机日志证实服务其实注册成功）。
@@ -184,6 +186,7 @@ class ProxyServerRepository @Inject constructor(
         stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
+        underlyingNetworkProvider.stop()
         // 取消本会话全部协程（收集器/ticker）：杜绝停止后 settings 收集器又把监听重启起来。
         sessionScope?.cancel()
         sessionScope = null

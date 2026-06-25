@@ -81,12 +81,13 @@ class HttpProxyServer(
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
         tracker?.bindHost(hp.first)
-        if (ruleEngine?.decide(hp.first) == RuleAction.REJECT) {
+        val action = ruleEngine?.decide(hp.first)
+        if (action == RuleAction.REJECT) {
             Log.i("hxmyproxy", "REJECT CONNECT ${hp.first}")
             writeStatus(output, 403, "Blocked"); return
         }
         val upstream = try {
-            connector.connect(hp.first, hp.second)
+            connector.connect(hp.first, hp.second, bypassVpn = action == RuleAction.DIRECT)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
         }
@@ -122,13 +123,14 @@ class HttpProxyServer(
         }
 
         tracker?.bindHost(host)
-        if (ruleEngine?.decide(host) == RuleAction.REJECT) {
+        val action = ruleEngine?.decide(host)
+        if (action == RuleAction.REJECT) {
             Log.i("hxmyproxy", "REJECT HTTP $host")
             writeStatus(output, 403, "Blocked"); return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
-            connector.connect(host, port)
+            connector.connect(host, port, bypassVpn = action == RuleAction.DIRECT)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, "Bad Gateway"); return false
         }

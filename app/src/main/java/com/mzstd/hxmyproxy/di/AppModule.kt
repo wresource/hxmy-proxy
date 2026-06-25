@@ -6,6 +6,7 @@ import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.network.SignalProvider
+import com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.security.Crypto
 import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
@@ -60,4 +61,8 @@ object AppModule {
 
     @Provides @Singleton
     fun ruleEngine(): RuleEngine = RuleEngine()
+
+    @Provides @Singleton
+    fun underlyingNetworkProvider(@ApplicationContext context: Context): UnderlyingNetworkProvider =
+        UnderlyingNetworkProvider(context)
 }

@@ -81,13 +81,15 @@ class Socks5ProxyServer(
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         tracker?.bindHost(host ?: addr?.hostAddress ?: "?")
         val ruleHost = host ?: addr?.hostAddress
-        if (ruleHost != null && ruleEngine?.decide(ruleHost) == RuleAction.REJECT) {
+        val action = if (ruleHost != null) ruleEngine?.decide(ruleHost) else null
+        if (action == RuleAction.REJECT) {
             Log.i("hxmyproxy", "REJECT SOCKS5 $ruleHost")
             reply(output, 0x02); return
         }
+        val bypass = action == RuleAction.DIRECT
         // 4) 连上游
         val upstream = try {
-            if (addr != null) connector.connect(addr, port) else connector.connect(host!!, port)
+            if (addr != null) connector.connect(addr, port, bypassVpn = bypass) else connector.connect(host!!, port, bypassVpn = bypass)
         } catch (e: ProxyException) {
             reply(output, e.error.socksReply); return
         }

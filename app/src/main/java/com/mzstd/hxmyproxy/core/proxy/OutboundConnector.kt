@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import android.net.Network
 import com.mzstd.hxmyproxy.core.security.EgressGuard
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -38,16 +39,34 @@ class OutboundConnector(
     // DNS 解析专用调度器：独立于 relay 的 limitedParallelism(N) IO 池——
     // relay 搬字节占满 IO 线程时，DNS 仍能在自己的池里解析，不被掐住（Stripe 首屏几十域名是重灾区）。
     private val dnsDispatcher: CoroutineDispatcher = DEFAULT_DNS_DISPATCHER,
+    /** 非 VPN 底层网络提供者；为 DIRECT 出口分流把 socket 绑定到真实网络（绕过共享 VPN）。null=不支持分流。 */
+    private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider? = null,
 ) {
     /** 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。 */
     private val dnsCache = ConcurrentHashMap<String, CachedAddrs>()
 
-    /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。 */
-    suspend fun connect(host: String, port: Int): Socket =
-        connectAny(orderAddresses(resolve(host)), port)
+    /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
+    suspend fun connect(host: String, port: Int, bypassVpn: Boolean = false): Socket {
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        if (bypassVpn && network == null) {
+            android.util.Log.w("hxmyproxy", "bypass requested for $host but no non-VPN network; using default egress")
+        }
+        return connectAny(orderAddresses(resolve(host, network)), port, network)
+    }
 
-    /** 解析域名为全部地址；命中短 TTL 缓存则跳过系统解析。解析跑在独立 [dnsDispatcher]。 */
-    private suspend fun resolve(host: String): List<InetAddress> {
+    /**
+     * 解析域名为全部地址；解析跑在独立 [dnsDispatcher]。
+     * [network] 非空（出口分流）时在该网络上解析（避免 DNS 走 VPN），且不缓存（量小、避免与默认网络结果混淆）；
+     * 为空时走默认网络解析 + 短 TTL 缓存。
+     */
+    private suspend fun resolve(host: String, network: Network?): List<InetAddress> {
+        if (network != null) {
+            return try {
+                withContext(dnsDispatcher) { network.getAllByName(host).toList() }
+            } catch (e: UnknownHostException) {
+                throw ProxyException(ProxyError.DnsFailure)
+            }
+        }
         val now = System.currentTimeMillis()
         dnsCache[host]?.let { if (now - it.atMs < DNS_TTL_MS) return it.addrs }
         val addrs = try {
@@ -59,8 +78,11 @@ class OutboundConnector(
         return addrs
     }
 
-    /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。 */
-    suspend fun connect(addr: InetAddress, port: Int): Socket = connectAny(listOf(addr), port)
+    /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
+    suspend fun connect(addr: InetAddress, port: Int, bypassVpn: Boolean = false): Socket {
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        return connectAny(listOf(addr), port, network)
+    }
 
     /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */
     internal fun orderAddresses(addrs: List<InetAddress>): List<InetAddress> =
@@ -71,7 +93,7 @@ class OutboundConnector(
      * 全部失败抛最后一次错误；候选为空（DNS 空 / 全被护栏拦）抛对应错误。
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int): Socket = coroutineScope {
+    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int, network: Network? = null): Socket = coroutineScope {
         val candidates = ArrayList<InetAddress>()
         var blocked = false
         for (a in addrs) if (egressGuard.isAllowed(a)) candidates.add(a) else blocked = true
@@ -93,7 +115,13 @@ class OutboundConnector(
             val addr = candidates[nextIdx++]
             pending++
             launch(Dispatchers.IO) {
-                val socket = Socket()
+                // 出口分流：network 非空时用其 socketFactory 建 socket（绑定到非 VPN 网络），否则普通 socket 跟随默认网络（含 VPN）。
+                val socket = try {
+                    network?.socketFactory?.createSocket() ?: Socket()
+                } catch (e: Throwable) {
+                    if (!closed.get()) results.trySend(Outcome(null, mapConnectError(e)))
+                    return@launch
+                }
                 // 注册与"是否已收尾"判定同锁：收尾后才到的尝试直接放弃，杜绝落单连接逃过清理而泄漏 FD。
                 val registered = synchronized(inFlight) {
                     if (closed.get()) false else { inFlight.add(socket); true }
