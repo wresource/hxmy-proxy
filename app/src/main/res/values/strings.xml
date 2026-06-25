@@ -31,6 +31,8 @@
     <string name="monitor_top_domains">Top domains</string>
     <string name="monitor_no_clients">No clients yet (devices using hxmy will show here)</string>
     <string name="monitor_no_domains">No traffic yet</string>
+    <string name="monitor_expand">Show all (%1$d)</string>
+    <string name="monitor_collapse">Collapse</string>
     <string name="back">Back</string>
     <string name="history_title">History entries</string>
     <string name="history_unavailable">Unavailable (IP or port changed)</string>
