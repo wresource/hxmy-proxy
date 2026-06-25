@@ -1,14 +1,23 @@
-<!-- 通知小图标（单色剪影，显示在通知左侧，系统着色）：粗体 “h” 字标 = hxmy 品牌首字母。
-     字母比抽象辐射标更易在状态栏小尺寸下被认作“这是某个 App 的图标”而非系统通用图标。 -->
+<!-- 通知小图标（单色剪影，系统在状态栏强制着白；通知抽屉里由 setColor 着成品牌珊瑚色）。
+     取自启动图标的“辐射节点”品牌标志、提取成线条版（中心节点 + 四射线 + 四角节点），
+     比纯字母更呼应“向外分享/代理”意象，也与 launcher 图标一致。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- 四条射线（圆头细线，中心→四角） -->
     <path
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3.2"
+        android:strokeWidth="1.7"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M7,3 L7,21 M7,12.5 C7,9 9.6,8.4 12,8.4 C15,8.4 16.8,10.4 16.8,13.4 L16.8,21" />
+        android:pathData="M12,12 L7,7 M12,12 L17,7 M12,12 L7,17 M12,12 L17,17" />
+    <!-- 四角节点（实心小圆点） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,5.5 a1.5,1.5 0 1,0 0.01,0 z M17,5.5 a1.5,1.5 0 1,0 0.01,0 z M7,15.5 a1.5,1.5 0 1,0 0.01,0 z M17,15.5 a1.5,1.5 0 1,0 0.01,0 z" />
+    <!-- 中心节点（稍大实心圆，强调“源”） -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,9.6 a2.4,2.4 0 1,0 0.01,0 z" />
 </vector>

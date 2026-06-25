@@ -124,6 +124,8 @@ class ProxyForegroundService : Service() {
         // 平台约束：通知小图标必须单色，系统会着色，无法放满色 App 图标。
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_hxmy)
+            // 品牌珊瑚色 accent：通知抽屉里小图标/标题被染成该色（状态栏仍由系统强制白色）。
+            .setColor(0xFFFF7A59.toInt())
             .setContentTitle(loc.getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
