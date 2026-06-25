@@ -28,19 +28,19 @@ object SetupPageGenerator {
      * 落地页 HTML。
      * @param base 形如 `http://192.168.1.34:8899`（无尾斜杠）——扫码设备正是连到此地址。
      */
-    fun html(base: String, userAgent: String): String {
+    fun html(base: String, userAgent: String, manualProxy: Boolean = true): String {
         val pac = "$base/proxy.pac"
         val pacEsc = pac.htmlEscape()
         val platform = detectPlatform(userAgent)
         val primary = when (platform) {
-            Platform.APPLE -> appleSection(pacEsc)
+            Platform.APPLE -> appleSection(pacEsc, manualProxy)
             Platform.WINDOWS -> windowsSection(pacEsc)
             Platform.OTHER -> androidSection(pacEsc)
         }
         // 始终附「其他系统」可展开，避免误判 UA 时无路可走。
         val others = buildString {
             append("<details><summary>其他系统的设置方法</summary>")
-            if (platform != Platform.APPLE) append(appleSection(pacEsc))
+            if (platform != Platform.APPLE) append(appleSection(pacEsc, manualProxy))
             if (platform != Platform.WINDOWS) append(windowsSection(pacEsc))
             if (platform != Platform.OTHER) append(androidSection(pacEsc))
             append("</details>")
@@ -77,7 +77,16 @@ $others
 </div></body></html>"""
     }
 
-    private fun appleSection(pacEsc: String): String = """
+    private fun appleSection(pacEsc: String, manualProxy: Boolean): String {
+        // manualProxy=true(已开 HTTP 代理)→ 描述文件用 Manual HTTP，装上即生效、不 fetch PAC，iPhone 最稳。
+        // manualProxy=false(仅 SOCKS)→ 描述文件回退 Auto/PAC，提示用户开 HTTP 代理可获最稳体验。
+        val effect = if (manualProxy)
+            "<li>装好后该 Wi-Fi 立即经 hxmy proxy 上网，无需额外步骤（仅对这个 Wi-Fi 生效）。</li>"
+        else
+            "<li>装好后该 Wi-Fi 会自动经 hxmy proxy 上网（仅对这个 Wi-Fi 生效）。</li>"
+        val hint = if (manualProxy) ""
+            else "<p class=\"tag\">提示：在 hxmy 开启「HTTP 代理」后再扫码，iPhone 体验最稳（免 PAC 拉取）。</p>"
+        return """
 <div class="card">
 <b>iPhone / iPad / Mac</b>
 <p>① 填入你当前连接的 Wi-Fi 名称，② 下载并安装配置文件：</p>
@@ -85,8 +94,9 @@ $others
 <a id="dl" class="btn" href="#" onclick="return go()">下载配置文件</a>
 <ol>
 <li>下载后：设置 → 通用 → <b>VPN 与设备管理</b> → 安装该描述文件 → 输入锁屏密码确认。</li>
-<li>装好后该 Wi-Fi 会自动经 hxmy proxy 上网（仅对这个 Wi-Fi 生效）。</li>
+$effect
 </ol>
+$hint
 <p class="tag">未签名会显示「未验证」，可放心安装；也可改用下方 PAC 地址手动设置。</p>
 <script>
 function go(){var s=document.getElementById('ssid').value.trim();
@@ -95,6 +105,7 @@ document.getElementById('dl').setAttribute('href','/hxmy.mobileconfig?ssid='+enc
 return true;}
 </script>
 </div>"""
+    }
 
     private fun windowsSection(pacEsc: String): String = """
 <div class="card">
@@ -117,15 +128,34 @@ return true;}
 </div>"""
 
     /**
-     * Apple 配置描述文件：为指定 [ssid] 的 Wi-Fi 设置自动代理（ProxyType=Auto + PAC URL）。
-     * @param base 形如 `http://192.168.1.34:8899`。
+     * Apple 配置描述文件（`com.apple.wifi.managed` Wi-Fi 载荷，绑定 [ssid]）。
+     * - [manualHttp] 非空（host, httpPort）→ **Manual HTTP 代理**：iOS 不 fetch PAC，最稳
+     *   （grounded：iOS Wi-Fi Manual 只支持 HTTP/HTTPS、且免去 http 弃用/可达性/弱网放大全部坑）。
+     * - [manualHttp] 为空 → 回退 **Auto + PAC URL**（HTTP 代理没开时，SOCKS-only 仍可用 PAC）。
+     * @param base 形如 `http://192.168.1.34:8899`（PAC URL 基址 + UUID 派生种子）。
      * @param ssid 目标 Wi-Fi 名称（用户在落地页填写）。
      */
-    fun mobileconfig(base: String, ssid: String): String {
-        val pac = "$base/proxy.pac".xmlEscape()
+    fun mobileconfig(base: String, ssid: String, manualHttp: Pair<String, Int>? = null): String {
         val ssidEsc = ssid.xmlEscape()
         val topUuid = stableUuid(base)
         val wifiUuid = stableUuid("$base#wifi#$ssid")
+        val proxyKeys: String
+        val desc: String
+        if (manualHttp != null) {
+            val (host, port) = manualHttp
+            proxyKeys = """
+      <key>ProxyType</key><string>Manual</string>
+      <key>ProxyServer</key><string>${host.xmlEscape()}</string>
+      <key>ProxyServerPort</key><integer>$port</integer>"""
+            desc = "为当前 Wi-Fi 设置固定 HTTP 代理（无需 PAC），把流量经 hxmy proxy 中转。"
+        } else {
+            val pac = "$base/proxy.pac".xmlEscape()
+            proxyKeys = """
+      <key>ProxyType</key><string>Auto</string>
+      <key>ProxyPACURL</key><string>$pac</string>
+      <key>ProxyPACFallbackAllowed</key><true/>"""
+            desc = "为当前 Wi-Fi 设置自动代理（PAC），把流量经 hxmy proxy 中转。"
+        }
         return """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -141,10 +171,7 @@ return true;}
       <key>SSID_STR</key><string>$ssidEsc</string>
       <key>HIDDEN_NETWORK</key><false/>
       <key>AutoJoin</key><true/>
-      <key>EncryptionType</key><string>Any</string>
-      <key>ProxyType</key><string>Auto</string>
-      <key>ProxyPACURL</key><string>$pac</string>
-      <key>ProxyPACFallbackAllowed</key><true/>
+      <key>EncryptionType</key><string>Any</string>$proxyKeys
     </dict>
   </array>
   <key>PayloadType</key><string>Configuration</string>
@@ -152,7 +179,7 @@ return true;}
   <key>PayloadIdentifier</key><string>com.mzstd.hxmyproxy.$topUuid</string>
   <key>PayloadUUID</key><string>$topUuid</string>
   <key>PayloadDisplayName</key><string>hxmy proxy 配置</string>
-  <key>PayloadDescription</key><string>为当前 Wi-Fi 设置自动代理（PAC），把流量经 hxmy proxy 中转。</string>
+  <key>PayloadDescription</key><string>$desc</string>
   <key>PayloadRemovalDisallowed</key><false/>
 </dict>
 </plist>

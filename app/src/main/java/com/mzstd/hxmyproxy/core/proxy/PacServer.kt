@@ -21,6 +21,8 @@ class PacServer(
     ioDispatcher: CoroutineDispatcher,
     accessController: AccessController,
     registry: ConnectionRegistry,
+    /** HTTP 代理端口提供者：HTTP 启用时返回端口、否则 null。非 null → iPhone 描述文件用 Manual HTTP（免 PAC，最稳）。 */
+    private val httpProxyPort: () -> Int? = { null },
     private val pacProvider: () -> String,
 ) : TcpProxyServerBase(ProxyProtocol.PAC, ioDispatcher, accessController, registry) {
 
@@ -52,7 +54,10 @@ class PacServer(
 
         // 本机为这次连接对外的地址（扫码设备连的就是它）→ 拼回链基址。
         val local = client.localSocketAddress as? InetSocketAddress
-        val base = local?.address?.hostAddress?.let { "http://$it:${local.port}" }
+        val ip = local?.address?.hostAddress
+        val base = if (local != null && ip != null) "http://$ip:${local.port}" else null
+        // HTTP 启用 → 给 iPhone 用 Manual HTTP 描述文件（host=本机IP、port=httpPort），免 PAC 拉取最稳。
+        val manualHttp = httpProxyPort()?.let { port -> ip?.let { it to port } }
 
         when (path) {
             "/proxy.pac" -> {
@@ -66,13 +71,14 @@ class PacServer(
             }
             "/", "/setup" -> {
                 if (base == null) { writeNoBase(output); return }
-                val html = SetupPageGenerator.html(base, userAgent).toByteArray(Charsets.UTF_8)
+                val html = SetupPageGenerator.html(base, userAgent, manualProxy = manualHttp != null)
+                    .toByteArray(Charsets.UTF_8)
                 writeResponse(output, 200, "OK", "text/html; charset=utf-8", html)
             }
             "/hxmy.mobileconfig" -> {
                 if (base == null) { writeNoBase(output); return }
                 val ssid = parseSsid(query)
-                val cfg = SetupPageGenerator.mobileconfig(base, ssid).toByteArray(Charsets.UTF_8)
+                val cfg = SetupPageGenerator.mobileconfig(base, ssid, manualHttp).toByteArray(Charsets.UTF_8)
                 writeResponse(
                     output, 200, "OK", "application/x-apple-aspen-config", cfg,
                     disposition = "attachment; filename=\"hxmy.mobileconfig\"",

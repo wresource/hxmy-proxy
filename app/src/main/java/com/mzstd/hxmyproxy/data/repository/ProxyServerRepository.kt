@@ -208,7 +208,10 @@ class ProxyServerRepository @Inject constructor(
                 .also { it.start(scope, s.socksPort); list += it }
         }
         if (s.pacEnabled) {
-            PacServer(acceptDispatcher, accessController, registry) { generatePac() }
+            PacServer(
+                acceptDispatcher, accessController, registry,
+                httpProxyPort = { if (currentSettings.httpEnabled) currentSettings.httpPort else null },
+            ) { generatePac() }
                 .also { it.start(scope, s.pacPort); list += it }
         }
         servers = list
