@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy.ui.rules
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -9,19 +10,34 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.rules.RuleCatalog
+import com.mzstd.hxmyproxy.ui.MainUiState
+import com.mzstd.hxmyproxy.ui.MainViewModel
 
 /**
- * 规则路由页（占位）。Phase 2b 落地三模块:IP/域名白名单、App/服务规则集、广告拦截。
- * 现阶段先把 tab 与三模块骨架立起来,后端规则引擎(Phase 2a)就绪后再填充开关与列表。
+ * 规则页:三模块（澄清 C 的分级开关）。
+ * 1. IP / 域名白名单：用户增删，整组走直连（出口分流绕过共享 VPN）。
+ * 2. App / 服务规则集：每服务一个开关（即将上线）。
+ * 3. 广告拦截：每个表一个开关 + 用户白名单覆盖（OISD small 默认关）。
  */
 @Composable
-fun RulesScreen() {
+fun RulesScreen(ui: MainUiState, viewModel: MainViewModel) {
+    val s = ui.settings
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -30,23 +46,74 @@ fun RulesScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.rules_title), style = MaterialTheme.typography.titleLarge)
-        Text(
-            stringResource(R.string.rules_wip),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        listOf(
-            R.string.rules_module_list,
-            R.string.rules_module_apps,
-            R.string.rules_module_ads,
-        ).forEach { titleRes ->
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Text(
-                    stringResource(titleRes),
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.titleMedium,
+
+        // —— ① IP / 域名白名单（直连，出口分流绕过共享 VPN）——
+        SectionCard(stringResource(R.string.rules_module_list)) {
+            Text(
+                stringResource(R.string.rules_user_direct_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            var input by remember { mutableStateOf("") }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.rules_add_domain)) },
+                    modifier = Modifier.weight(1f),
                 )
+                OutlinedButton(onClick = {
+                    if (input.isNotBlank()) { viewModel.addUserDirectRule(input); input = "" }
+                }) { Text(stringResource(R.string.rules_add)) }
             }
+            s.userDirectRules.sorted().forEach { domain ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(domain, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = { viewModel.removeUserDirectRule(domain) }) {
+                        Text(stringResource(R.string.rules_remove))
+                    }
+                }
+            }
+        }
+
+        // —— ② App / 服务规则集（每服务开关，即将上线）——
+        SectionCard(stringResource(R.string.rules_module_apps)) {
+            Text(
+                stringResource(R.string.rules_apps_wip),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // —— ③ 广告拦截（每表开关 + 用户白名单覆盖）——
+        SectionCard(stringResource(R.string.rules_module_ads)) {
+            RuleCatalog.adGroups.forEach { group ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stringResource(group.sourceRes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = group.id in s.enabledRuleGroups,
+                        onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(title: String, content: @Composable () -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            content()
         }
     }
 }

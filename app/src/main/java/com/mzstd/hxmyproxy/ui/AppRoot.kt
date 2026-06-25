@@ -77,7 +77,7 @@ fun AppRoot(viewModel: MainViewModel) {
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 ) {
                     composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
-                    composable(Dest.Rules.route) { RulesScreen() }
+                    composable(Dest.Rules.route) { RulesScreen(ui, viewModel) }
                     composable(Dest.Monitor.route) {
                         MonitorScreen(
                             ui,

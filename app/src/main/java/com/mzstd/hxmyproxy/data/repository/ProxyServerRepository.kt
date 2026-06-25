@@ -58,6 +58,7 @@ class ProxyServerRepository @Inject constructor(
     private val endpointHistoryRepository: EndpointHistoryRepository,
     private val credentialStore: CredentialStore,
     private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
+    private val ruleRepository: RuleRepository,
 ) {
     // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
     private val registry = ConnectionRegistry(onChange = { active ->
@@ -130,6 +131,7 @@ class ProxyServerRepository @Inject constructor(
             settingsRepository.settings.collect { ns ->
                 currentSettings = ns
                 applyTunables(ns)
+                session.launch(Dispatchers.IO) { ruleRepository.rebuild(ns) }
                 if (running && serverKey(ns) != lastServerKey) {
                     // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
                     stopServers()

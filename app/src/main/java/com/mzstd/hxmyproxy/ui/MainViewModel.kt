@@ -119,6 +119,21 @@ class MainViewModel @Inject constructor(
         it.copy(selectedInterfaceIds = if (selected) it.selectedInterfaceIds + id else it.selectedInterfaceIds - id)
     }
 
+    /** 启用/停用一个内置规则组（广告表等）；存入 enabledRuleGroups。 */
+    fun toggleRuleGroup(id: String, on: Boolean) = update {
+        it.copy(enabledRuleGroups = if (on) it.enabledRuleGroups + id else it.enabledRuleGroups - id)
+    }
+
+    /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
+    fun addUserDirectRule(domain: String) = update {
+        val d = domain.trim().lowercase().removePrefix("*.")
+        if (d.isEmpty()) it else it.copy(userDirectRules = it.userDirectRules + d)
+    }
+
+    fun removeUserDirectRule(domain: String) = update {
+        it.copy(userDirectRules = it.userDirectRules - domain)
+    }
+
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }
 
     /** 更新认证凭据（密码经 Keystore 加密后持久化）。 */

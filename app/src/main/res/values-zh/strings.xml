@@ -64,6 +64,13 @@
     <string name="rules_module_apps">App 与服务规则集</string>
     <string name="rules_module_ads">广告拦截</string>
     <string name="monitor_diagnostics">诊断</string>
+    <string name="rule_ads_oisd">OISD small(广告/追踪)</string>
+    <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · 约 6.1 万域名</string>
+    <string name="rules_add">添加</string>
+    <string name="rules_add_domain">域名(如 example.com)</string>
+    <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>
+    <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
+    <string name="rules_remove">移除</string>
 
     <!-- 诊断 -->
     <string name="diag_local_net_perm">本地网络权限</string>

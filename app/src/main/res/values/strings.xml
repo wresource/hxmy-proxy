@@ -64,6 +64,13 @@
     <string name="rules_module_apps">App &amp; service rule sets</string>
     <string name="rules_module_ads">Ad blocking</string>
     <string name="monitor_diagnostics">Diagnostics</string>
+    <string name="rule_ads_oisd">OISD small (ads &amp; trackers)</string>
+    <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · ~61k domains</string>
+    <string name="rules_add">Add</string>
+    <string name="rules_add_domain">Domain (e.g. example.com)</string>
+    <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>
+    <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
+    <string name="rules_remove">Remove</string>
 
     <!-- Diagnostics -->
     <string name="diag_local_net_perm">Local network permission</string>
