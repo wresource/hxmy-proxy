@@ -7,6 +7,7 @@
     <string name="nav_diagnostics">Diagnostics</string>
     <string name="nav_monitor">Monitor</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_rules">Rules</string>
 
     <!-- Dashboard -->
     <string name="status_running">Sharing</string>
@@ -38,6 +39,7 @@
     <string name="history_unavailable">Unavailable (IP or port changed)</string>
     <string name="delete">Delete</string>
     <string name="recommended_entry">Recommended entry</string>
+    <string name="entry_config">Entry configuration</string>
     <string name="no_entry">No entry — select an interface</string>
     <string name="copy">Copy</string>
     <string name="copied">Copied</string>
@@ -54,6 +56,14 @@
     <string name="iface_ethernet">Ethernet</string>
     <string name="iface_unknown">Unknown</string>
     <string name="interfaces_hint">Select which networks may connect to the proxy.</string>
+
+    <!-- Rules -->
+    <string name="rules_title">Rule routing</string>
+    <string name="rules_wip">Per-domain direct / proxy / block routing and ad-blocking are coming soon.</string>
+    <string name="rules_module_list">IP / domain allowlist</string>
+    <string name="rules_module_apps">App &amp; service rule sets</string>
+    <string name="rules_module_ads">Ad blocking</string>
+    <string name="monitor_diagnostics">Diagnostics</string>
 
     <!-- Diagnostics -->
     <string name="diag_local_net_perm">Local network permission</string>

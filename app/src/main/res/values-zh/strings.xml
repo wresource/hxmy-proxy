@@ -7,6 +7,7 @@
     <string name="nav_diagnostics">诊断</string>
     <string name="nav_monitor">监控</string>
     <string name="nav_settings">设置</string>
+    <string name="nav_rules">规则</string>
 
     <!-- 主页 -->
     <string name="status_running">共享中</string>
@@ -38,6 +39,7 @@
     <string name="history_unavailable">不可用（IP 或端口已变）</string>
     <string name="delete">删除</string>
     <string name="recommended_entry">推荐入口</string>
+    <string name="entry_config">入口配置</string>
     <string name="no_entry">暂无入口——请先勾选一个接口</string>
     <string name="copy">复制</string>
     <string name="copied">已复制</string>
@@ -54,6 +56,14 @@
     <string name="iface_ethernet">以太网</string>
     <string name="iface_unknown">未知</string>
     <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
+
+    <!-- 规则 -->
+    <string name="rules_title">规则分流</string>
+    <string name="rules_wip">按域名分流(直连 / 代理 / 拦截)与广告拦截即将上线。</string>
+    <string name="rules_module_list">IP / 域名白名单</string>
+    <string name="rules_module_apps">App 与服务规则集</string>
+    <string name="rules_module_ads">广告拦截</string>
+    <string name="monitor_diagnostics">诊断</string>
 
     <!-- 诊断 -->
     <string name="diag_local_net_perm">本地网络权限</string>

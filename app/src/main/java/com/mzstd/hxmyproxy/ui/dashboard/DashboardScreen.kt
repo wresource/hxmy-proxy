@@ -22,6 +22,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,10 +39,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.components.QrImage
+
+/** 接口类型 → 本地化标签（随 InterfacesScreen 删除从该页迁来）。 */
+private fun InterfaceType.labelRes(): Int = when (this) {
+    InterfaceType.WIFI -> R.string.iface_wifi
+    InterfaceType.HOTSPOT -> R.string.iface_hotspot
+    InterfaceType.USB -> R.string.iface_usb
+    InterfaceType.BLUETOOTH -> R.string.iface_bluetooth
+    InterfaceType.ETHERNET -> R.string.iface_ethernet
+    InterfaceType.UNKNOWN -> R.string.iface_unknown
+}
 
 @Composable
 fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
@@ -49,6 +61,8 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
     val clipboard = LocalClipboardManager.current
     val share = ui.share
     var showQr by remember { mutableStateOf(false) }
+    var interfacesExpanded by remember { mutableStateOf(false) }
+    var entriesExpanded by remember { mutableStateOf(false) }
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -101,29 +115,98 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
             }
         }
 
-        val entry = share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.SOCKS5 }
+        // ② 可分享入口：每个接口一个开关（复用 toggleInterface），默认 2 行、超出折叠。
+        val interfaces = share.interfaces
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)
+                if (interfaces.isEmpty()) {
+                    Text(stringResource(R.string.no_interfaces), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
+                    shownIfaces.forEach { iface ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "${stringResource(iface.type.labelRes())} · ${iface.name}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    iface.cidr,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = iface.id in ui.settings.selectedInterfaceIds,
+                                onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
+                            )
+                        }
+                    }
+                    if (interfaces.size > 2) {
+                        TextButton(
+                            onClick = { interfacesExpanded = !interfacesExpanded },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (interfacesExpanded) stringResource(R.string.monitor_collapse)
+                                else stringResource(R.string.monitor_expand, interfaces.size),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ③ 入口配置：按「协议  IP:端口」列出全部入口，默认只显示首条（优先 HTTP），其余折叠。
+        val primaryEntry = share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.HTTP }
             ?: share.recommendedEntries.firstOrNull()
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.recommended_entry), style = MaterialTheme.typography.titleMedium)
-                if (entry == null) {
+                Text(stringResource(R.string.entry_config), style = MaterialTheme.typography.titleMedium)
+                if (primaryEntry == null) {
                     Text(stringResource(R.string.no_entry))
                 } else {
-                    entry.mdnsEndpoint?.let { Text("SOCKS5 $it") }
-                    Text("SOCKS5 ${entry.ipEndpoint}", style = MaterialTheme.typography.bodyLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            clipboard.setText(AnnotatedString(entry.mdnsEndpoint ?: entry.ipEndpoint))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                        }) { Text(stringResource(R.string.copy)) }
-                        OutlinedButton(onClick = { showQr = true }) { Text(stringResource(R.string.qr_setup)) }
+                    val allEntries = share.recommendedEntries
+                    val shownEntries = if (entriesExpanded) allEntries else listOf(primaryEntry)
+                    shownEntries.forEach { e ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${e.protocol.name}  ${e.ipEndpoint}", style = MaterialTheme.typography.bodyLarge)
+                                e.mdnsEndpoint?.let {
+                                    Text(
+                                        "${e.protocol.name}  $it",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(e.mdnsEndpoint ?: e.ipEndpoint))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            }) { Text(stringResource(R.string.copy)) }
+                        }
+                    }
+                    if (allEntries.size > 1) {
+                        TextButton(
+                            onClick = { entriesExpanded = !entriesExpanded },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (entriesExpanded) stringResource(R.string.monitor_collapse)
+                                else stringResource(R.string.monitor_expand, allEntries.size),
+                            )
+                        }
+                    }
+                    OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.qr_setup))
                     }
                 }
             }
         }
 
         if (showQr) {
-            val setupUrl = entry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
+            val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
             AlertDialog(
                 onDismissRequest = { showQr = false },
                 confirmButton = { TextButton(onClick = { showQr = false }) { Text(stringResource(R.string.setup_close)) } },
@@ -143,16 +226,6 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                     }
                 },
             )
-        }
-
-        Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)
-        if (share.interfaces.isEmpty()) {
-            Text(stringResource(R.string.no_interfaces))
-        } else {
-            share.interfaces.forEach { iface ->
-                val selected = iface.id in ui.settings.selectedInterfaceIds
-                Text("${if (selected) "✓ " else "  "}${iface.name}   ${iface.cidr}")
-            }
         }
 
         Spacer(Modifier.height(8.dp))

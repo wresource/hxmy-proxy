@@ -32,18 +32,16 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.dashboard.DashboardScreen
-import com.mzstd.hxmyproxy.ui.diagnostics.DiagnosticsScreen
 import com.mzstd.hxmyproxy.ui.help.HelpScreen
-import com.mzstd.hxmyproxy.ui.interfaces.InterfacesScreen
 import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
+import com.mzstd.hxmyproxy.ui.rules.RulesScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
 private sealed class Dest(val route: String, val label: Int, val icon: Int) {
     data object Dashboard : Dest("dashboard", R.string.nav_dashboard, R.drawable.ic_nav_dashboard)
-    data object Interfaces : Dest("interfaces", R.string.nav_interfaces, R.drawable.ic_nav_interfaces)
-    data object Diagnostics : Dest("diagnostics", R.string.nav_diagnostics, R.drawable.ic_nav_diagnostics)
+    data object Rules : Dest("rules", R.string.nav_rules, R.drawable.ic_nav_rules)
     data object Monitor : Dest("monitor", R.string.nav_monitor, R.drawable.ic_nav_monitor)
     data object Settings : Dest("settings", R.string.nav_settings, R.drawable.ic_nav_settings)
 }
@@ -55,7 +53,7 @@ private const val EXPANDED_WIDTH_DP = 600
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
-    val destinations = listOf(Dest.Dashboard, Dest.Interfaces, Dest.Diagnostics, Dest.Monitor, Dest.Settings)
+    val destinations = listOf(Dest.Dashboard, Dest.Monitor, Dest.Rules, Dest.Settings)
 
     // 自适应：平板/折叠屏（≥600dp）把底部导航换成边缘 nav rail（adaptive skill Step 2），手机仍用底栏。
     val wide = LocalConfiguration.current.screenWidthDp >= EXPANDED_WIDTH_DP
@@ -79,8 +77,7 @@ fun AppRoot(viewModel: MainViewModel) {
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 ) {
                     composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
-                    composable(Dest.Interfaces.route) { InterfacesScreen(ui, viewModel) }
-                    composable(Dest.Diagnostics.route) { DiagnosticsScreen(ui) }
+                    composable(Dest.Rules.route) { RulesScreen() }
                     composable(Dest.Monitor.route) {
                         MonitorScreen(
                             ui,

@@ -138,6 +138,7 @@ fun MonitorScreen(
     val latency by vm.latency.collectAsStateWithLifecycle()
     val measuring by vm.measuring.collectAsStateWithLifecycle()
 
+    var diagExpanded by remember { mutableStateOf(false) }
     var latencyExpanded by remember { mutableStateOf(false) }
     var clientsExpanded by remember { mutableStateOf(false) }
     var domainsExpanded by remember { mutableStateOf(false) }
@@ -146,7 +147,38 @@ fun MonitorScreen(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // —— 诊断（原独立页并入，圆形图标一眼正常/异常）——
+        item { Text(stringResource(R.string.monitor_diagnostics), style = MaterialTheme.typography.titleMedium) }
+        val diag = ui.share.diagnostics
+        val diagItems = listOf(
+            R.string.diag_local_net_perm to diag.localNetworkPermissionGranted,
+            R.string.diag_vpn to diag.vpnDetected,
+            R.string.diag_http_port to diag.httpPortUp,
+            R.string.diag_socks_port to diag.socksPortUp,
+            R.string.diag_pac_port to diag.pacPortUp,
+            R.string.diag_mdns to diag.mdnsPublished,
+        )
+        gridSection(
+            items = diagItems,
+            collapsedRows = 2,
+            expanded = diagExpanded,
+            onToggle = { diagExpanded = !diagExpanded },
+        ) { mod, item ->
+            val (label, ok) = item
+            val c = if (ok) StatusColors.good() else StatusColors.bad()
+            GridCell(
+                modifier = mod,
+                iconText = if (ok) "✓" else "✗",
+                iconBg = c.copy(alpha = 0.18f),
+                iconColor = c,
+                name = stringResource(label),
+                value = stringResource(if (ok) R.string.diag_ok else R.string.diag_fail),
+                valueColor = c,
+            )
+        }
+
         // —— 服务延迟 ——
+        item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.monitor_latency), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -166,10 +198,10 @@ fun MonitorScreen(
                 )
             }
         }
-        // 延迟网格：最多 3 排（12 个），超出可展开。
+        // 延迟网格：按延迟升序（超时排末尾），默认 2 排，超出可展开。
         gridSection(
-            items = latency,
-            collapsedRows = 3,
+            items = latency.sortedBy { it.millis ?: Long.MAX_VALUE },
+            collapsedRows = 2,
             expanded = latencyExpanded,
             onToggle = { latencyExpanded = !latencyExpanded },
         ) { mod, r ->
@@ -196,10 +228,10 @@ fun MonitorScreen(
                 )
             }
         } else {
-            // 客户端网格：最多 4 排（16 个），超出可展开。
+            // 客户端网格：默认 1 排（4 个），超出可展开。
             gridSection(
                 items = ui.share.clients,
-                collapsedRows = 4,
+                collapsedRows = 1,
                 expanded = clientsExpanded,
                 onToggle = { clientsExpanded = !clientsExpanded },
             ) { mod, c ->
@@ -229,10 +261,10 @@ fun MonitorScreen(
                 )
             }
         } else {
-            // 域名网格：最多 4 排（16 个），超出可展开。
+            // 域名网格：按最近转发时间降序，默认 1 排（4 个），超出可展开。
             gridSection(
-                items = ui.share.topDomains,
-                collapsedRows = 4,
+                items = ui.share.topDomains.sortedByDescending { it.lastSeenAtEpochMs },
+                collapsedRows = 1,
                 expanded = domainsExpanded,
                 onToggle = { domainsExpanded = !domainsExpanded },
             ) { mod, d ->

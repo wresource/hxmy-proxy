@@ -27,8 +27,8 @@ class MainUiTest {
     @Test
     fun bottomNavTabsShown() {
         rule.onNodeWithTag("nav_dashboard").assertIsDisplayed()
-        rule.onNodeWithTag("nav_interfaces").assertIsDisplayed()
-        rule.onNodeWithTag("nav_diagnostics").assertIsDisplayed()
+        rule.onNodeWithTag("nav_monitor").assertIsDisplayed()
+        rule.onNodeWithTag("nav_rules").assertIsDisplayed()
         rule.onNodeWithTag("nav_settings").assertIsDisplayed()
     }
 
