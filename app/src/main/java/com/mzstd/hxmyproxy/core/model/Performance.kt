@@ -9,10 +9,10 @@ data class ConnectionLimits(
     val maxGlobalConnections: Int = 256,
     /** 单台客户端的连接数上限。 */
     val maxPerClientConnections: Int = 128,
-    /** relay 搬字节并行度，映射到 relay 专用 limitedParallelism(N)。每连接双向各占 1，故约 N/2 条连接可同时全速搬字节；握手/建连已分到独立 acceptDispatcher，不占此额度。 */
+    /** relay 搬字节并行度 = **可同时全速搬字节的连接数**。引擎层按 2×N 开槽（每连接双向各占 1 槽）；握手/建连走独立 acceptDispatcher，不占此额度。视频多并行分段靠这个并发。 */
     val relayParallelism: Int = 32,
-    /** 单连接 relay 缓冲（字节）。 */
-    val relayBufferBytes: Int = 32 * 1024,
+    /** 单连接 relay 缓冲（字节）。越大→单连接吞吐越高、syscall 越少（视频/大文件友好）。 */
+    val relayBufferBytes: Int = 64 * 1024,
     /** 无数据空闲多久断开（秒）。 */
     val idleTimeoutSeconds: Int = 300,
     /** 域名流量统计最多跟踪多少个域名（Top-N + "(其他)" 兜底）；防统计内存无界。 */
@@ -47,9 +47,9 @@ enum class PerformancePreset {
     /** 预设对应的默认上限；CUSTOM 返回均衡档作为起点。 */
     fun toLimits(): ConnectionLimits = when (this) {
         BATTERY -> ConnectionLimits(64, 32, 16, 16 * 1024, 300)
-        BALANCED -> ConnectionLimits(256, 128, 32, 32 * 1024, 300)
-        HIGH_THROUGHPUT -> ConnectionLimits(512, 256, 64, 64 * 1024, 300)
-        CUSTOM -> ConnectionLimits(256, 128, 32, 32 * 1024, 300)
+        BALANCED -> ConnectionLimits(256, 128, 32, 64 * 1024, 300)
+        HIGH_THROUGHPUT -> ConnectionLimits(512, 256, 64, 128 * 1024, 300)
+        CUSTOM -> ConnectionLimits(256, 128, 32, 64 * 1024, 300)
     }
 
     companion object {

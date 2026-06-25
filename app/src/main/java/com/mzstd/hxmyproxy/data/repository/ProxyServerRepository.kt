@@ -198,9 +198,10 @@ class ProxyServerRepository @Inject constructor(
         // 两个派发器分工，解除"建连排在搬字节后面"的队头阻塞：
         //  - acceptDispatcher：每连接的 handle（握手/读头/建连）。上限=最大连接数，
         //    保证新连接的建连不被 relay 搬字节占满线程而饿死。
-        //  - relayDispatcher：relay 双向搬字节，受 relayParallelism 限（控制吞吐线程预算）。
+        //  - relayDispatcher：relay 双向搬字节。每连接双向各占 1 槽，故容量 = 2×relayParallelism，
+        //    使「并行度」= 可同时全速搬字节的连接数（视频多并行分段靠这个并发，别被掐到 N/2）。
         val acceptDispatcher = Dispatchers.IO.limitedParallelism(s.limits.maxGlobalConnections)
-        val relayDispatcher = Dispatchers.IO.limitedParallelism(s.limits.relayParallelism)
+        val relayDispatcher = Dispatchers.IO.limitedParallelism(2 * s.limits.relayParallelism)
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
             HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink)
