@@ -117,6 +117,9 @@ class ProxyServerRepository @Inject constructor(
 
         connectivityObserver.start()
         session.launch { connectivityObserver.networkChanges.collect { refresh() } }
+        // mDNS 注册是异步的（系统 Probing ~1s）：注册真正完成/失败后刷新诊断，
+        // 避免 mdnsPublished 停在 publish 那一刻的「未发布」假象（真机日志证实服务其实注册成功）。
+        session.launch { mdnsPublisher.registeredName.collect { refresh() } }
         session.launch {
             connectivityObserver.vpnState.collect { vpn ->
                 _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
