@@ -75,4 +75,16 @@ class RuleRepositoryTest {
         assertEquals(RuleAction.REJECT, engine.decide("badsite.test"))
         assertEquals(RuleAction.PROXY, engine.decide("disabled.test"))   // 禁用集不生效
     }
+
+    @Test fun builtinOverrideReplacesAsset() {
+        val engine = RuleEngine()
+        RuleRepository(context, engine).rebuild(
+            ProxySettings(
+                enabledRuleGroups = setOf("app-neteasemusic"),
+                ruleSetOverrides = mapOf("app-neteasemusic" to listOf("custom.example")),
+            ),
+        )
+        assertEquals(RuleAction.DIRECT, engine.decide("custom.example"))  // 覆盖版生效
+        assertEquals(RuleAction.PROXY, engine.decide("music.163.com"))    // 原 assets 被覆盖、不再生效
+    }
 }

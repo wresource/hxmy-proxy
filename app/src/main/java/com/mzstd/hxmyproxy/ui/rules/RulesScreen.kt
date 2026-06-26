@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy.ui.rules
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,8 +23,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.ui.MainUiState
@@ -84,20 +94,20 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            RuleCatalog.appGroups.forEach { group ->
-                GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
+            val descs = RuleCatalog.appGroups.map { g ->
+                val (label, c) = groupVisual(g.id)
+                RuleCellDesc(g.titleRes, null, label, c, g.id in s.enabledRuleGroups) {
+                    viewModel.toggleRuleGroup(g.id, g.id !in s.enabledRuleGroups)
+                }
+            } + s.userRuleSets.map { set ->
+                RuleCellDesc(null, set.name, set.name.take(1).ifEmpty { "·" }, null, set.enabled) {
+                    viewModel.toggleRuleSet(set.id, !set.enabled)
+                }
             }
-            s.userRuleSets.forEach { set ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(set.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            stringResource(R.string.ruleset_domains_count, set.domains.size),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) })
+            descs.chunked(4).forEach { row ->
+                Row(Modifier.fillMaxWidth()) {
+                    row.forEach { d -> RuleSetGridCell(Modifier.weight(1f), d) }
+                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
             OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
@@ -134,6 +144,45 @@ private fun GroupSwitchRow(
             checked = group.id in enabled,
             onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
         )
+    }
+}
+
+/** 规则集网格单元描述（非 composable，避免在 map 里调 composable）。 */
+private class RuleCellDesc(
+    val titleRes: Int?, val titleStr: String?, val label: String,
+    val colorLong: Long?, val enabled: Boolean, val onToggle: () -> Unit,
+)
+
+/** 内置 App 集的图标字 + 品牌色（首字占位、避免商标；真 logo 可后续接入）。 */
+private fun groupVisual(id: String): Pair<String, Long?> = when (id) {
+    "app-neteasemusic" -> "网" to 0xFFC20C0CL
+    "app-bilibili" -> "B" to 0xFFFB7299L
+    "app-wechat" -> "微" to 0xFF07C160L
+    else -> (id.firstOrNull()?.uppercase() ?: "?") to null
+}
+
+/** 规则集圆形图标网格单元：圆形(开=品牌色 / 关=灰) + 名称；点击切换开关。 */
+@Composable
+private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
+    val name = d.titleRes?.let { stringResource(it) } ?: d.titleStr ?: ""
+    val brand = d.colorLong?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
+    Column(
+        modifier.clickable { d.onToggle() }.padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(44.dp).clip(CircleShape)
+                .background(if (d.enabled) brand else MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                d.label,
+                color = if (d.enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        Spacer(Modifier.size(4.dp))
+        Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
     }
 }
 

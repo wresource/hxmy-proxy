@@ -22,6 +22,8 @@ data class RuleGroup(
     val titleRes: Int,
     val sourceRes: Int,
     val defaultEnabled: Boolean = false,
+    /** ≤100 行的小集允许多行文本编辑（存覆盖版）；大表（OISD/B站）false，只读 + 导出。 */
+    val editable: Boolean = false,
 )
 
 /** 内置规则组目录。 */
@@ -39,9 +41,9 @@ object RuleCatalog {
     val adGroups: List<RuleGroup> = listOf(ADS_OISD)
 
     // App / 服务规则集（DIRECT：命中域名绕过共享 VPN 走手机真实网络；典型如网易云版权需国内真实 IP）。
-    val APP_NETEASE = RuleGroup("app-neteasemusic", RuleGroupKind.DIRECT, "rules/app-neteasemusic.txt", R.string.rule_app_netease, R.string.rule_app_src, false)
+    val APP_NETEASE = RuleGroup("app-neteasemusic", RuleGroupKind.DIRECT, "rules/app-neteasemusic.txt", R.string.rule_app_netease, R.string.rule_app_src, false, editable = true)
     val APP_BILIBILI = RuleGroup("app-bilibili", RuleGroupKind.DIRECT, "rules/app-bilibili.txt", R.string.rule_app_bilibili, R.string.rule_app_src, false)
-    val APP_WECHAT = RuleGroup("app-wechat", RuleGroupKind.DIRECT, "rules/app-wechat.txt", R.string.rule_app_wechat, R.string.rule_app_src, false)
+    val APP_WECHAT = RuleGroup("app-wechat", RuleGroupKind.DIRECT, "rules/app-wechat.txt", R.string.rule_app_wechat, R.string.rule_app_src, false, editable = true)
 
     /** App / 服务规则集（每服务一个开关）。 */
     val appGroups: List<RuleGroup> = listOf(APP_NETEASE, APP_BILIBILI, APP_WECHAT)

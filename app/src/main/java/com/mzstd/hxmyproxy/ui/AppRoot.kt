@@ -36,6 +36,7 @@ import com.mzstd.hxmyproxy.ui.help.HelpScreen
 import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleSetEditScreen
 import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
 import com.mzstd.hxmyproxy.ui.rules.RulesScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
@@ -103,7 +104,19 @@ fun AppRoot(viewModel: MainViewModel) {
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
                     composable("ruleset_manager") {
-                        RuleSetManagerScreen(ui, viewModel, onBack = { navController.popBackStack() })
+                        RuleSetManagerScreen(
+                            ui, viewModel,
+                            onBack = { navController.popBackStack() },
+                            onEdit = { kind, id -> navController.navigate("ruleset_edit/$kind/$id") },
+                        )
+                    }
+                    composable("ruleset_edit/{kind}/{id}") { entry ->
+                        RuleSetEditScreen(
+                            kind = entry.arguments?.getString("kind") ?: "user",
+                            id = entry.arguments?.getString("id") ?: "",
+                            ui = ui, viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
                 }
             }

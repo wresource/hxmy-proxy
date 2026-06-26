@@ -85,6 +85,14 @@
     <string name="ruleset_edit">Edit</string>
     <string name="create">Create</string>
     <string name="cancel">Cancel</string>
+    <string name="ruleset_save">Save</string>
+    <string name="ruleset_restore_default">Restore default</string>
+    <string name="ruleset_edit_hint">One domain per line. Wildcards supported (example.com matches *.example.com).</string>
+    <string name="ruleset_import">Import</string>
+    <string name="ruleset_export">Export</string>
+    <string name="ruleset_import_append">Append</string>
+    <string name="ruleset_import_replace">Replace</string>
+    <string name="ruleset_import_how">Import %1$d domains — append or replace?</string>
     <string name="rules_add">Add</string>
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
     <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>

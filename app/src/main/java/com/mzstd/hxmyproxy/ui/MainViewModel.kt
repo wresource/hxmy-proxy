@@ -166,6 +166,21 @@ class MainViewModel @Inject constructor(
         })
     }
 
+    /** 批量设置某用户集的域名（多行文本编辑保存）。 */
+    fun setRuleSetDomains(id: String, domains: List<String>) = update {
+        it.copy(userRuleSets = it.userRuleSets.map { s -> if (s.id == id) s.copy(domains = domains) else s })
+    }
+
+    /** 覆盖某内置集的域名（多行文本编辑保存）。 */
+    fun setGroupOverride(groupId: String, domains: List<String>) = update {
+        it.copy(ruleSetOverrides = it.ruleSetOverrides + (groupId to domains))
+    }
+
+    /** 恢复内置集为默认（删除覆盖）。 */
+    fun clearGroupOverride(groupId: String) = update {
+        it.copy(ruleSetOverrides = it.ruleSetOverrides - groupId)
+    }
+
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }
 
     /** 更新认证凭据（密码经 Keystore 加密后持久化）。 */

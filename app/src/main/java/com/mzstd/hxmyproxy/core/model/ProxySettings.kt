@@ -31,6 +31,8 @@ data class ProxySettings(
     val userDirectRules: Set<String> = emptySet(),
     /** 用户自建命名规则集（规则集管理界面创建/编辑）。 */
     val userRuleSets: List<com.mzstd.hxmyproxy.core.rules.UserRuleSet> = emptyList(),
+    /** 内置集的用户覆盖版（groupId → 域名列表）；有覆盖则装载用它、不读 assets。可「恢复默认」删除。 */
+    val ruleSetOverrides: Map<String, List<String>> = emptyMap(),
     /** 自定义规则订阅 URL。 */
     val ruleSubscriptionUrls: Set<String> = emptySet(),
 )

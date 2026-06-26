@@ -85,6 +85,14 @@
     <string name="ruleset_edit">编辑</string>
     <string name="create">创建</string>
     <string name="cancel">取消</string>
+    <string name="ruleset_save">保存</string>
+    <string name="ruleset_restore_default">恢复默认</string>
+    <string name="ruleset_edit_hint">一行一个域名。支持泛域名(example.com 匹配 *.example.com)。</string>
+    <string name="ruleset_import">导入</string>
+    <string name="ruleset_export">导出</string>
+    <string name="ruleset_import_append">追加</string>
+    <string name="ruleset_import_replace">替换</string>
+    <string name="ruleset_import_how">导入 %1$d 个域名 — 追加还是替换?</string>
     <string name="rules_add">添加</string>
     <string name="rules_add_domain">域名(如 example.com)</string>
     <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>

@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
  * 规则集管理：我的规则集（自建、可增删集 + 集内域名，支持泛域名）+ 内置规则集（只读可查看域名 + 开关）。
  */
 @Composable
-fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -> Unit) {
+fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -> Unit, onEdit: (String, String) -> Unit) {
     var showNew by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -79,14 +79,14 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
                 )
             }
         } else {
-            items(ui.settings.userRuleSets, key = { it.id }) { set -> UserRuleSetCard(set, viewModel) }
+            items(ui.settings.userRuleSets, key = { it.id }) { set -> UserRuleSetCard(set, viewModel, onEdit) }
         }
 
         // —— 内置规则集 ——
         item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
         item { Text(stringResource(R.string.ruleset_builtin), style = MaterialTheme.typography.titleMedium) }
         items(RuleCatalog.all, key = { it.id }) { group ->
-            BuiltinGroupCard(group, group.id in ui.settings.enabledRuleGroups, viewModel)
+            BuiltinGroupCard(group, group.id in ui.settings.enabledRuleGroups, viewModel, onEdit)
         }
     }
 
@@ -99,9 +99,7 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
 }
 
 @Composable
-private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel) {
-    var expanded by remember { mutableStateOf(false) }
-    var input by remember { mutableStateOf("") }
+private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel, onEdit: (String, String) -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -116,34 +114,15 @@ private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel) {
                 Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(stringResource(if (expanded) R.string.monitor_collapse else R.string.ruleset_edit))
-                }
+                TextButton(onClick = { onEdit("user", set.id) }) { Text(stringResource(R.string.ruleset_edit)) }
                 TextButton(onClick = { viewModel.deleteRuleSet(set.id) }) { Text(stringResource(R.string.delete)) }
-            }
-            if (expanded) {
-                set.domains.sorted().forEach { d ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(d, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { viewModel.removeDomainFromSet(set.id, d) }) { Text(stringResource(R.string.rules_remove)) }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = input, onValueChange = { input = it }, singleLine = true,
-                        label = { Text(stringResource(R.string.rules_add_domain)) }, modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(onClick = { if (input.isNotBlank()) { viewModel.addDomainToSet(set.id, input); input = "" } }) {
-                        Text(stringResource(R.string.rules_add))
-                    }
-                }
             }
         }
     }
 }
 
 @Composable
-private fun BuiltinGroupCard(group: RuleGroup, enabled: Boolean, viewModel: MainViewModel) {
+private fun BuiltinGroupCard(group: RuleGroup, enabled: Boolean, viewModel: MainViewModel, onEdit: (String, String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -155,8 +134,13 @@ private fun BuiltinGroupCard(group: RuleGroup, enabled: Boolean, viewModel: Main
                 }
                 Switch(checked = enabled, onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) })
             }
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(stringResource(if (expanded) R.string.monitor_collapse else R.string.ruleset_view_domains))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(stringResource(if (expanded) R.string.monitor_collapse else R.string.ruleset_view_domains))
+                }
+                if (group.editable) {
+                    TextButton(onClick = { onEdit("builtin", group.id) }) { Text(stringResource(R.string.ruleset_edit)) }
+                }
             }
             if (expanded) {
                 val preview by produceState<Pair<Int, List<String>>?>(initialValue = null, group.id) {

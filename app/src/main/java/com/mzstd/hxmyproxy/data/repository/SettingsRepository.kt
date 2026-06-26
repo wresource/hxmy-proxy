@@ -69,6 +69,7 @@ class SettingsRepository @Inject constructor(
         val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
         val USER_RULE_SETS = stringPreferencesKey("user_rule_sets")
+        val RULE_OVERRIDES = stringPreferencesKey("rule_set_overrides")
     }
 
     private fun Preferences.toSettings(): ProxySettings {
@@ -99,6 +100,7 @@ class SettingsRepository @Inject constructor(
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
             userRuleSets = decodeRuleSets(this[USER_RULE_SETS]),
+            ruleSetOverrides = decodeOverrides(this[RULE_OVERRIDES]),
             ruleSubscriptionUrls = this[RULE_SUBS] ?: d.ruleSubscriptionUrls,
         )
     }
@@ -126,6 +128,7 @@ class SettingsRepository @Inject constructor(
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT] = userDirectRules
         prefs[USER_RULE_SETS] = encodeRuleSets(userRuleSets)
+        prefs[RULE_OVERRIDES] = encodeOverrides(ruleSetOverrides)
         prefs[RULE_SUBS] = ruleSubscriptionUrls
     }
 
@@ -158,6 +161,25 @@ class SettingsRepository @Inject constructor(
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    private fun encodeOverrides(m: Map<String, List<String>>): String {
+        val o = org.json.JSONObject()
+        m.forEach { (k, v) -> o.put(k, org.json.JSONArray(v)) }
+        return o.toString()
+    }
+
+    private fun decodeOverrides(json: String?): Map<String, List<String>> {
+        if (json.isNullOrBlank()) return emptyMap()
+        return try {
+            val o = org.json.JSONObject(json)
+            o.keys().asSequence().associateWith { k ->
+                val a = o.getJSONArray(k)
+                (0 until a.length()).map { a.getString(it) }
+            }
+        } catch (e: Exception) {
+            emptyMap()
         }
     }
 }

@@ -35,7 +35,9 @@ class RuleRepository @Inject constructor(
                 RuleGroupKind.DIRECT -> direct
                 RuleGroupKind.PROXY -> proxy
             }
-            loadAsset(group.assetPath, into)
+            val override = settings.ruleSetOverrides[id]
+            if (override != null) override.forEach { into.addSuffix(it) }
+            else loadAsset(group.assetPath, into)
         }
         val userDirect = DomainSuffixSet()
         val userReject = DomainSuffixSet()
