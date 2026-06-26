@@ -76,6 +76,8 @@ class ProxyServerRepository @Inject constructor(
     private val connector = OutboundConnector(egressGuard, underlyingNetworkProvider = underlyingNetworkProvider)
     // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down。
     private val accounting = TrafficAccounting(globalSink = trafficSink)
+    /** 规则重建请求（CONFLATED：只保留最新设置）。串行 worker 消费，杜绝快速开关导致多个 rebuild 乱序覆盖、状态残留。 */
+    private val rebuildRequests = kotlinx.coroutines.channels.Channel<ProxySettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     @Volatile private var currentSettings = ProxySettings()
     @Volatile private var running = false
@@ -129,11 +131,16 @@ class ProxyServerRepository @Inject constructor(
                 _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
             }
         }
+        // 规则重建 worker：串行消费 + CONFLATED 取最新设置 —— 快速开关（如广告表开/关）时只会重建到最终状态，
+        // 不会出现「关掉后慢的『开』重建后完成、把规则覆盖回开状态」的残留 bug。
+        session.launch(Dispatchers.IO) {
+            for (s in rebuildRequests) ruleRepository.rebuild(s)
+        }
         session.launch {
             settingsRepository.settings.collect { ns ->
                 currentSettings = ns
                 applyTunables(ns)
-                session.launch(Dispatchers.IO) { ruleRepository.rebuild(ns) }
+                rebuildRequests.trySend(ns)
                 if (running && serverKey(ns) != lastServerKey) {
                     // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
                     stopServers()
