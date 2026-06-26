@@ -154,7 +154,7 @@ class SettingsRepository @Inject constructor(
                 UserRuleSet(
                     id = o.getString("id"),
                     name = o.optString("name"),
-                    action = runCatching { RuleAction.valueOf(o.optString("action")) }.getOrDefault(RuleAction.DIRECT),
+                    action = runCatching { RuleAction.valueOf(o.optString("action")) }.getOrDefault(RuleAction.PROXY),
                     domains = if (d == null) emptyList() else (0 until d.length()).map { idx -> d.getString(idx) },
                     enabled = o.optBoolean("enabled", true),
                 )

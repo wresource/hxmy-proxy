@@ -127,7 +127,8 @@ class MainViewModel @Inject constructor(
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
         val d = domain.trim().lowercase().removePrefix("*.")
-        if (d.isEmpty()) it else it.copy(userDirectRules = it.userDirectRules + d)
+        // 必须含点：拒绝单段(如 "sb"/"com")整段 TLD 绕过 VPN，防误杀/误放行。
+        if (!d.contains('.')) it else it.copy(userDirectRules = it.userDirectRules + d)
     }
 
     fun removeUserDirectRule(domain: String) = update {
@@ -154,7 +155,7 @@ class MainViewModel @Inject constructor(
 
     fun addDomainToSet(id: String, domain: String) = update {
         val d = domain.trim().lowercase().removePrefix("*.")
-        if (d.isEmpty()) it
+        if (!d.contains('.')) it
         else it.copy(userRuleSets = it.userRuleSets.map { s ->
             if (s.id == id && d !in s.domains) s.copy(domains = s.domains + d) else s
         })

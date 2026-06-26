@@ -82,8 +82,8 @@ class HttpProxyServer(
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
         tracker?.bindHost(hp.first)
         val action = ruleEngine?.decide(hp.first)
+        Log.i("hxmyproxy", "RULE CONNECT ${hp.first} -> ${action ?: RuleAction.PROXY}")
         if (action == RuleAction.REJECT) {
-            Log.i("hxmyproxy", "REJECT CONNECT ${hp.first}")
             writeStatus(output, 403, "Blocked"); return
         }
         val upstream = try {
@@ -124,8 +124,8 @@ class HttpProxyServer(
 
         tracker?.bindHost(host)
         val action = ruleEngine?.decide(host)
+        Log.i("hxmyproxy", "RULE HTTP $host -> ${action ?: RuleAction.PROXY}")
         if (action == RuleAction.REJECT) {
-            Log.i("hxmyproxy", "REJECT HTTP $host")
             writeStatus(output, 403, "Blocked"); return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
