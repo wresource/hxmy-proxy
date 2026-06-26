@@ -16,6 +16,7 @@ class RuleEngine {
     /** 一组域名集合的不可变快照。未启用的组传空集（空集 matches 恒 false）即可。 */
     data class Snapshot(
         val userDirect: DomainSuffixSet = DomainSuffixSet(),
+        val userReject: DomainSuffixSet = DomainSuffixSet(),
         val reject: DomainSuffixSet = DomainSuffixSet(),
         val direct: DomainSuffixSet = DomainSuffixSet(),
         val proxy: DomainSuffixSet = DomainSuffixSet(),
@@ -33,10 +34,11 @@ class RuleEngine {
      */
     fun decide(host: String): RuleAction {
         val s = snapshot
-        if (s.userDirect.matches(host)) return RuleAction.DIRECT  // 用户白名单最高优先，防误杀
-        if (s.reject.matches(host)) return RuleAction.REJECT      // 广告拦截
-        if (s.direct.matches(host)) return RuleAction.DIRECT      // 国内 / 局域网 / App 直连
-        if (s.proxy.matches(host)) return RuleAction.PROXY        // 海外 / App 代理
+        if (s.userDirect.matches(host)) return RuleAction.DIRECT  // 用户白名单/直连集最高优先，防误杀
+        if (s.userReject.matches(host)) return RuleAction.REJECT  // 用户拦截集
+        if (s.reject.matches(host)) return RuleAction.REJECT      // 内置广告拦截
+        if (s.direct.matches(host)) return RuleAction.DIRECT      // 内置 App/服务直连
+        if (s.proxy.matches(host)) return RuleAction.PROXY        // 内置代理
         return RuleAction.PROXY                                    // 兜底：其余走代理
     }
 }

@@ -7,6 +7,8 @@ import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -53,6 +55,33 @@ class SettingsRepositoryInstrumentedTest {
             assertEquals(2, s.selectedInterfaceIds.size)
         } finally {
             repo.update { ProxySettings() } // 还原默认，避免污染 App 状态
+        }
+    }
+
+    @Test
+    fun userRuleSetsRoundTrip() = runBlocking {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val repo = SettingsRepository(ctx)
+        try {
+            repo.update {
+                it.copy(
+                    userRuleSets = listOf(
+                        UserRuleSet("a", "我的直连", RuleAction.DIRECT, listOf("music.163.com", "example.com")),
+                        UserRuleSet("b", "我的拦截", RuleAction.REJECT, listOf("ads.test"), enabled = false),
+                    ),
+                )
+            }
+            val s = repo.settings.first()
+            assertEquals(2, s.userRuleSets.size)
+            val direct = s.userRuleSets.first { it.id == "a" }
+            assertEquals("我的直连", direct.name)
+            assertEquals(RuleAction.DIRECT, direct.action)
+            assertEquals(listOf("music.163.com", "example.com"), direct.domains)
+            val reject = s.userRuleSets.first { it.id == "b" }
+            assertEquals(RuleAction.REJECT, reject.action)
+            assertEquals(false, reject.enabled)
+        } finally {
+            repo.update { ProxySettings() }
         }
     }
 }

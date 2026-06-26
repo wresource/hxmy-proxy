@@ -134,6 +134,38 @@ class MainViewModel @Inject constructor(
         it.copy(userDirectRules = it.userDirectRules - domain)
     }
 
+    // —— 用户自建规则集（规则集管理界面）——
+    fun addRuleSet(name: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction) = update {
+        val set = com.mzstd.hxmyproxy.core.rules.UserRuleSet(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.trim().ifEmpty { "·" },
+            action = action,
+        )
+        it.copy(userRuleSets = it.userRuleSets + set)
+    }
+
+    fun deleteRuleSet(id: String) = update {
+        it.copy(userRuleSets = it.userRuleSets.filterNot { s -> s.id == id })
+    }
+
+    fun toggleRuleSet(id: String, enabled: Boolean) = update {
+        it.copy(userRuleSets = it.userRuleSets.map { s -> if (s.id == id) s.copy(enabled = enabled) else s })
+    }
+
+    fun addDomainToSet(id: String, domain: String) = update {
+        val d = domain.trim().lowercase().removePrefix("*.")
+        if (d.isEmpty()) it
+        else it.copy(userRuleSets = it.userRuleSets.map { s ->
+            if (s.id == id && d !in s.domains) s.copy(domains = s.domains + d) else s
+        })
+    }
+
+    fun removeDomainFromSet(id: String, domain: String) = update {
+        it.copy(userRuleSets = it.userRuleSets.map { s ->
+            if (s.id == id) s.copy(domains = s.domains - domain) else s
+        })
+    }
+
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }
 
     /** 更新认证凭据（密码经 Keystore 加密后持久化）。 */

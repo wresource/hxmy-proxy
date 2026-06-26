@@ -36,6 +36,7 @@ import com.mzstd.hxmyproxy.ui.help.HelpScreen
 import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
 import com.mzstd.hxmyproxy.ui.rules.RulesScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
@@ -77,7 +78,9 @@ fun AppRoot(viewModel: MainViewModel) {
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 ) {
                     composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
-                    composable(Dest.Rules.route) { RulesScreen(ui, viewModel) }
+                    composable(Dest.Rules.route) {
+                        RulesScreen(ui, viewModel, onManage = { navController.navigate("ruleset_manager") })
+                    }
                     composable(Dest.Monitor.route) {
                         MonitorScreen(
                             ui,
@@ -99,6 +102,9 @@ fun AppRoot(viewModel: MainViewModel) {
                         )
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
+                    composable("ruleset_manager") {
+                        RuleSetManagerScreen(ui, viewModel, onBack = { navController.popBackStack() })
+                    }
                 }
             }
         }

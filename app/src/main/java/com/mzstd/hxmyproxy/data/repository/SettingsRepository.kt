@@ -14,6 +14,8 @@ import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -66,6 +68,7 @@ class SettingsRepository @Inject constructor(
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
         val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
+        val USER_RULE_SETS = stringPreferencesKey("user_rule_sets")
     }
 
     private fun Preferences.toSettings(): ProxySettings {
@@ -95,6 +98,7 @@ class SettingsRepository @Inject constructor(
             ruleEngineEnabled = this[RULE_ENABLED] ?: d.ruleEngineEnabled,
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
+            userRuleSets = decodeRuleSets(this[USER_RULE_SETS]),
             ruleSubscriptionUrls = this[RULE_SUBS] ?: d.ruleSubscriptionUrls,
         )
     }
@@ -121,6 +125,39 @@ class SettingsRepository @Inject constructor(
         prefs[RULE_ENABLED] = ruleEngineEnabled
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT] = userDirectRules
+        prefs[USER_RULE_SETS] = encodeRuleSets(userRuleSets)
         prefs[RULE_SUBS] = ruleSubscriptionUrls
+    }
+
+    private fun encodeRuleSets(sets: List<UserRuleSet>): String {
+        val arr = org.json.JSONArray()
+        sets.forEach { s ->
+            arr.put(
+                org.json.JSONObject()
+                    .put("id", s.id).put("name", s.name).put("action", s.action.name)
+                    .put("enabled", s.enabled).put("domains", org.json.JSONArray(s.domains)),
+            )
+        }
+        return arr.toString()
+    }
+
+    private fun decodeRuleSets(json: String?): List<UserRuleSet> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                val d = o.optJSONArray("domains")
+                UserRuleSet(
+                    id = o.getString("id"),
+                    name = o.optString("name"),
+                    action = runCatching { RuleAction.valueOf(o.optString("action")) }.getOrDefault(RuleAction.DIRECT),
+                    domains = if (d == null) emptyList() else (0 until d.length()).map { idx -> d.getString(idx) },
+                    enabled = o.optBoolean("enabled", true),
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }

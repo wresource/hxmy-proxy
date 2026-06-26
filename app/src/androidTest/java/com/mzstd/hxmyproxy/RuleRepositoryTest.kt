@@ -59,4 +59,20 @@ class RuleRepositoryTest {
         assertEquals(RuleAction.DIRECT, engine.decide("api.iplay.163.com"))
         assertEquals(RuleAction.PROXY, engine.decide("example.com"))
     }
+
+    @Test fun userRuleSetDirectAndReject() {
+        val engine = RuleEngine()
+        RuleRepository(context, engine).rebuild(
+            ProxySettings(
+                userRuleSets = listOf(
+                    com.mzstd.hxmyproxy.core.rules.UserRuleSet("1", "direct", RuleAction.DIRECT, listOf("example.com")),
+                    com.mzstd.hxmyproxy.core.rules.UserRuleSet("2", "reject", RuleAction.REJECT, listOf("badsite.test")),
+                    com.mzstd.hxmyproxy.core.rules.UserRuleSet("3", "off", RuleAction.DIRECT, listOf("disabled.test"), enabled = false),
+                ),
+            ),
+        )
+        assertEquals(RuleAction.DIRECT, engine.decide("a.example.com"))  // 泛域名后缀匹配
+        assertEquals(RuleAction.REJECT, engine.decide("badsite.test"))
+        assertEquals(RuleAction.PROXY, engine.decide("disabled.test"))   // 禁用集不生效
+    }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.rules.DomainSuffixSet
+import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.rules.RuleGroupKind
@@ -36,13 +37,22 @@ class RuleRepository @Inject constructor(
             }
             loadAsset(group.assetPath, into)
         }
-        val userDirect = DomainSuffixSet().apply {
-            settings.userDirectRules.forEach { addSuffix(it) }
+        val userDirect = DomainSuffixSet()
+        val userReject = DomainSuffixSet()
+        // 第一模块快速白名单 → 直连
+        settings.userDirectRules.forEach { userDirect.addSuffix(it) }
+        // 用户自建命名集（按动作进 direct/reject;优先级高于内置）
+        settings.userRuleSets.filter { it.enabled }.forEach { set ->
+            val into = if (set.action == RuleAction.REJECT) userReject else userDirect
+            set.domains.forEach { into.addSuffix(it) }
         }
         ruleEngine.update(
-            RuleEngine.Snapshot(userDirect = userDirect, reject = reject, direct = direct, proxy = proxy),
+            RuleEngine.Snapshot(
+                userDirect = userDirect, userReject = userReject,
+                reject = reject, direct = direct, proxy = proxy,
+            ),
         )
-        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} user=${userDirect.size}")
+        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size}")
     }
 
     private fun loadAsset(path: String, into: DomainSuffixSet) {
@@ -58,4 +68,27 @@ class RuleRepository @Inject constructor(
             Log.w("hxmyproxy", "load rule asset $path failed: ${e.message}")
         }
     }
+
+    /** 读 assets 清单供 UI 预览：返回总条数 + 前 [limit] 条（大表如 OISD 不全量进 UI）。 */
+    fun groupPreview(assetPath: String, limit: Int = 30): GroupPreview {
+        var total = 0
+        val sample = ArrayList<String>(limit)
+        try {
+            context.assets.open(assetPath).use { raw ->
+                val stream = if (assetPath.endsWith(".gz")) GZIPInputStream(raw) else raw
+                stream.bufferedReader().forEachLine { line ->
+                    val d = line.trim()
+                    if (d.isNotEmpty() && d[0] != '#') {
+                        total++
+                        if (sample.size < limit) sample.add(d)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("hxmyproxy", "preview $assetPath failed: ${e.message}")
+        }
+        return GroupPreview(total, sample)
+    }
+
+    data class GroupPreview(val total: Int, val sample: List<String>)
 }

@@ -36,7 +36,7 @@ import com.mzstd.hxmyproxy.ui.MainViewModel
  * 3. 广告拦截：每个表一个开关 + 用户白名单覆盖（OISD small 默认关）。
  */
 @Composable
-fun RulesScreen(ui: MainUiState, viewModel: MainViewModel) {
+fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit) {
     val s = ui.settings
     Column(
         modifier = Modifier
@@ -77,7 +77,7 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel) {
             }
         }
 
-        // —— ② App / 服务规则集（每服务一个开关，DIRECT 出口分流：绕过共享 VPN）——
+        // —— ② App / 服务规则集 + 自建集（每集一个开关；管理入口可增删集/集内域名）——
         SectionCard(stringResource(R.string.rules_module_apps)) {
             Text(
                 stringResource(R.string.rules_user_direct_hint),
@@ -86,6 +86,22 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel) {
             )
             RuleCatalog.appGroups.forEach { group ->
                 GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
+            }
+            s.userRuleSets.forEach { set ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(set.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stringResource(R.string.ruleset_domains_count, set.domains.size),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) })
+                }
+            }
+            OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.rules_manage))
             }
         }
 
