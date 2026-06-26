@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.ui.MainUiState
@@ -51,6 +57,9 @@ import com.mzstd.hxmyproxy.ui.MainViewModel
 @Composable
 fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit) {
     val s = ui.settings
+    val history by viewModel.domainHistory.collectAsStateWithLifecycle()
+    var showHistory by remember { mutableStateOf(false) }
+    var listExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -73,8 +82,13 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
             }
         }
 
-        // —— ① IP / 域名白名单（直连，出口分流绕过共享 VPN）——
-        SectionCard(stringResource(R.string.rules_module_list)) {
+        // —— ① IP / 域名白名单（直连，出口分流绕过共享 VPN；整体开关 + 从历史添加 + 超 2 条折叠）——
+        SectionCard(
+            stringResource(R.string.rules_module_list),
+            trailing = {
+                Switch(checked = s.userDirectEnabled, onCheckedChange = { viewModel.toggleUserDirectEnabled(it) })
+            },
+        ) {
             Text(
                 stringResource(R.string.rules_user_direct_hint),
                 style = MaterialTheme.typography.bodySmall,
@@ -93,12 +107,25 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                     if (input.isNotBlank()) { viewModel.addUserDirectRule(input); input = "" }
                 }) { Text(stringResource(R.string.rules_add)) }
             }
-            s.userDirectRules.sorted().forEach { domain ->
+            OutlinedButton(onClick = { showHistory = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.rules_add_from_history))
+            }
+            val rules = s.userDirectRules.sorted()
+            val shownRules = if (listExpanded) rules else rules.take(2)
+            shownRules.forEach { domain ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(domain, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     OutlinedButton(onClick = { viewModel.removeUserDirectRule(domain) }) {
                         Text(stringResource(R.string.rules_remove))
                     }
+                }
+            }
+            if (rules.size > 2) {
+                TextButton(onClick = { listExpanded = !listExpanded }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        if (listExpanded) stringResource(R.string.monitor_collapse)
+                        else stringResource(R.string.monitor_expand, rules.size),
+                    )
                 }
             }
         }
@@ -136,6 +163,14 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
             RuleCatalog.adGroups.forEach { group ->
                 GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
             }
+        }
+
+        if (showHistory) {
+            HistoryAddDialog(
+                history = history.filter { it !in s.userDirectRules }.sorted(),
+                onAdd = { viewModel.addUserDirectRule(it) },
+                onDismiss = { showHistory = false },
+            )
         }
     }
 }
@@ -204,11 +239,41 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
+private fun SectionCard(title: String, trailing: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                trailing()
+            }
             content()
         }
     }
+}
+
+/** 「从历史添加」对话框：列出访问过的域名(已在白名单的排除)，点一条加入白名单，可连点多条。 */
+@Composable
+private fun HistoryAddDialog(history: List<String>, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.setup_close)) } },
+        title = { Text(stringResource(R.string.rules_add_from_history)) },
+        text = {
+            if (history.isEmpty()) {
+                Text(stringResource(R.string.rules_history_empty), style = MaterialTheme.typography.bodyMedium)
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    items(history) { h ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onAdd(h) }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(h, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Text("+", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        },
+    )
 }

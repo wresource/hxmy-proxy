@@ -58,6 +58,10 @@ class MainViewModel @Inject constructor(
             !done || replay
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** 访问过的域名历史（持久），供规则页「从历史添加」白名单。 */
+    val domainHistory: StateFlow<Set<String>> =
+        settingsRepository.domainHistory.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     /** 走完/跳过引导：清「重看」请求并持久化完成标志。 */
     fun completeOnboarding() {
         replayRequested.value = false
@@ -123,6 +127,9 @@ class MainViewModel @Inject constructor(
     fun toggleRuleGroup(id: String, on: Boolean) = update {
         it.copy(enabledRuleGroups = if (on) it.enabledRuleGroups + id else it.enabledRuleGroups - id)
     }
+
+    /** IP/域名白名单整体开关（关掉则整组临时失效、数据保留）。 */
+    fun toggleUserDirectEnabled(on: Boolean) = update { it.copy(userDirectEnabled = on) }
 
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {

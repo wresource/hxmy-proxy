@@ -44,6 +44,17 @@ class SettingsRepository @Inject constructor(
         ds.edit { it[ONBOARDING_DONE] = done }
     }
 
+    /** 经 hxmy 访问过的域名历史（持久，供规则页「从历史添加」白名单）。独立 key，不进 ProxySettings、不触发规则重建。 */
+    val domainHistory: Flow<Set<String>> = ds.data.map { it[DOMAIN_HISTORY] ?: emptySet() }
+
+    suspend fun addDomainHistory(hosts: Collection<String>) {
+        if (hosts.isEmpty()) return
+        ds.edit { p ->
+            val merged = (p[DOMAIN_HISTORY] ?: emptySet()) + hosts.map { it.lowercase() }
+            p[DOMAIN_HISTORY] = if (merged.size > 300) merged.toList().takeLast(300).toSet() else merged
+        }
+    }
+
     private companion object {
         val HTTP_ENABLED = booleanPreferencesKey("http_enabled")
         val SOCKS_ENABLED = booleanPreferencesKey("socks_enabled")
@@ -70,6 +81,8 @@ class SettingsRepository @Inject constructor(
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
         val USER_RULE_SETS = stringPreferencesKey("user_rule_sets")
         val RULE_OVERRIDES = stringPreferencesKey("rule_set_overrides")
+        val USER_DIRECT_ENABLED = booleanPreferencesKey("user_direct_enabled")
+        val DOMAIN_HISTORY = stringSetPreferencesKey("domain_history")
     }
 
     private fun Preferences.toSettings(): ProxySettings {
@@ -98,6 +111,7 @@ class SettingsRepository @Inject constructor(
             language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
             ruleEngineEnabled = this[RULE_ENABLED] ?: d.ruleEngineEnabled,
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
+            userDirectEnabled = this[USER_DIRECT_ENABLED] ?: d.userDirectEnabled,
             userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
             userRuleSets = decodeRuleSets(this[USER_RULE_SETS]),
             ruleSetOverrides = decodeOverrides(this[RULE_OVERRIDES]),
@@ -126,6 +140,7 @@ class SettingsRepository @Inject constructor(
         prefs[LANGUAGE] = language.name
         prefs[RULE_ENABLED] = ruleEngineEnabled
         prefs[RULE_GROUPS] = enabledRuleGroups
+        prefs[USER_DIRECT_ENABLED] = userDirectEnabled
         prefs[USER_DIRECT] = userDirectRules
         prefs[USER_RULE_SETS] = encodeRuleSets(userRuleSets)
         prefs[RULE_OVERRIDES] = encodeOverrides(ruleSetOverrides)

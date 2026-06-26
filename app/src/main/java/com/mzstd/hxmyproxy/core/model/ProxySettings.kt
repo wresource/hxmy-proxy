@@ -27,6 +27,8 @@ data class ProxySettings(
     val ruleEngineEnabled: Boolean = false,
     /** 已启用的内置规则组 ID（见 core/rules）；广告组默认不在内（OISD small 默认关）。 */
     val enabledRuleGroups: Set<String> = emptySet(),
+    /** IP/域名白名单整体开关；关掉则整组临时失效（域名走默认 PROXY），列表数据保留。 */
+    val userDirectEnabled: Boolean = true,
     /** 用户自定义直连白名单（域名后缀；优先级最高，防误杀）。规则页第一模块的快速白名单。 */
     val userDirectRules: Set<String> = emptySet(),
     /** 用户自建命名规则集（规则集管理界面创建/编辑）。 */

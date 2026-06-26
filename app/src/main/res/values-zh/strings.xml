@@ -96,6 +96,8 @@
     <string name="lockdown_warning">出口分流可能失效:你的 VPN 开了「阻止无 VPN 连接」,系统会拦掉绕过 VPN 的流量。要让规则的「直连」生效,请到系统 VPN 设置里关闭它。</string>
     <string name="rules_add">添加</string>
     <string name="rules_add_domain">域名(如 example.com)</string>
+    <string name="rules_add_from_history">从历史添加</string>
+    <string name="rules_history_empty">暂无域名历史(开始共享后会记录)</string>
     <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>
     <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
     <string name="rules_remove">移除</string>

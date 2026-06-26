@@ -153,6 +153,7 @@ class ProxyServerRepository @Inject constructor(
         session.launch {
             var lastUp = 0L
             var lastDown = 0L
+            var historyTick = 0
             while (isActive) {
                 delay(1000)
                 val up = totalUp.get()
@@ -164,6 +165,9 @@ class ProxyServerRepository @Inject constructor(
                 val sig = signalProvider.current()
                 accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
                 val snap = accounting.snapshot(TOP_DOMAINS)
+                if (++historyTick % 5 == 0 && snap.topDomains.isNotEmpty()) {
+                    session.launch { settingsRepository.addDomainHistory(snap.topDomains.map { it.host }) }
+                }
                 _state.update {
                     it.copy(
                         activeConnections = registry.activeGlobal,

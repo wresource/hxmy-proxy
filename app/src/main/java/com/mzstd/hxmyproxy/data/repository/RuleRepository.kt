@@ -41,8 +41,8 @@ class RuleRepository @Inject constructor(
         }
         val userDirect = DomainSuffixSet()
         val userReject = DomainSuffixSet()
-        // 第一模块快速白名单 → 直连
-        settings.userDirectRules.forEach { userDirect.addSuffix(it) }
+        // 第一模块快速白名单 → 直连（受整体开关控制；关掉则整组临时失效）
+        if (settings.userDirectEnabled) settings.userDirectRules.forEach { userDirect.addSuffix(it) }
         // 用户自建命名集（按动作进 direct/reject;优先级高于内置）
         settings.userRuleSets.filter { it.enabled }.forEach { set ->
             val into = if (set.action == RuleAction.REJECT) userReject else userDirect
