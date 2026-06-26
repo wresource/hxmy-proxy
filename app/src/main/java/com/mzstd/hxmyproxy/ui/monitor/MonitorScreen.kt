@@ -50,6 +50,23 @@ private fun latencyColor(millis: Long?): Color = when {
     else -> StatusColors.bad()
 }
 
+/** 各监控服务的品牌识别色（公开品牌主色，仅作圆形底色，不含 logo 图形）。 */
+private fun serviceColor(name: String): Long = when (name) {
+    "GitHub" -> 0xFF24292FL
+    "Google" -> 0xFF4285F4L
+    "OpenAI" -> 0xFF10A37FL
+    "Claude" -> 0xFFD97757L
+    "Cloudflare" -> 0xFFF38020L
+    "YouTube" -> 0xFFFF0000L
+    "Bing" -> 0xFF008373L
+    "Wikipedia" -> 0xFF636466L
+    "X" -> 0xFF111111L
+    "npm" -> 0xFFCB3837L
+    "Hugging Face" -> 0xFFFF9D00L
+    "Docker Hub" -> 0xFF2496EDL
+    else -> 0xFF5C6BC0L
+}
+
 @Composable
 private fun fmtBytes(bytes: Long): String =
     android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
@@ -208,8 +225,8 @@ fun MonitorScreen(
             GridCell(
                 modifier = mod,
                 iconText = (r.service.name.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                iconBg = latencyColor(r.millis).copy(alpha = 0.18f),
-                iconColor = latencyColor(r.millis),
+                iconBg = Color(serviceColor(r.service.name)),
+                iconColor = Color.White,
                 name = r.service.name,
                 value = if (r.millis == null) stringResource(R.string.latency_timeout) else "${r.millis} ms",
                 valueColor = latencyColor(r.millis),
