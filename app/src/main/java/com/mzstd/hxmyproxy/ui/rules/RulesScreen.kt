@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -109,12 +111,12 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val descs = RuleCatalog.appGroups.map { g ->
-                val (label, c) = groupVisual(g.id)
-                RuleCellDesc(g.titleRes, null, label, c, g.id in s.enabledRuleGroups) {
+                val (icon, c) = groupVisual(g.id)
+                RuleCellDesc(g.titleRes, null, icon, c, g.id in s.enabledRuleGroups) {
                     viewModel.toggleRuleGroup(g.id, g.id !in s.enabledRuleGroups)
                 }
             } + s.userRuleSets.map { set ->
-                RuleCellDesc(null, set.name, set.name.take(1).ifEmpty { "·" }, null, set.enabled) {
+                RuleCellDesc(null, set.name, R.drawable.ic_rule_label, null, set.enabled) {
                     viewModel.toggleRuleSet(set.id, !set.enabled)
                 }
             }
@@ -163,16 +165,16 @@ private fun GroupSwitchRow(
 
 /** 规则集网格单元描述（非 composable，避免在 map 里调 composable）。 */
 private class RuleCellDesc(
-    val titleRes: Int?, val titleStr: String?, val label: String,
+    val titleRes: Int?, val titleStr: String?, val iconRes: Int,
     val colorLong: Long?, val enabled: Boolean, val onToggle: () -> Unit,
 )
 
-/** 内置 App 集的图标字 + 品牌色（首字占位、避免商标；真 logo 可后续接入）。 */
-private fun groupVisual(id: String): Pair<String, Long?> = when (id) {
-    "app-neteasemusic" -> "网" to 0xFFC20C0CL
-    "app-bilibili" -> "B" to 0xFFFB7299L
-    "app-wechat" -> "微" to 0xFF07C160L
-    else -> (id.firstOrNull()?.uppercase() ?: "?") to null
+/** 内置 App 集的语义图标（Material 开源图标）+ 品牌色。避免商标：用音乐/视频/聊天等通用图标。 */
+private fun groupVisual(id: String): Pair<Int, Long?> = when (id) {
+    "app-neteasemusic" -> R.drawable.ic_rule_music to 0xFFC20C0CL
+    "app-bilibili" -> R.drawable.ic_rule_video to 0xFFFB7299L
+    "app-wechat" -> R.drawable.ic_rule_chat to 0xFF07C160L
+    else -> R.drawable.ic_rule_label to null
 }
 
 /** 规则集圆形图标网格单元：圆形(开=品牌色 / 关=灰) + 名称；点击切换开关。 */
@@ -189,10 +191,11 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
                 .background(if (d.enabled) brand else MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                d.label,
-                color = if (d.enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleMedium,
+            Icon(
+                painterResource(d.iconRes),
+                contentDescription = name,
+                tint = if (d.enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
             )
         }
         Spacer(Modifier.size(4.dp))
