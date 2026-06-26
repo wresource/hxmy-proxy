@@ -138,8 +138,10 @@ class MainViewModel @Inject constructor(
         if (!d.contains('.')) it else it.copy(userDirectRules = it.userDirectRules + d)
     }
 
-    fun removeUserDirectRule(domain: String) = update {
-        it.copy(userDirectRules = it.userDirectRules - domain)
+    fun removeUserDirectRule(domain: String) {
+        update { it.copy(userDirectRules = it.userDirectRules - domain) }
+        // 记入「移除历史」,供「从历史添加」快速加回(只记加过又删的、量小且精准)
+        viewModelScope.launch { settingsRepository.addDomainHistory(listOf(domain)) }
     }
 
     // —— 用户自建规则集（规则集管理界面）——

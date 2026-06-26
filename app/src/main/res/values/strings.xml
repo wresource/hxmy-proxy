@@ -96,8 +96,8 @@
     <string name="lockdown_warning">Split-tunnel may not work: your VPN has \"Block connections without VPN\" on, so the system drops traffic that bypasses the VPN. To make rule \"direct\" routing take effect, turn that off in the system VPN settings.</string>
     <string name="rules_add">Add</string>
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
-    <string name="rules_add_from_history">Add from history</string>
-    <string name="rules_history_empty">No domain history yet (recorded once sharing starts)</string>
+    <string name="rules_add_from_history">Re-add removed</string>
+    <string name="rules_history_empty">No removed domains yet</string>
     <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>
     <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
     <string name="rules_remove">Remove</string>
