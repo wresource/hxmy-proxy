@@ -27,6 +27,7 @@ class SettingsRepositoryInstrumentedTest {
     fun persistsAndMapsSettingsRoundTrip() = runBlocking {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val repo = SettingsRepository(ctx)
+        val original = repo.settings.first()
         try {
             repo.update {
                 it.copy(
@@ -54,7 +55,7 @@ class SettingsRepositoryInstrumentedTest {
             assertTrue(s.selectedInterfaceIds.contains("wlan0/192.168.1.5"))
             assertEquals(2, s.selectedInterfaceIds.size)
         } finally {
-            repo.update { ProxySettings() } // 还原默认，避免污染 App 状态
+            repo.update { original } // 还原默认，避免污染 App 状态
         }
     }
 
@@ -62,6 +63,7 @@ class SettingsRepositoryInstrumentedTest {
     fun userRuleSetsRoundTrip() = runBlocking {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val repo = SettingsRepository(ctx)
+        val original = repo.settings.first()
         try {
             repo.update {
                 it.copy(
@@ -81,7 +83,7 @@ class SettingsRepositoryInstrumentedTest {
             assertEquals(RuleAction.REJECT, reject.action)
             assertEquals(false, reject.enabled)
         } finally {
-            repo.update { ProxySettings() }
+            repo.update { original }
         }
     }
 }
