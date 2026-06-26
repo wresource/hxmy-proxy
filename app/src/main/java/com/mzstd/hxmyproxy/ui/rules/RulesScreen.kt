@@ -77,34 +77,47 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel) {
             }
         }
 
-        // —— ② App / 服务规则集（每服务开关，即将上线）——
+        // —— ② App / 服务规则集（每服务一个开关，DIRECT 出口分流：绕过共享 VPN）——
         SectionCard(stringResource(R.string.rules_module_apps)) {
             Text(
-                stringResource(R.string.rules_apps_wip),
+                stringResource(R.string.rules_user_direct_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            RuleCatalog.appGroups.forEach { group ->
+                GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
+            }
         }
 
         // —— ③ 广告拦截（每表开关 + 用户白名单覆盖）——
         SectionCard(stringResource(R.string.rules_module_ads)) {
             RuleCatalog.adGroups.forEach { group ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            stringResource(group.sourceRes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = group.id in s.enabledRuleGroups,
-                        onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
-                    )
-                }
+                GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
             }
         }
+    }
+}
+
+/** 一个规则组的开关行：名称 + 来源/License + Switch。 */
+@Composable
+private fun GroupSwitchRow(
+    group: com.mzstd.hxmyproxy.core.rules.RuleGroup,
+    enabled: Set<String>,
+    viewModel: MainViewModel,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                stringResource(group.sourceRes),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = group.id in enabled,
+            onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
+        )
     }
 }
 

@@ -66,6 +66,10 @@
     <string name="monitor_diagnostics">Diagnostics</string>
     <string name="rule_ads_oisd">OISD small (ads &amp; trackers)</string>
     <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · ~61k domains</string>
+    <string name="rule_app_netease">NetEase Music</string>
+    <string name="rule_app_bilibili">Bilibili</string>
+    <string name="rule_app_wechat">WeChat</string>
+    <string name="rule_app_src">blackmatrix7 · GPL-2 · direct (bypass VPN)</string>
     <string name="rules_add">Add</string>
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
     <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>

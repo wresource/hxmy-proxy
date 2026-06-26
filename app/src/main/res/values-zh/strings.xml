@@ -66,6 +66,10 @@
     <string name="monitor_diagnostics">诊断</string>
     <string name="rule_ads_oisd">OISD small(广告/追踪)</string>
     <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · 约 6.1 万域名</string>
+    <string name="rule_app_netease">网易云音乐</string>
+    <string name="rule_app_bilibili">哔哩哔哩</string>
+    <string name="rule_app_wechat">微信</string>
+    <string name="rule_app_src">blackmatrix7 · GPL-2 · 直连(绕过 VPN)</string>
     <string name="rules_add">添加</string>
     <string name="rules_add_domain">域名(如 example.com)</string>
     <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>

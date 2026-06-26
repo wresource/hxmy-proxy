@@ -38,7 +38,15 @@ object RuleCatalog {
     /** 广告拦截组（每表一个开关）。 */
     val adGroups: List<RuleGroup> = listOf(ADS_OISD)
 
-    val all: List<RuleGroup> = adGroups
+    // App / 服务规则集（DIRECT：命中域名绕过共享 VPN 走手机真实网络；典型如网易云版权需国内真实 IP）。
+    val APP_NETEASE = RuleGroup("app-neteasemusic", RuleGroupKind.DIRECT, "rules/app-neteasemusic.txt", R.string.rule_app_netease, R.string.rule_app_src, false)
+    val APP_BILIBILI = RuleGroup("app-bilibili", RuleGroupKind.DIRECT, "rules/app-bilibili.txt", R.string.rule_app_bilibili, R.string.rule_app_src, false)
+    val APP_WECHAT = RuleGroup("app-wechat", RuleGroupKind.DIRECT, "rules/app-wechat.txt", R.string.rule_app_wechat, R.string.rule_app_src, false)
+
+    /** App / 服务规则集（每服务一个开关）。 */
+    val appGroups: List<RuleGroup> = listOf(APP_NETEASE, APP_BILIBILI, APP_WECHAT)
+
+    val all: List<RuleGroup> = adGroups + appGroups
 
     fun byId(id: String): RuleGroup? = all.firstOrNull { it.id == id }
 }

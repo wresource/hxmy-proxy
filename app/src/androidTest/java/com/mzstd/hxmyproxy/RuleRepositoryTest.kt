@@ -48,4 +48,15 @@ class RuleRepositoryTest {
         RuleRepository(context, engine).rebuild(ProxySettings())  // 无启用组
         assertEquals(RuleAction.PROXY, engine.decide("googlesyndication.com"))
     }
+
+    @Test fun appGroupLoadsAsDirect() {
+        val engine = RuleEngine()
+        RuleRepository(context, engine).rebuild(
+            ProxySettings(enabledRuleGroups = setOf("app-neteasemusic")),
+        )
+        // App 服务组 → DIRECT(命中域名走出口分流、绕过共享 VPN)
+        assertEquals(RuleAction.DIRECT, engine.decide("music.163.com"))
+        assertEquals(RuleAction.DIRECT, engine.decide("api.iplay.163.com"))
+        assertEquals(RuleAction.PROXY, engine.decide("example.com"))
+    }
 }
