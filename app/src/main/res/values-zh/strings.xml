@@ -1,0 +1,253 @@
+<resources>
+    <string name="app_name">hxmy proxy</string>
+
+    <!-- 导航 -->
+    <string name="nav_dashboard">主页</string>
+    <string name="nav_interfaces">入口</string>
+    <string name="nav_diagnostics">诊断</string>
+    <string name="nav_monitor">监控</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_rules">规则</string>
+
+    <!-- 主页 -->
+    <string name="status_running">共享中</string>
+    <string name="status_stopped">已停止</string>
+    <string name="vpn_detected">VPN：已检测到</string>
+    <string name="vpn_not_detected">VPN：未检测到</string>
+    <string name="clients_count">客户端：%1$d</string>
+    <string name="active_conns">活跃连接：%1$d</string>
+    <string name="rate_line">↓ %1$s · ↑ %2$s</string>
+    <string name="total_traffic">本次共享累计：%1$s</string>
+    <string name="signal_label">Wi-Fi 信号：</string>
+    <string name="monitor_latency">服务延迟</string>
+    <string name="latency_timeout">超时</string>
+    <string name="refresh">刷新</string>
+    <string name="monitor_novpn_hint">未检测到 VPN，延迟不代表分享出口的质量</string>
+    <string name="monitor_no_history">（暂无历史）</string>
+    <string name="error_logs">错误日志</string>
+    <string name="monitor_no_logs">（暂无日志）</string>
+    <string name="monitor_open_history">历史 IP</string>
+    <string name="monitor_clients">客户端</string>
+    <string name="monitor_client_conns">%1$d 个连接</string>
+    <string name="monitor_top_domains">目标域名</string>
+    <string name="monitor_no_clients">暂无客户端（其他设备经 hxmy 上网后显示在这里）</string>
+    <string name="monitor_no_domains">暂无流量</string>
+    <string name="monitor_expand">展开全部（%1$d）</string>
+    <string name="monitor_collapse">收起</string>
+    <string name="back">返回</string>
+    <string name="history_title">历史入口</string>
+    <string name="history_unavailable">不可用（IP 或端口已变）</string>
+    <string name="delete">删除</string>
+    <string name="recommended_entry">推荐入口</string>
+    <string name="entry_config">入口配置</string>
+    <string name="no_entry">暂无入口——请先勾选一个接口</string>
+    <string name="copy">复制</string>
+    <string name="copied">已复制</string>
+    <string name="start_sharing">开始共享</string>
+    <string name="stop_sharing">停止共享</string>
+    <string name="shareable_interfaces">可分享入口</string>
+    <string name="no_interfaces">未发现可用接口</string>
+
+    <!-- 接口类型 -->
+    <string name="iface_wifi">Wi-Fi</string>
+    <string name="iface_hotspot">热点</string>
+    <string name="iface_usb">USB</string>
+    <string name="iface_bluetooth">蓝牙</string>
+    <string name="iface_ethernet">以太网</string>
+    <string name="iface_unknown">未知</string>
+    <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
+
+    <!-- 规则 -->
+    <string name="rules_title">规则分流</string>
+    <string name="rules_wip">按域名分流(直连 / 代理 / 拦截)与广告拦截即将上线。</string>
+    <string name="rules_module_list">IP / 域名白名单</string>
+    <string name="rules_module_apps">App 与服务规则集</string>
+    <string name="rules_module_ads">广告拦截</string>
+    <string name="monitor_diagnostics">诊断</string>
+    <string name="rule_ads_oisd">OISD small(广告/追踪)</string>
+    <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · 约 6.1 万域名</string>
+    <string name="rule_app_netease">网易云音乐</string>
+    <string name="rule_app_bilibili">哔哩哔哩</string>
+    <string name="rule_app_wechat">微信</string>
+    <string name="rule_app_src">blackmatrix7 · GPL-2 · 直连(绕过 VPN)</string>
+    <string name="rules_manage">管理规则集</string>
+    <string name="ruleset_manager_title">规则集</string>
+    <string name="ruleset_my">我的规则集</string>
+    <string name="ruleset_builtin">内置规则集</string>
+    <string name="ruleset_new">新建规则集</string>
+    <string name="ruleset_name">名称</string>
+    <string name="ruleset_action_direct">直连(绕过 VPN)</string>
+    <string name="ruleset_action_reject">拦截</string>
+    <string name="ruleset_view_domains">查看域名</string>
+    <string name="ruleset_domains_count">%1$d 个域名</string>
+    <string name="ruleset_empty">还没有自建规则集</string>
+    <string name="ruleset_total">共 %1$d 条</string>
+    <string name="ruleset_edit">编辑</string>
+    <string name="create">创建</string>
+    <string name="cancel">取消</string>
+    <string name="ruleset_save">保存</string>
+    <string name="ruleset_restore_default">恢复默认</string>
+    <string name="ruleset_edit_hint">一行一个域名。支持泛域名(example.com 匹配 *.example.com)。</string>
+    <string name="ruleset_import">导入</string>
+    <string name="ruleset_export">导出</string>
+    <string name="ruleset_import_append">追加</string>
+    <string name="ruleset_import_replace">替换</string>
+    <string name="ruleset_import_how">导入 %1$d 个域名 — 追加还是替换?</string>
+    <string name="lockdown_warning">出口分流可能失效:你的 VPN 开了「阻止无 VPN 连接」,系统会拦掉绕过 VPN 的流量。要让规则的「直连」生效,请到系统 VPN 设置里关闭它。</string>
+    <string name="rules_add">添加</string>
+    <string name="rules_add_domain">域名(如 example.com)</string>
+    <string name="rules_add_from_history">添加移除过的</string>
+    <string name="rules_history_empty">还没有移除过的域名</string>
+    <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>
+    <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
+    <string name="rules_remove">移除</string>
+
+    <!-- 诊断 -->
+    <string name="diag_local_net_perm">本地网络权限</string>
+    <string name="diag_notif_perm">通知权限</string>
+    <string name="diag_http_port">HTTP 端口</string>
+    <string name="diag_socks_port">SOCKS5 端口</string>
+    <string name="diag_pac_port">PAC 端口</string>
+    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
+    <string name="diag_vpn">VPN 出口</string>
+    <string name="diag_ok">正常</string>
+    <string name="diag_fail">异常</string>
+    <string name="diag_logs_title">日志</string>
+    <string name="diag_logs_hint">记录错误、崩溃与会话事件。导出并发送该文件即可用于分析。</string>
+    <string name="export_logs">导出日志</string>
+    <string name="clear_logs">清空</string>
+    <string name="logs_cleared">日志已清空</string>
+
+    <!-- 设置 -->
+    <string name="settings_language">语言</string>
+    <string name="lang_system">跟随系统</string>
+    <string name="lang_english">English</string>
+    <string name="lang_chinese">中文</string>
+    <string name="settings_preset">性能预设</string>
+    <string name="preset_battery">省电</string>
+    <string name="preset_balanced">均衡</string>
+    <string name="preset_high">高吞吐</string>
+    <string name="preset_custom">自定义</string>
+    <string name="settings_protocols">协议</string>
+    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_socks">SOCKS5</string>
+    <string name="proto_pac">PAC</string>
+    <string name="settings_ports">端口</string>
+    <string name="port_http">HTTP 端口</string>
+    <string name="port_socks">SOCKS5 端口</string>
+    <string name="port_pac">PAC 端口</string>
+    <string name="port_error_range">端口需在 1024–65535</string>
+    <string name="port_error_duplicate">端口与其他协议重复</string>
+    <string name="port_error_in_use">端口被占用，请更换</string>
+    <string name="settings_auth">认证</string>
+    <string name="auth_enable">要求认证</string>
+    <string name="auth_username">用户名</string>
+    <string name="auth_password">密码</string>
+    <string name="auth_show">显示</string>
+    <string name="auth_hide">隐藏</string>
+    <string name="auth_incomplete">请设置用户名和密码，否则客户端无法通过认证。</string>
+    <string name="auth_warning">未开启认证。同一网络内的设备可能连接你的代理，建议仅在可信网络下使用。</string>
+    <string name="settings_vpn_strategy">VPN 断开时</string>
+    <string name="vpn_continue">继续走普通网络</string>
+    <string name="vpn_block">阻断（fail closed）</string>
+    <string name="vpn_warn">警告但继续</string>
+    <string name="settings_mdns">发布 mDNS (hxmyproxy.local)</string>
+    <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
+    <string name="settings_limits">连接上限</string>
+    <string name="limit_global">最大连接数</string>
+    <string name="limit_per_client">单客户端上限</string>
+    <string name="limit_parallelism">转发并行度</string>
+    <string name="limit_buffer">缓冲（KiB）</string>
+    <string name="limit_idle">空闲超时（秒）</string>
+
+    <!-- 扫码配置 -->
+    <string name="qr_setup">扫码配置</string>
+    <string name="qr_setup_hint">用其他设备扫码，按页面提示一步步设置。</string>
+    <string name="qr_need_pac">请先在「设置」中开启 PAC，才能用扫码配置。</string>
+    <string name="setup_close">关闭</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel">代理服务</string>
+    <string name="notif_starting">正在启动…</string>
+    <string name="notif_running">%1$s · %2$d 连接 · ↓%3$s ↑%4$s</string>
+    <string name="notif_running_no_entry">运行中——未选择入口</string>
+    <string name="notif_stopped">已停止</string>
+    <string name="notif_stop">停止</string>
+
+    <!-- 权限 -->
+    <string name="perm_local_net_msg">hxmy proxy 需要本地网络访问权限，才能接受其它设备的连接。</string>
+
+    <!-- 首次引导 -->
+    <string name="ob_skip">跳过</string>
+    <string name="ob_next">下一步</string>
+    <string name="ob1_title">把这台手机的网，借给旁边的设备用</string>
+    <string name="ob1_body">hxmy proxy 让同一个 WiFi 下的电脑、平板、另一台手机，借用这台手机的上网通道——包括它连着的 VPN。把这台手机当成一个「网络中转站」，其他设备连上它，就跟它走同一条路出门。</string>
+    <string name="ob2_title">适合什么场景</string>
+    <string name="ob2_c1_title">📺 一处翻墙，全家共享</string>
+    <string name="ob2_c1_body">手机上已有能上外网的 VPN？不用每台设备都单独装，电脑、平板直接借它出门。</string>
+    <string name="ob2_c2_title">💻 给不方便装 VPN 的设备</string>
+    <string name="ob2_c2_body">公司电脑、智能电视、游戏机——连上这台手机就能用它的网。</string>
+    <string name="ob2_c3_title">🏨 临时网络环境</string>
+    <string name="ob2_c3_body">出差、酒店，只有一台设备能上网时，把它变成全屋的入口。</string>
+    <string name="ob3_title">就三步，真的</string>
+    <string name="ob3_s1_title">连同一个 WiFi</string>
+    <string name="ob3_s1_body">手机和其他设备在同一个网里才能互相找到（用手机热点也行）。</string>
+    <string name="ob3_s2_title">点「开始共享」</string>
+    <string name="ob3_s2_body">App 会给你一个地址，像 192.168.x.x:1080，或更好记的 hxmyproxy.local。</string>
+    <string name="ob3_s3_title">在其他设备填这个地址</string>
+    <string name="ob3_s3_body">在电脑/平板的「代理设置」里填进去就连上了。各端怎么填，帮助页有图文。</string>
+    <string name="ob3_footer">填完后，那台设备的网就和这台手机一样了——它连的 VPN 也一起借给你。</string>
+    <string name="ob5_title">开始前，需要你点一下「允许」</string>
+    <string name="ob5_body">为了让旁边的设备能找到并连上这台手机，系统会问你要一个「本地网络」权限——就是允许这台手机在你家 WiFi 里被别的设备看见。</string>
+    <string name="ob5_privacy">🔒 它只在你的 WiFi 里工作，不碰外网、不上传任何东西。</string>
+    <string name="ob5_allow">好的，允许</string>
+    <string name="ob5_later">稍后再说</string>
+
+    <!-- 为什么选 -->
+    <string name="why_title">同类不少，为什么用它</string>
+    <string name="why1_title">🔒 数据只在你手机里，绝不上云</string>
+    <string name="why1_body">不传任何连接信息到服务器，没有账号、不联网汇报。只在你家 WiFi 里干活。</string>
+    <string name="why2_title">🚫 没有广告，不偷偷收费</string>
+    <string name="why2_body">打开就是干净的界面，没有横幅、弹窗、「升级 Pro」。</string>
+    <string name="why3_title">🌍 手机的 VPN 自动一起借出去</string>
+    <string name="why3_body">手机上在用的 VPN，其他设备连上来就自动跟着走，不用每台重配。</string>
+    <string name="why4_title">📱 跟得上最新系统（支持到 Android 17）</string>
+    <string name="why4_body">专门适配到最新 Android 17，权限与后台方式都做对了，连接更稳。</string>
+    <string name="why5_title">🛠 开源透明，代码谁都能看</string>
+    <string name="why5_body">它做了什么、没做什么，代码公开摆在那，谁都能查个明白。</string>
+
+    <!-- 帮助 -->
+    <string name="help_open">帮助与常见问题</string>
+    <string name="replay_onboarding">重新查看引导</string>
+    <string name="help_title">帮助</string>
+    <string name="help_a_title">这是什么（30 秒）</string>
+    <string name="help_a_body">hxmy proxy 把这台手机的上网通道，分享给同一个 WiFi 下的其他设备。其他设备填一个地址，就能借这台手机上网——连它的 VPN 也一起借。全程在本机，不上云、无广告、开源。</string>
+    <string name="help_b_title">常见问题</string>
+    <string name="faq_q1">代理是什么？我需要懂技术吗？</string>
+    <string name="faq_a1">不用。可以理解成「让 A 设备替 B 设备出门上网」。你只要在这台手机点开始、把地址填到另一台设备上就行。</string>
+    <string name="faq_q2">这安全吗？会偷我的数据吗？</string>
+    <string name="faq_a2">hxmy proxy 不联网、不上传、不收集任何信息，代码也公开。它只在你自己的 WiFi 里帮设备之间「搭桥」。</string>
+    <string name="faq_q3">hxmyproxy.local 和那串数字地址有什么区别？</string>
+    <string name="faq_a3">两个都能用。.local 好记；数字地址是「保险地址」，万一某台设备认不出 .local（Windows、个别路由器偶尔），就改填数字地址，一定能连。</string>
+    <string name="faq_q4">HTTP、SOCKS5、PAC 我该选哪个？</string>
+    <string name="faq_a4">不知道就用 HTTP，最通用。要更全面的支持选 SOCKS5。PAC 是给想让浏览器自动按规则走代理的进阶用户，新手可忽略。</string>
+    <string name="faq_q5">其他设备真的会用到我手机的 VPN 吗？</string>
+    <string name="faq_a5">会。它们走的就是这台手机当前的网络出口，手机连着 VPN，它们就跟着走 VPN。</string>
+    <string name="faq_q6">要不要设密码？</string>
+    <string name="faq_a6">默认不设，方便快速用。在公共/办公 WiFi 担心别人蹭，可在「设置」里开启用户名密码，只有知道的人能连。</string>
+    <string name="help_c_title">各端怎么连</string>
+    <string name="plat_win_title">Windows 电脑</string>
+    <string name="plat_win_body">设置 → 网络和 Internet → 代理 → 手动设置代理，填地址（hxmyproxy.local 或数字地址）和端口，保存。</string>
+    <string name="plat_mac_title">Mac 电脑</string>
+    <string name="plat_mac_body">系统设置 → 网络 → 当前 WiFi → 详细信息 → 代理，勾「网页代理(HTTP)」（或 SOCKS），填地址和端口。</string>
+    <string name="plat_ios_title">iPhone / iPad</string>
+    <string name="plat_ios_body">设置 → 无线局域网 → 当前 WiFi 的 ⓘ → 配置代理 → 手动，填服务器和端口。或用主页「扫码配置」更快。</string>
+    <string name="plat_android_title">安卓手机 / 平板</string>
+    <string name="plat_android_body">设置 → WiFi → 长按当前网络 → 修改 → 高级 → 代理：手动，填主机名和端口，保存。</string>
+    <string name="plat_browser_title">浏览器单独设置</string>
+    <string name="plat_browser_body">只想让浏览器走代理：用浏览器的代理扩展，或在主页开启 PAC 后用「扫码配置」拿到 PAC 地址，填到「使用安装脚本」一栏。</string>
+    <string name="help_d_title">连不上？故障排查</string>
+    <string name="help_d_body">① 先确认两台设备在同一个 WiFi（最常见原因）。② hxmyproxy.local 连不上就改填数字地址。③ 核对地址、端口、类型有没有填错（端口很容易错）。④ 看手机通知栏「共享」还开着吗，被划掉就停了。⑤ 提示要账号密码 = 手机开了认证，去设置查。⑥ 突然全断可能是手机 VPN 掉了，默认保护下会自动停。⑦ 还不行去「诊断」页看哪一步出问题。</string>
+    <string name="help_e_title">关于 · 隐私 · 开源</string>
+    <string name="help_e_body">hxmy proxy 是开源、免费、无广告的本地工具。不收集数据、不联网汇报、没有账号。你的所有连接都只在本地 WiFi 内，我们看不到、也存不了。</string>
+</resources>

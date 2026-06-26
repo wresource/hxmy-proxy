@@ -1,0 +1,382 @@
+package com.mzstd.hxmyproxy.data.repository
+
+import com.mzstd.hxmyproxy.core.model.ProxyEntry
+import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.core.model.ProxySettings
+import com.mzstd.hxmyproxy.core.model.ShareInterface
+import com.mzstd.hxmyproxy.core.model.ShareState
+import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
+import com.mzstd.hxmyproxy.core.network.InterfaceScanner
+import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
+import com.mzstd.hxmyproxy.core.network.MdnsPublisher
+import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
+import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
+import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
+import com.mzstd.hxmyproxy.core.proxy.PacGenerator
+import com.mzstd.hxmyproxy.core.proxy.PacServer
+import com.mzstd.hxmyproxy.core.proxy.ProxyServer
+import com.mzstd.hxmyproxy.core.proxy.RelayEngine
+import com.mzstd.hxmyproxy.core.proxy.Socks5ProxyServer
+import com.mzstd.hxmyproxy.core.proxy.TrafficAccounting
+import com.mzstd.hxmyproxy.core.security.DefaultEgressGuard
+import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
+import com.mzstd.hxmyproxy.core.security.SubnetAccessController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * 代理引擎（单例）：持有 `limitedParallelism(N)` 调度器、三台 server、连接计数、mDNS 与连通性，
+ * 由前台服务以其 Scope 启停；对外暴露 [state]（[ShareState]）。
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+@Singleton
+class ProxyServerRepository @Inject constructor(
+    private val settingsRepository: SettingsRepository,
+    private val connectivityObserver: ConnectivityObserver,
+    private val interfaceScanner: InterfaceScanner,
+    private val mdnsPublisher: MdnsPublisher,
+    private val localNetworkPermissionManager: LocalNetworkPermissionManager,
+    private val egressGuard: DefaultEgressGuard,
+    private val authenticator: SingleCredentialAuthenticator,
+    private val accessController: SubnetAccessController,
+    private val signalProvider: com.mzstd.hxmyproxy.core.network.SignalProvider,
+    private val endpointHistoryRepository: EndpointHistoryRepository,
+    private val credentialStore: CredentialStore,
+    private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
+    private val ruleRepository: RuleRepository,
+    private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider,
+) {
+    // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
+    private val registry = ConnectionRegistry(onChange = { active ->
+        _state.update { it.copy(activeConnections = active) }
+    })
+    private val totalUp = AtomicLong(0)
+    private val totalDown = AtomicLong(0)
+    // 共享流量计量：RelayEngine（CONNECT/SOCKS）与 HttpProxyServer（普通 HTTP keep-alive 转发）共用。
+    private val trafficSink: (Long, Long) -> Unit = { up, down ->
+        if (up > 0) totalUp.addAndGet(up)
+        if (down > 0) totalDown.addAndGet(down)
+    }
+    private val relay = RelayEngine(trafficSink)
+    private val connector = OutboundConnector(egressGuard, underlyingNetworkProvider = underlyingNetworkProvider)
+    // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down。
+    private val accounting = TrafficAccounting(globalSink = trafficSink)
+
+    @Volatile private var currentSettings = ProxySettings()
+    @Volatile private var running = false
+    @Volatile private var servers: List<ProxyServer> = emptyList()
+    @Volatile private var engineScope: CoroutineScope? = null
+    // 本次会话的子 scope：所有会话内协程（监听/收集器/ticker）都挂这里，stop() 一次性取消，避免停后残留重启。
+    @Volatile private var sessionScope: CoroutineScope? = null
+    @Volatile private var serverObservers: Job? = null
+    @Volatile private var lastServerKey: String = ""
+    @Volatile private var lastRecordedEntryKey: String = ""
+
+    private val _state = MutableStateFlow(ShareState())
+    val state: StateFlow<ShareState> = _state.asStateFlow()
+
+    fun isRunning(): Boolean = running
+
+    /** 以服务 Scope 启动（幂等）。读取设置快照 → 建调度器/服务器 → 扫接口 → 起监听 → 订阅网络/设置变化。 */
+    suspend fun start(scope: CoroutineScope) {
+        if (running) return
+        running = true
+        // 新会话边界：累计流量与连接计数归零（避免上次会话残留）。
+        totalUp.set(0)
+        totalDown.set(0)
+        registry.reset()
+        accounting.reset()
+        val s = settingsRepository.settings.first()
+        currentSettings = s
+        applyTunables(s)
+        // 初始凭据就位（在 server 接受连接前），避免首个连接时认证器为空。
+        credentialStore.credentials.first().let { c ->
+            authenticator.username = c.username
+            authenticator.password = c.password
+        }
+
+        // 会话子 scope（SupervisorJob 挂在服务 scope 下）：stop() 取消它即停掉本会话全部协程，
+        // 服务 scope 仍存活以便下次 start；避免"停后残留的 settings 收集器又把监听重启起来"。
+        val session = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+        sessionScope = session
+        engineScope = session
+        startServers(session, s)
+        refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
+
+        connectivityObserver.start()
+        underlyingNetworkProvider.start()
+        session.launch { connectivityObserver.networkChanges.collect { refresh() } }
+        // mDNS 注册是异步的（系统 Probing ~1s）：注册真正完成/失败后刷新诊断，
+        // 避免 mdnsPublished 停在 publish 那一刻的「未发布」假象（真机日志证实服务其实注册成功）。
+        session.launch { mdnsPublisher.registeredName.collect { refresh() } }
+        session.launch {
+            connectivityObserver.vpnState.collect { vpn ->
+                _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
+            }
+        }
+        session.launch {
+            settingsRepository.settings.collect { ns ->
+                currentSettings = ns
+                applyTunables(ns)
+                session.launch(Dispatchers.IO) { ruleRepository.rebuild(ns) }
+                if (running && serverKey(ns) != lastServerKey) {
+                    // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
+                    stopServers()
+                    startServers(session, ns)
+                }
+                refresh()
+            }
+        }
+        // 凭据变更即时推入认证器（与 server 生命周期解耦，无需重启）。
+        session.launch {
+            credentialStore.credentials.collect { c ->
+                authenticator.username = c.username
+                authenticator.password = c.password
+            }
+        }
+        // 实时速率 + 活跃连接（约 1s 窗口）
+        session.launch {
+            var lastUp = 0L
+            var lastDown = 0L
+            while (isActive) {
+                delay(1000)
+                val up = totalUp.get()
+                val down = totalDown.get()
+                val upRate = (up - lastUp).coerceAtLeast(0)
+                val downRate = (down - lastDown).coerceAtLeast(0)
+                lastUp = up
+                lastDown = down
+                val sig = signalProvider.current()
+                accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
+                val snap = accounting.snapshot(TOP_DOMAINS)
+                _state.update {
+                    it.copy(
+                        activeConnections = registry.activeGlobal,
+                        uploadRateBps = upRate,
+                        downloadRateBps = downRate,
+                        totalBytes = up + down,
+                        signalLevel = sig.level,
+                        signalDbm = sig.dbm,
+                        clients = snap.clients,
+                        topDomains = snap.topDomains,
+                    )
+                }
+            }
+        }
+        // lockdown 探活：绑底层网络连不通但 VPN 能连 → 疑似系统「阻止无 VPN 连接」拦了出口分流。
+        session.launch(Dispatchers.IO) {
+            delay(3000)
+            if (running && underlyingNetworkProvider.current() != null) {
+                val realOk = probeEgress(bypass = true)
+                _state.update { it.copy(lockdownSuspected = !realOk && probeEgress(bypass = false)) }
+            }
+        }
+        _state.update { it.copy(running = true) }
+    }
+
+    /** 探活：经底层网络（bypass=true）或默认网络（含 VPN）连国内可达的 223.5.5.5:53。 */
+    private suspend fun probeEgress(bypass: Boolean): Boolean = runCatching {
+        connector.connect("223.5.5.5", 53, bypassVpn = bypass).use { true }
+    }.getOrDefault(false)
+
+    fun stop() {
+        running = false
+        stopServers()
+        mdnsPublisher.unpublishAll()
+        connectivityObserver.stop()
+        underlyingNetworkProvider.stop()
+        // 取消本会话全部协程（收集器/ticker）：杜绝停止后 settings 收集器又把监听重启起来。
+        sessionScope?.cancel()
+        sessionScope = null
+        engineScope = null
+        totalUp.set(0)
+        totalDown.set(0)
+        lastRecordedEntryKey = ""
+        registry.reset()
+        accounting.reset()
+        _state.value = ShareState()
+    }
+
+    /** 只启动用户开启的协议监听（关掉的不占端口）。 */
+    private fun startServers(scope: CoroutineScope, s: ProxySettings) {
+        // 两个派发器分工，解除"建连排在搬字节后面"的队头阻塞：
+        //  - acceptDispatcher：每连接的 handle（握手/读头/建连）。上限=最大连接数，
+        //    保证新连接的建连不被 relay 搬字节占满线程而饿死。
+        //  - relayDispatcher：relay 双向搬字节。每连接双向各占 1 槽，故容量 = 2×relayParallelism，
+        //    使「并行度」= 可同时全速搬字节的连接数（视频多并行分段靠这个并发，别被掐到 N/2）。
+        val acceptDispatcher = Dispatchers.IO.limitedParallelism(s.limits.maxGlobalConnections)
+        val relayDispatcher = Dispatchers.IO.limitedParallelism(2 * s.limits.relayParallelism)
+        val list = mutableListOf<ProxyServer>()
+        if (s.httpEnabled) {
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine)
+                .also { it.start(scope, s.httpPort); list += it }
+        }
+        if (s.socksEnabled) {
+            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine)
+                .also { it.start(scope, s.socksPort); list += it }
+        }
+        if (s.pacEnabled) {
+            PacServer(
+                acceptDispatcher, accessController, registry,
+                httpProxyPort = { if (currentSettings.httpEnabled) currentSettings.httpPort else null },
+            ) { generatePac() }
+                .also { it.start(scope, s.pacPort); list += it }
+        }
+        servers = list
+        lastServerKey = serverKey(s)
+        // 观察每台 server 的 bind 结果：失败（端口占用/无效）即时汇入 state 提示用户，而非崩溃或静默。
+        serverObservers?.cancel()
+        serverObservers = scope.launch {
+            list.forEach { srv ->
+                launch { srv.bindError.collect { recomputeServerStatus() } }
+                launch { srv.boundPort.collect { recomputeServerStatus() } }
+            }
+        }
+    }
+
+    private fun stopServers() {
+        serverObservers?.cancel()
+        serverObservers = null
+        servers.forEach { it.stop() }
+        servers = emptyList()
+        _state.update { it.copy(portBindErrors = emptySet()) }
+    }
+
+    /** 汇总各 server 的 bind 状态（端口是否起来 / bind 失败的协议）到 state，供诊断与设置页提示。 */
+    private fun recomputeServerStatus() {
+        // 停止后到来的滞后回调不再发布（stop() 已重置 state，避免被旧 server 列表覆盖）。
+        if (!running) return
+        val errs = servers.filter { it.bindError.value != null }.map { it.protocol }.toSet()
+        _state.update { st ->
+            st.copy(
+                portBindErrors = errs,
+                diagnostics = st.diagnostics.copy(
+                    httpPortUp = portUp(ProxyProtocol.HTTP),
+                    socksPortUp = portUp(ProxyProtocol.SOCKS5),
+                    pacPortUp = portUp(ProxyProtocol.PAC),
+                ),
+            )
+        }
+    }
+
+    /** 影响监听结构的设置指纹（端口/协议开关/并行度）；变化即触发热重启。 */
+    private fun serverKey(s: ProxySettings): String =
+        "${s.httpEnabled}:${s.httpPort}|${s.socksEnabled}:${s.socksPort}|${s.pacEnabled}:${s.pacPort}|${s.limits.relayParallelism}"
+
+    /** 停止态也扫描接口，便于用户先选接口再启动（运行态由 [refresh] 维护，故此处直接返回）。 */
+    suspend fun refreshInterfaces() {
+        if (running) return
+        val s = settingsRepository.settings.first()
+        currentSettings = s
+        val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
+        val perm = localNetworkPermissionManager.isGranted()
+        val sig = signalProvider.current()
+        _state.update {
+            it.copy(
+                interfaces = interfaces,
+                localNetworkPermissionGranted = perm,
+                diagnostics = it.diagnostics.copy(localNetworkPermissionGranted = perm),
+                signalLevel = sig.level,
+                signalDbm = sig.dbm,
+            )
+        }
+    }
+
+    private fun applyTunables(s: ProxySettings) {
+        registry.maxGlobal = s.limits.maxGlobalConnections
+        registry.maxPerClient = s.limits.maxPerClientConnections
+        accounting.maxDomains = s.limits.maxTrackedDomains
+        egressGuard.blockPrivateLan = s.blockPrivateLanEgress
+        authenticator.enabled = s.authEnabled
+    }
+
+    private fun refresh() {
+        val s = currentSettings
+        val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
+        val selected = interfaces.filter { it.isSelected }
+        accessController.update(selected.map { it.address }.toSet())
+        publishMdns(s)
+        val entries = computeEntries(selected, s)
+        // 记录入口到历史（运行中、入口非空、且与上次不同才写——覆盖启动后选接口/IP 变化，避免重复写盘）
+        if (running && entries.isNotEmpty()) {
+            val entryKey = entries.joinToString("|") { "${it.protocol}:${it.host}:${it.port}" }
+            if (entryKey != lastRecordedEntryKey) {
+                lastRecordedEntryKey = entryKey
+                val now = System.currentTimeMillis()
+                engineScope?.launch {
+                    endpointHistoryRepository.record(
+                        entries.map { com.mzstd.hxmyproxy.core.model.HistoryEndpoint(it.protocol, it.host, it.port, now) },
+                    )
+                }
+            }
+        }
+        val perm = localNetworkPermissionManager.isGranted()
+        val sig = signalProvider.current()
+        _state.update { st ->
+            st.copy(
+                running = running,
+                localNetworkPermissionGranted = perm,
+                interfaces = interfaces,
+                recommendedEntries = entries,
+                signalLevel = sig.level,
+                signalDbm = sig.dbm,
+                diagnostics = st.diagnostics.copy(
+                    localNetworkPermissionGranted = perm,
+                    httpPortUp = portUp(ProxyProtocol.HTTP),
+                    socksPortUp = portUp(ProxyProtocol.SOCKS5),
+                    pacPortUp = portUp(ProxyProtocol.PAC),
+                    mdnsPublished = s.mdnsEnabled && mdnsPublisher.lastRegisteredName != null,
+                ),
+            )
+        }
+    }
+
+    private fun portUp(p: ProxyProtocol): Boolean =
+        servers.firstOrNull { it.protocol == p }?.boundPort?.value != null
+
+    private fun computeEntries(selected: List<ShareInterface>, s: ProxySettings): List<ProxyEntry> {
+        val mdnsName = if (s.mdnsEnabled) MDNS_HOST else null
+        val list = ArrayList<ProxyEntry>()
+        for (iface in selected) {
+            val ip = iface.address.hostAddress ?: continue
+            if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, mdnsName, priority = 10))
+            if (s.httpEnabled) list.add(ProxyEntry(ip, s.httpPort, ProxyProtocol.HTTP, iface.id, mdnsName, priority = 5))
+            if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, mdnsName, priority = 1))
+        }
+        return list
+    }
+
+    private fun publishMdns(s: ProxySettings) {
+        if (!s.mdnsEnabled) { mdnsPublisher.unpublishAll(); return }
+        val specs = buildList {
+            if (s.httpEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy HTTP", "_http._tcp", s.httpPort))
+            if (s.socksEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy SOCKS5", "_socks._tcp", s.socksPort))
+            if (s.pacEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy PAC", "_http._tcp", s.pacPort))
+        }
+        if (specs.isNotEmpty()) mdnsPublisher.publish(specs)
+    }
+
+    /** 动态 PAC（委托 [PacGenerator]）。 */
+    fun generatePac(): String = PacGenerator.generate(_state.value.recommendedEntries)
+
+    private companion object {
+        const val MDNS_HOST = "hxmyproxy.local"
+        const val TOP_DOMAINS = 20
+        const val ACCOUNTING_AGE_OUT_MS = 5 * 60 * 1000L
+    }
+}

@@ -1,3 +1,253 @@
 <resources>
     <string name="app_name">hxmy proxy</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_interfaces">Interfaces</string>
+    <string name="nav_diagnostics">Diagnostics</string>
+    <string name="nav_monitor">Monitor</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_rules">Rules</string>
+
+    <!-- Dashboard -->
+    <string name="status_running">Sharing</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="vpn_detected">VPN: detected</string>
+    <string name="vpn_not_detected">VPN: not detected</string>
+    <string name="clients_count">Clients: %1$d</string>
+    <string name="active_conns">Active connections: %1$d</string>
+    <string name="rate_line">↓ %1$s · ↑ %2$s</string>
+    <string name="total_traffic">Total this session: %1$s</string>
+    <string name="signal_label">Wi-Fi signal:</string>
+    <string name="monitor_latency">Service latency</string>
+    <string name="latency_timeout">Timeout</string>
+    <string name="refresh">Refresh</string>
+    <string name="monitor_novpn_hint">No VPN detected — latency may not reflect the shared egress</string>
+    <string name="monitor_no_history">(No history yet)</string>
+    <string name="error_logs">Error logs</string>
+    <string name="monitor_no_logs">(No logs)</string>
+    <string name="monitor_open_history">History IPs</string>
+    <string name="monitor_clients">Clients</string>
+    <string name="monitor_client_conns">%1$d active</string>
+    <string name="monitor_top_domains">Top domains</string>
+    <string name="monitor_no_clients">No clients yet (devices using hxmy will show here)</string>
+    <string name="monitor_no_domains">No traffic yet</string>
+    <string name="monitor_expand">Show all (%1$d)</string>
+    <string name="monitor_collapse">Collapse</string>
+    <string name="back">Back</string>
+    <string name="history_title">History entries</string>
+    <string name="history_unavailable">Unavailable (IP or port changed)</string>
+    <string name="delete">Delete</string>
+    <string name="recommended_entry">Recommended entry</string>
+    <string name="entry_config">Entry configuration</string>
+    <string name="no_entry">No entry — select an interface</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="start_sharing">Start sharing</string>
+    <string name="stop_sharing">Stop sharing</string>
+    <string name="shareable_interfaces">Shareable interfaces</string>
+    <string name="no_interfaces">No interfaces found</string>
+
+    <!-- Interface types -->
+    <string name="iface_wifi">Wi-Fi</string>
+    <string name="iface_hotspot">Hotspot</string>
+    <string name="iface_usb">USB</string>
+    <string name="iface_bluetooth">Bluetooth</string>
+    <string name="iface_ethernet">Ethernet</string>
+    <string name="iface_unknown">Unknown</string>
+    <string name="interfaces_hint">Select which networks may connect to the proxy.</string>
+
+    <!-- Rules -->
+    <string name="rules_title">Rule routing</string>
+    <string name="rules_wip">Per-domain direct / proxy / block routing and ad-blocking are coming soon.</string>
+    <string name="rules_module_list">IP / domain allowlist</string>
+    <string name="rules_module_apps">App &amp; service rule sets</string>
+    <string name="rules_module_ads">Ad blocking</string>
+    <string name="monitor_diagnostics">Diagnostics</string>
+    <string name="rule_ads_oisd">OISD small (ads &amp; trackers)</string>
+    <string name="rule_ads_oisd_src">oisd.nl · CC BY-NC-SA · ~61k domains</string>
+    <string name="rule_app_netease">NetEase Music</string>
+    <string name="rule_app_bilibili">Bilibili</string>
+    <string name="rule_app_wechat">WeChat</string>
+    <string name="rule_app_src">blackmatrix7 · GPL-2 · direct (bypass VPN)</string>
+    <string name="rules_manage">Manage rule sets</string>
+    <string name="ruleset_manager_title">Rule sets</string>
+    <string name="ruleset_my">My rule sets</string>
+    <string name="ruleset_builtin">Built-in rule sets</string>
+    <string name="ruleset_new">New rule set</string>
+    <string name="ruleset_name">Name</string>
+    <string name="ruleset_action_direct">Direct (bypass VPN)</string>
+    <string name="ruleset_action_reject">Block</string>
+    <string name="ruleset_view_domains">View domains</string>
+    <string name="ruleset_domains_count">%1$d domains</string>
+    <string name="ruleset_empty">No custom rule sets yet</string>
+    <string name="ruleset_total">%1$d total</string>
+    <string name="ruleset_edit">Edit</string>
+    <string name="create">Create</string>
+    <string name="cancel">Cancel</string>
+    <string name="ruleset_save">Save</string>
+    <string name="ruleset_restore_default">Restore default</string>
+    <string name="ruleset_edit_hint">One domain per line. Wildcards supported (example.com matches *.example.com).</string>
+    <string name="ruleset_import">Import</string>
+    <string name="ruleset_export">Export</string>
+    <string name="ruleset_import_append">Append</string>
+    <string name="ruleset_import_replace">Replace</string>
+    <string name="ruleset_import_how">Import %1$d domains — append or replace?</string>
+    <string name="lockdown_warning">Split-tunnel may not work: your VPN has \"Block connections without VPN\" on, so the system drops traffic that bypasses the VPN. To make rule \"direct\" routing take effect, turn that off in the system VPN settings.</string>
+    <string name="rules_add">Add</string>
+    <string name="rules_add_domain">Domain (e.g. example.com)</string>
+    <string name="rules_add_from_history">Re-add removed</string>
+    <string name="rules_history_empty">No removed domains yet</string>
+    <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>
+    <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
+    <string name="rules_remove">Remove</string>
+
+    <!-- Diagnostics -->
+    <string name="diag_local_net_perm">Local network permission</string>
+    <string name="diag_notif_perm">Notification permission</string>
+    <string name="diag_http_port">HTTP port</string>
+    <string name="diag_socks_port">SOCKS5 port</string>
+    <string name="diag_pac_port">PAC port</string>
+    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
+    <string name="diag_vpn">VPN egress</string>
+    <string name="diag_ok">OK</string>
+    <string name="diag_fail">Problem</string>
+    <string name="diag_logs_title">Logs</string>
+    <string name="diag_logs_hint">Records errors, crashes and session events. Export and send the file for analysis.</string>
+    <string name="export_logs">Export logs</string>
+    <string name="clear_logs">Clear</string>
+    <string name="logs_cleared">Logs cleared</string>
+
+    <!-- Settings -->
+    <string name="settings_language">Language</string>
+    <string name="lang_system">System default</string>
+    <string name="lang_english">English</string>
+    <string name="lang_chinese">中文</string>
+    <string name="settings_preset">Performance preset</string>
+    <string name="preset_battery">Battery saver</string>
+    <string name="preset_balanced">Balanced</string>
+    <string name="preset_high">High throughput</string>
+    <string name="preset_custom">Custom</string>
+    <string name="settings_protocols">Protocols</string>
+    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_socks">SOCKS5</string>
+    <string name="proto_pac">PAC</string>
+    <string name="settings_ports">Ports</string>
+    <string name="port_http">HTTP port</string>
+    <string name="port_socks">SOCKS5 port</string>
+    <string name="port_pac">PAC port</string>
+    <string name="port_error_range">Port must be 1024–65535</string>
+    <string name="port_error_duplicate">Port already used by another protocol</string>
+    <string name="port_error_in_use">Port in use — pick another</string>
+    <string name="settings_auth">Authentication</string>
+    <string name="auth_enable">Require authentication</string>
+    <string name="auth_username">Username</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_show">Show</string>
+    <string name="auth_hide">Hide</string>
+    <string name="auth_incomplete">Set a username and password — until then no client can authenticate.</string>
+    <string name="auth_warning">Authentication is off. Devices on the same network may use your proxy. Use only on trusted networks.</string>
+    <string name="settings_vpn_strategy">When VPN is down</string>
+    <string name="vpn_continue">Continue on plain network</string>
+    <string name="vpn_block">Block (fail closed)</string>
+    <string name="vpn_warn">Warn but continue</string>
+    <string name="settings_mdns">Publish mDNS (hxmyproxy.local)</string>
+    <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
+    <string name="settings_limits">Connection limits</string>
+    <string name="limit_global">Max connections</string>
+    <string name="limit_per_client">Per-client max</string>
+    <string name="limit_parallelism">Relay parallelism</string>
+    <string name="limit_buffer">Buffer (KiB)</string>
+    <string name="limit_idle">Idle timeout (s)</string>
+
+    <!-- Scan-to-setup -->
+    <string name="qr_setup">Scan to set up</string>
+    <string name="qr_setup_hint">Scan with another device and follow the on-screen steps.</string>
+    <string name="qr_need_pac">Enable PAC in Settings first to use scan-to-set-up.</string>
+    <string name="setup_close">Close</string>
+
+    <!-- Notification -->
+    <string name="notif_channel">Proxy service</string>
+    <string name="notif_starting">Starting…</string>
+    <string name="notif_running">%1$s · %2$d conns · ↓%3$s ↑%4$s</string>
+    <string name="notif_running_no_entry">Running — no interface selected</string>
+    <string name="notif_stopped">Stopped</string>
+    <string name="notif_stop">Stop</string>
+
+    <!-- Permission -->
+    <string name="perm_local_net_msg">hxmy proxy needs local network access to accept connections from other devices.</string>
+
+    <!-- Onboarding -->
+    <string name="ob_skip">Skip</string>
+    <string name="ob_next">Next</string>
+    <string name="ob1_title">Share this phone\'s connection with nearby devices</string>
+    <string name="ob1_body">hxmy proxy lets computers, tablets and other phones on the same Wi-Fi use this phone\'s connection — including any VPN it\'s on. Think of this phone as a relay: other devices connect to it and go out the same way.</string>
+    <string name="ob2_title">What it\'s for</string>
+    <string name="ob2_c1_title">📺 One VPN, shared by all</string>
+    <string name="ob2_c1_body">Already have a working VPN on your phone? No need to set it up on every device — let them borrow it.</string>
+    <string name="ob2_c2_title">💻 For devices that can\'t install a VPN</string>
+    <string name="ob2_c2_body">Work laptops, smart TVs, consoles — connect to this phone and use its network.</string>
+    <string name="ob2_c3_title">🏨 Temporary networks</string>
+    <string name="ob2_c3_body">Travel or hotels: when only one device is online, turn it into the gateway for the rest.</string>
+    <string name="ob3_title">Just three steps</string>
+    <string name="ob3_s1_title">Same Wi-Fi</string>
+    <string name="ob3_s1_body">Put this phone and the other device on the same network (a hotspot works too).</string>
+    <string name="ob3_s2_title">Tap “Start sharing”</string>
+    <string name="ob3_s2_body">The app gives you an address like 192.168.x.x:1080, or the friendlier hxmyproxy.local.</string>
+    <string name="ob3_s3_title">Enter it on the other device</string>
+    <string name="ob3_s3_body">Put it in the other device\'s proxy settings. The Help page shows how for each platform.</string>
+    <string name="ob3_footer">Once set, that device shares this phone\'s connection — VPN included.</string>
+    <string name="ob5_title">One quick permission first</string>
+    <string name="ob5_body">So nearby devices can find and connect to this phone, the system will ask for “local network” access — letting this phone be visible to others on your Wi-Fi.</string>
+    <string name="ob5_privacy">🔒 It only works on your Wi-Fi — it never touches the internet or uploads anything.</string>
+    <string name="ob5_allow">OK, allow</string>
+    <string name="ob5_later">Maybe later</string>
+
+    <!-- Why choose -->
+    <string name="why_title">Why hxmy proxy</string>
+    <string name="why1_title">🔒 Your data stays on your phone</string>
+    <string name="why1_body">No connection data leaves your phone — no account, no phone-home. It only works on your Wi-Fi.</string>
+    <string name="why2_title">🚫 No ads, no hidden fees</string>
+    <string name="why2_body">A clean app — no banners, no pop-ups, no “upgrade to Pro”.</string>
+    <string name="why3_title">🌍 Your VPN, shared automatically</string>
+    <string name="why3_body">Other devices automatically follow the VPN already running on your phone — no per-device setup.</string>
+    <string name="why4_title">📱 Keeps up with the latest Android (17)</string>
+    <string name="why4_body">Built for the latest Android 17 — permissions and background handling done right, for steadier connections.</string>
+    <string name="why5_title">🛠 Open source, fully transparent</string>
+    <string name="why5_body">What it does and doesn\'t do is all in the open source code, for anyone to verify.</string>
+
+    <!-- Help -->
+    <string name="help_open">Help &amp; FAQ</string>
+    <string name="replay_onboarding">Replay intro</string>
+    <string name="help_title">Help</string>
+    <string name="help_a_title">What is this (30s)</string>
+    <string name="help_a_body">hxmy proxy shares this phone\'s connection with other devices on the same Wi-Fi. They enter one address and go online through this phone — VPN included. Fully local, no cloud, no ads, open source.</string>
+    <string name="help_b_title">FAQ</string>
+    <string name="faq_q1">What is a proxy? Do I need to be techie?</string>
+    <string name="faq_a1">No. Think of it as “device A goes online on behalf of device B”. Just start it here and enter the address on the other device.</string>
+    <string name="faq_q2">Is it safe? Will it steal my data?</string>
+    <string name="faq_a2">It doesn\'t go online, upload, or collect anything, and the code is public. It only bridges devices on your own Wi-Fi.</string>
+    <string name="faq_q3">hxmyproxy.local vs the numeric address?</string>
+    <string name="faq_a3">Both work. .local is easier to remember; the numeric address is the fallback — if a device can\'t resolve .local (Windows or some routers), use the numbers, which always work.</string>
+    <string name="faq_q4">HTTP, SOCKS5 or PAC?</string>
+    <string name="faq_a4">If unsure, use HTTP — most universal. SOCKS5 for broader support. PAC is for advanced auto-routing; beginners can ignore it.</string>
+    <string name="faq_q5">Will other devices really use my phone\'s VPN?</string>
+    <string name="faq_a5">Yes. They use this phone\'s current network exit — if the phone is on a VPN, they go through it too.</string>
+    <string name="faq_q6">Should I set a password?</string>
+    <string name="faq_a6">Off by default for convenience. On public or office Wi-Fi, enable a username/password in Settings so only people you tell can connect.</string>
+    <string name="help_c_title">Connect each device</string>
+    <string name="plat_win_title">Windows</string>
+    <string name="plat_win_body">Settings → Network &amp; Internet → Proxy → Manual setup; enter the address (hxmyproxy.local or the numbers) and port, save.</string>
+    <string name="plat_mac_title">Mac</string>
+    <string name="plat_mac_body">System Settings → Network → your Wi-Fi → Details → Proxies; tick “Web Proxy (HTTP)” (or SOCKS), enter address and port.</string>
+    <string name="plat_ios_title">iPhone / iPad</string>
+    <string name="plat_ios_body">Settings → Wi-Fi → ⓘ next to your network → Configure Proxy → Manual; enter server and port. Or use “Scan to set up” on the home screen.</string>
+    <string name="plat_android_title">Android phone / tablet</string>
+    <string name="plat_android_body">Settings → Wi-Fi → long-press your network → Modify → Advanced → Proxy: Manual; enter hostname and port, save.</string>
+    <string name="plat_browser_title">Browser only</string>
+    <string name="plat_browser_body">To route only the browser: use a proxy extension, or enable PAC and use “Scan to set up” to get a PAC URL for the “use setup script” field.</string>
+    <string name="help_d_title">Can\'t connect? Troubleshooting</string>
+    <string name="help_d_body">1) Make sure both devices are on the same Wi-Fi (most common cause). 2) If hxmyproxy.local fails, use the numeric address. 3) Double-check address, port and type. 4) Check the sharing notification is still active — if dismissed, sharing stopped. 5) Asked for a password? Authentication is on — check Settings. 6) Everything dropped? The phone\'s VPN may be down; with default protection, sharing stops automatically. 7) Still stuck? Open the Diagnostics page to see which step failed.</string>
+    <string name="help_e_title">About · Privacy · Open source</string>
+    <string name="help_e_body">hxmy proxy is an open-source, free, ad-free local tool. No data collection, no phone-home, no account. All your connections stay on your local Wi-Fi — we can\'t see or store them.</string>
 </resources>
