@@ -178,8 +178,21 @@ class ProxyServerRepository @Inject constructor(
                 }
             }
         }
+        // lockdown 探活：绑底层网络连不通但 VPN 能连 → 疑似系统「阻止无 VPN 连接」拦了出口分流。
+        session.launch(Dispatchers.IO) {
+            delay(3000)
+            if (running && underlyingNetworkProvider.current() != null) {
+                val realOk = probeEgress(bypass = true)
+                _state.update { it.copy(lockdownSuspected = !realOk && probeEgress(bypass = false)) }
+            }
+        }
         _state.update { it.copy(running = true) }
     }
+
+    /** 探活：经底层网络（bypass=true）或默认网络（含 VPN）连国内可达的 223.5.5.5:53。 */
+    private suspend fun probeEgress(bypass: Boolean): Boolean = runCatching {
+        connector.connect("223.5.5.5", 53, bypassVpn = bypass).use { true }
+    }.getOrDefault(false)
 
     fun stop() {
         running = false

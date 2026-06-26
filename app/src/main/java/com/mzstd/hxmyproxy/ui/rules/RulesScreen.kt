@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -56,6 +57,19 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.rules_title), style = MaterialTheme.typography.titleLarge)
+        if (ui.share.lockdownSuspected) {
+            ElevatedCard(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Text(
+                    stringResource(R.string.lockdown_warning),
+                    Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
 
         // —— ① IP / 域名白名单（直连，出口分流绕过共享 VPN）——
         SectionCard(stringResource(R.string.rules_module_list)) {

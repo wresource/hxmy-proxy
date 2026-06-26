@@ -39,4 +39,6 @@ data class ShareState(
     val signalDbm: Int = 0,
     /** bind 失败的协议（端口被占用/无效）。运行时改到坏端口会在此提示而非崩溃。 */
     val portBindErrors: Set<ProxyProtocol> = emptySet(),
+    /** 疑似系统 VPN lockdown（「阻止无 VPN 连接」）拦了出口分流：底层网络连不通但 VPN 能连。 */
+    val lockdownSuspected: Boolean = false,
 )
