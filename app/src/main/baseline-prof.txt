@@ -1,0 +1,12 @@
+# hxmy proxy · Baseline Profile（手写基础版）
+#
+# 作用：让 release 在首次安装/启动时 AOT 预编译应用自身的类与方法，冷启动不再解释执行/JIT
+#       应用代码，降低启动耗时与首屏掉帧（用户反馈「图标加载完进主界面有卡顿」）。
+# 覆盖：仅本应用包 com.mzstd.hxmyproxy.**；Compose/AndroidX 框架的启动热路径由各依赖库自带的
+#       baseline profile 覆盖（compose/datastore/navigation 等均随库打包），这里无需重复。
+# 标志：H=Hot S=Startup P=Post-startup。
+# 升级：可后续接 androidx.baselineprofile 插件 + :macrobenchmark 测试模块，在真机录制实际调用的
+#       精准热路径 profile 替换本文件（更省体积、更贴合真实启动轨迹）。
+#
+HSPLcom/mzstd/hxmyproxy/**->**(**)**
+Lcom/mzstd/hxmyproxy/**;

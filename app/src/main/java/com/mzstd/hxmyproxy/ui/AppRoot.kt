@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
@@ -62,8 +64,10 @@ fun AppRoot(viewModel: MainViewModel) {
 
     Scaffold(
         bottomBar = { if (!wide) BottomNavBar(navController, destinations) },
-        // safeDrawing 让 innerPadding 携带 IME 插入：键盘弹出时内容区收缩，端口输入框不被遮挡。
-        contentWindowInsets = WindowInsets.safeDrawing,
+        // 系统栏/刘海由 Scaffold 处理；IME 交给各内容页自己的 imePadding（在 verticalScroll 外层）：
+        // 这样键盘弹出时滚动视口收缩、自动把聚焦的输入框滚到键盘上方。
+        // （若这里 safeDrawing 含 IME，innerPadding 会 consume 掉 IME，页内 imePadding 就失效。）
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
     ) { padding ->
         // padding 只施于内容侧：让 NavigationRail 占满全高、由其自身 insets 绘制到屏幕边缘（edge-to-edge）。
         Row(Modifier.fillMaxSize()) {

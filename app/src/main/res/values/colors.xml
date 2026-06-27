@@ -7,4 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- 启动屏背景：沿用 launcher adaptive icon 的薄荷绿起色，桌面→启动屏视觉连续。 -->
+    <color name="splash_background">#A7F3D0</color>
 </resources>

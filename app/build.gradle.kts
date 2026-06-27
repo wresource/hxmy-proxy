@@ -15,8 +15,11 @@ android {
         applicationId = "com.mzstd.hxmyproxy"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
+        //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
+        //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
+        versionCode = 6
+        versionName = "1.1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,6 +75,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.profileinstaller)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

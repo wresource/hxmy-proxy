@@ -139,6 +139,7 @@
     <string name="port_error_range">端口需在 1024–65535</string>
     <string name="port_error_duplicate">端口与其他协议重复</string>
     <string name="port_error_in_use">端口被占用，请更换</string>
+    <string name="port_bind_failed_banner">端口被占用，对应代理未启动：%1$s。请到设置更换端口后重新开始共享。</string>
     <string name="settings_auth">认证</string>
     <string name="auth_enable">要求认证</string>
     <string name="auth_username">用户名</string>

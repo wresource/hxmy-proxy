@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -112,6 +113,30 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+            }
+        }
+
+        // 端口占用告警：某协议 bind 失败（端口被占）→ 该代理未启动，明确提示用户换端口。
+        if (share.portBindErrors.isNotEmpty()) {
+            val portOf: (ProxyProtocol) -> Int = {
+                when (it) {
+                    ProxyProtocol.HTTP -> ui.settings.httpPort
+                    ProxyProtocol.SOCKS5 -> ui.settings.socksPort
+                    ProxyProtocol.PAC -> ui.settings.pacPort
+                }
+            }
+            val portList = share.portBindErrors.sortedBy { it.name }
+                .joinToString("、") { "${it.name} :${portOf(it)}" }
+            ElevatedCard(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Text(
+                    stringResource(R.string.port_bind_failed_banner, portList),
+                    Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
             }
         }
 

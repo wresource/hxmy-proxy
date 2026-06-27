@@ -2,4 +2,13 @@
 <resources>
 
     <style name="Theme.HxmyProxy" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- 启动屏（SplashScreen API，androidx.core:core-splashscreen）：
+         背景沿用 launcher 薄荷绿、图标用同一前景矢量 → 桌面点击到启动屏视觉连续；
+         postSplashScreenTheme 在启动屏退场后切回正常主题。 -->
+    <style name="Theme.HxmyProxy.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.HxmyProxy</item>
+    </style>
 </resources>

@@ -139,6 +139,7 @@
     <string name="port_error_range">Port must be 1024–65535</string>
     <string name="port_error_duplicate">Port already used by another protocol</string>
     <string name="port_error_in_use">Port in use — pick another</string>
+    <string name="port_bind_failed_banner">Port(s) in use, that proxy did not start: %1$s. Change the port in Settings, then start sharing again.</string>
     <string name="settings_auth">Authentication</string>
     <string name="auth_enable">Require authentication</string>
     <string name="auth_username">Username</string>
