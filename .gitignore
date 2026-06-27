@@ -10,6 +10,8 @@
 .DS_Store
 /build
 /captures
+# 误入库的构建产物（signed APK 输出目录 + baseline profile dm + metadata）
+/app/release/
 .externalNativeBuild
 .cxx
 local.properties
