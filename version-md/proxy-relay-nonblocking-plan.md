@@ -6,7 +6,7 @@
 
 - **不走 ktor-network**。命门坐实：ktor 公开 API 把「channel 创建 + connect」原子锁在 internal `tcpConnect`（`ConnectUtilsJvm.kt`），**无 connect-pre-hook、无 channel 工厂、不暴露底层 `SocketChannel`** → 无法在 connect 前 `bindSocket`（出口分流的命门）。唯一出路是把 `SocketImpl/NIOSocketImpl/CIOReader/CIOWriter` 等 internal 类「影子复制」进同包名，ktor 每次升级都要回归出口分流，脆弱。且本项目**根本没有 ktor 依赖**，引入 = 凭空加一个大依赖。
 - **走手写 java.nio Selector**，上游用 `SocketChannel` + **`Network.bindSocket(FileDescriptor)`（反射取 fd）**。与现有架构同源（现状全是 `java.net.Socket` 阻塞），握手 / Happy Eyeballs / EgressGuard / 出口分流可保留，NIO 复杂度严格关进 relay 阶段。
-- **Phase 0 是 GATING**：先真机 spike 验证「反射取 SocketChannel 的 fd + `bindSocket(fd)` + connect 前，能在系统 VPN（含 lockdown/always-on）下绕过 VPN 走真实出口」。**通过才继续，不通过则维持现状阻塞 relay**（沉没成本仅 0.5–1 天）。
+- **Phase 0 是 GATING** —— **✅ 已通过**（2026-06-29 Pixel Fold 真机，见文末「Phase 0 spike 实测」）。反射取 fd + `bindSocket(fd)` + connect 前，在系统 VPN 在线时确实绕过 VPN 走真实网卡。**C 方案 GO。**
 
 ## 命门坐实（关键技术事实）
 
@@ -76,3 +76,19 @@
 ## 工作量
 
 **5~8 个工作日**（含真机验证，不含 phase2 非阻塞 Happy Eyeballs——不建议第一版）。不确定性集中在 **P0（反射 fd 跨 ROM 可达性）** 与 **P3（NIO 状态机调试）**，二者各可能溢出 0.5–1 天。**P0 不过则止损在 0.5–1 天**。
+
+## Phase 0 spike 实测（PASS · 2026-06-29）
+
+`app/src/androidTest/.../BindSocketSpikeTest.kt`，Pixel Fold 真机、系统 VPN 在线、默认 hidden-API 限制下，`connect 8.8.8.8:53` 后比对本地源 IP：
+
+| 路径 | 本地源 IP | 结论 |
+|---|---|---|
+| `bindSocket(FileDescriptor)`（反射取 fd） | `192.168.50.65` | wlan0 真实网卡 |
+| `socketFactory`（现有生产分流） | `192.168.50.65` | **与 bindSocket 完全一致 → 等效** |
+| `default`（不绑，走默认网络） | `100.73.202.27` | VPN tun（CGNAT 100.64/10） |
+
+- ✅ 反射取 fd 可行：**`sun.nio.ch.SocketChannelImpl.fd` 字段在此 ROM 不存在**，回退 **`channel.socket().getFileDescriptor$()` 成功**（Phase 1 直接用后者）。
+- ✅ `bindSocket(FileDescriptor)` 把 NIO SocketChannel 绑到非 VPN 网卡，源 IP 与生产 `socketFactory` 一致。
+- ✅ `bound(192.168.50.65) != default(100.73.202.27)` → **确实绕过 VPN**。
+- 注：用「本地源 IP」而非外网回显 IP 判定——该测试 WiFi 对 Cloudflare:80 回 RST（`socketFactory` 生产路径同样连不上，属网络环境，非 bindSocket 问题），`8.8.8.8:53` 普遍可达更可靠。
+- spike test 保留作**跨 ROM 回归工具**（计划 P0 风险即「反射 fd 跨版本变动」，换设备/升级 Android 时重跑确认）。
