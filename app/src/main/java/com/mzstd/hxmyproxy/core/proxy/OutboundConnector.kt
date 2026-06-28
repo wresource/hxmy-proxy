@@ -3,7 +3,6 @@ package com.mzstd.hxmyproxy.core.proxy
 import android.net.Network
 import com.mzstd.hxmyproxy.core.security.EgressGuard
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
@@ -22,6 +21,9 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -36,9 +38,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OutboundConnector(
     private val egressGuard: EgressGuard,
-    // DNS 解析专用调度器：独立于 relay 的 limitedParallelism(N) IO 池——
-    // relay 搬字节占满 IO 线程时，DNS 仍能在自己的池里解析，不被掐住（Stripe 首屏几十域名是重灾区）。
+    // DNS 解析专用调度器：独立 daemon 池，与 relay/accept/connect 池隔离——
+    // relay 搬字节占满线程时，DNS 仍能在自己的池里解析，不被掐住（Stripe 首屏几十域名是重灾区）。
     private val dnsDispatcher: CoroutineDispatcher = DEFAULT_DNS_DISPATCHER,
+    // 上游建连专用调度器：阻塞 connect（含 Happy Eyeballs 扇出，每地址最长 CONNECT_TIMEOUT_MS）走此
+    // 独立有界池，不再挤占 Dispatchers.IO；并对并发建连线程数设硬上限，首屏几十域名同时建连也不无界扩张。
+    private val connectDispatcher: CoroutineDispatcher = DEFAULT_CONNECT_DISPATCHER,
     /** 非 VPN 底层网络提供者；为 DIRECT 出口分流把 socket 绑定到真实网络（绕过共享 VPN）。null=不支持分流。 */
     private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider? = null,
 ) {
@@ -100,6 +105,11 @@ class OutboundConnector(
         if (candidates.isEmpty()) {
             throw ProxyException(if (blocked) ProxyError.AccessDenied else ProxyError.DnsFailure)
         }
+        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取 IPv4 优先的前 N 个并行尝试，
+        // 防单域名建连扇出占满 connect 池；前 N 已覆盖 Happy Eyeballs 的快速回退需求。
+        if (candidates.size > MAX_HE_CANDIDATES) {
+            candidates.subList(MAX_HE_CANDIDATES, candidates.size).clear()
+        }
 
         val results = Channel<Outcome>(Channel.UNLIMITED)
         // inFlight 兼作锁对象；closed=注册闸门+清理标记：胜出/清理后置 true，使后到的尝试自行关闭而非连接。
@@ -114,7 +124,7 @@ class OutboundConnector(
             if (nextIdx >= candidates.size) return
             val addr = candidates[nextIdx++]
             pending++
-            launch(Dispatchers.IO) {
+            launch(connectDispatcher) {
                 // 出口分流：network 非空时用其 socketFactory 建 socket（绑定到非 VPN 网络），否则普通 socket 跟随默认网络（含 VPN）。
                 val socket = try {
                     network?.socketFactory?.createSocket() ?: Socket()
@@ -195,14 +205,31 @@ class OutboundConnector(
         /** DNS 缓存有效期；短到 VPN 切换/DNS 漂移很快自愈，长到覆盖一次页面加载的同域名复用。 */
         private const val DNS_TTL_MS = 30_000L
         private const val DNS_THREADS = 16
+        /** 上游建连有界池线程数：connect 是短时阻塞操作，96 足以支撑首屏几十域名并发建连且硬限线程。 */
+        private const val CONNECT_THREADS = 96
+        /** 单域名 Happy Eyeballs 并行尝试的地址数上限（IPv4 优先取前 N）。 */
+        private const val MAX_HE_CANDIDATES = 6
 
         /**
-         * 默认 DNS 调度器：独立的 daemon 线程池，与 [Dispatchers.IO]（及其 limitedParallelism 视图）
-         * 的底层池隔离，确保 relay 搬字节不会把 DNS 解析线程挤光。
+         * 默认 DNS 调度器：独立的 daemon 线程池，与建连/relay/accept 池隔离，
+         * 确保 relay 搬字节不会把 DNS 解析线程挤光。
          */
         private val DEFAULT_DNS_DISPATCHER: CoroutineDispatcher =
             Executors.newFixedThreadPool(DNS_THREADS) { r ->
                 Thread(r, "hxmy-dns").apply { isDaemon = true }
             }.asCoroutineDispatcher()
+
+        /**
+         * 默认建连调度器：独立 daemon 池，隔离阻塞 connect。core=max=[CONNECT_THREADS] + 无界队列 →
+         * 线程数**硬顶** CONNECT_THREADS（超出排队而非扩张），即便首屏几十域名同时建连也不无界增长；
+         * allowCoreThreadTimeOut + 30s keepAlive → 空闲后线程回收到 0，不在停止共享后驻留（不堆线程）。
+         * connect 必须保持阻塞 socket 以支持 [Network.socketFactory] 出口分流，故无法走非阻塞 NIO。
+         */
+        private val DEFAULT_CONNECT_DISPATCHER: CoroutineDispatcher =
+            ThreadPoolExecutor(
+                CONNECT_THREADS, CONNECT_THREADS, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(),
+            ) { r -> Thread(r, "hxmy-connect").apply { isDaemon = true } }
+                .apply { allowCoreThreadTimeOut(true) }
+                .asCoroutineDispatcher()
     }
 }

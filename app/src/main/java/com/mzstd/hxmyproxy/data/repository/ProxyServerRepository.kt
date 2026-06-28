@@ -1,5 +1,7 @@
 package com.mzstd.hxmyproxy.data.repository
 
+import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
@@ -43,8 +45,15 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val TAG = "hxmyproxy"
+
 /** accept 握手线程池固定大小：握手是短工，建连(suspend)与 relay 期间 handle 均挂起不占线程，无需随连接数放大。 */
 private const val ACCEPT_THREADS = 64
+
+/** 每连接约占的 FD 数（下行 client + 上行 upstream），用于按系统 FD 软上限反推安全的最大连接数。 */
+private const val FD_PER_CONN = 2
+/** 给 App 自身保留的 FD（DataStore/日志/线程 pipe/监听 socket 等）。 */
+private const val FD_RESERVED = 256
 
 /**
  * 代理引擎（单例）：持有 accept/relay 有界线程池、三台 server、连接计数、mDNS 与连通性，
@@ -96,6 +105,8 @@ class ProxyServerRepository @Inject constructor(
     // limitedParallelism 弹性视图导致的线程爆炸 → native OOM。会话级，stop()/热重启时 shutdownNow。
     @Volatile private var acceptExecutor: ExecutorService? = null
     @Volatile private var relayExecutor: ExecutorService? = null
+    /** 系统单进程 FD 软上限（/proc/self/limits）。-1=未读，0=读取失败（则不钳制）。 */
+    @Volatile private var cachedFdLimit = -1
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
 
@@ -339,12 +350,37 @@ class ProxyServerRepository @Inject constructor(
     }
 
     private fun applyTunables(s: ProxySettings) {
-        registry.maxGlobal = s.limits.maxGlobalConnections
-        registry.maxPerClient = s.limits.maxPerClientConnections
+        // 按系统 FD 预算反推安全上限：用户拉满 maxGlobal 时,2×FD/连接可能逼近 rlimit → EMFILE。
+        val fdCap = fdSafeMaxGlobal()
+        val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
+        if (effectiveMax < s.limits.maxGlobalConnections) {
+            FileLog.w(TAG, "maxGlobal=${s.limits.maxGlobalConnections} 超 FD 安全上限 $fdCap" +
+                "(每连接约 $FD_PER_CONN FD, rlimit=$cachedFdLimit),已钳制为 $effectiveMax")
+        }
+        registry.maxGlobal = effectiveMax
+        registry.maxPerClient = s.limits.maxPerClientConnections.coerceAtMost(effectiveMax)
         accounting.maxDomains = s.limits.maxTrackedDomains
         egressGuard.blockPrivateLan = s.blockPrivateLanEgress
         authenticator.enabled = s.authEnabled
     }
+
+    /**
+     * 按 FD 预算反推安全的最大连接数：每连接约占 [FD_PER_CONN] 个 FD,另预留 [FD_RESERVED] 给 App 自身。
+     * 读不到 rlimit 时返回 Int.MAX（退回不钳制）,避免误限。结果缓存（rlimit 进程生命周期内不变）。
+     */
+    private fun fdSafeMaxGlobal(): Int {
+        if (cachedFdLimit < 0) cachedFdLimit = readFdSoftLimit()
+        if (cachedFdLimit <= 0) return Int.MAX_VALUE
+        return ((cachedFdLimit - FD_RESERVED) / FD_PER_CONN)
+            .coerceAtLeast(ConnectionLimits.RANGE_GLOBAL.first)
+    }
+
+    /** 读 /proc/self/limits 的 "Max open files" 软上限;失败返回 0。 */
+    private fun readFdSoftLimit(): Int = runCatching {
+        java.io.File("/proc/self/limits").readLines()
+            .firstOrNull { it.startsWith("Max open files") }
+            ?.split(Regex("\\s+"))?.getOrNull(3)?.toIntOrNull() ?: 0
+    }.getOrDefault(0)
 
     private fun refresh() {
         val s = currentSettings

@@ -58,7 +58,7 @@
 5. **serverKey 移除 relayParallelism**：拖性能滑块不再触发热重启把活跃隧道孤儿化（其变更在下次启动生效）。`ProxyServerRepository`。
 6. **修正 io.parallelism=192 注释**：澄清它只约束直接派到 `Dispatchers.IO` 的任务，`limitedParallelism` 视图不受其钳制——故已弃用该视图。`HxmyProxyApp.kt`。
 
-**延后**（仍属止血清单，非崩溃主因）：connect 独立有界池 + Happy Eyeballs 扇出上限 + 降 `CONNECT_TIMEOUT_MS`（第7条）；准入计入上游 socket 按 2×FD（第8条）；relay 槽独立短空闲回收。**根治**（relay 改 NIO/ktor-network）仍延后。
+**延后**（第7、8 条已在 1.1.8 落地，见下节）：仅剩 relay 槽独立短空闲回收（与用户 idle 分离）。**根治**（relay 改 NIO/ktor-network 非阻塞）仍延后——已确认其技术命门：relay 非阻塞需 `SocketChannel`，而出口分流靠 `Network.socketFactory` 造的**阻塞 socket（无 channel）**，二者兼得只能 `SocketChannel.open()` + `network.bindSocket(channel.socket())` 自管；ktor-network 能否插入 bindSocket 待查证（决定走 ktor 还是手写 java.nio）。
 
 **验证**（release 1.1.6，**拉满档**）：
 
@@ -71,6 +71,20 @@
 - **Stop sharing**：连接归 0、**线程从 254 回落 57**（`shutdownNow` 正确回收会话池）。
 
 旧弹性视图（`limitedParallelism(512)` + `limitedParallelism(128)`）在拉满 + 浏览器级并发下会把底层 IO 池弹到上千线程 → `pthread_create` 失败 / native OOM；改有界池后两环境峰值均钉在 **~230–254**，与并发量解耦。
+
+## A+B 加固（1.1.8 / versionCode 9）
+
+**已实施**（改→编译→真机验证）：
+1. **connect 独立有界池**（A）：`OutboundConnector` 的阻塞 connect 由 `launch(Dispatchers.IO)` → 独立 `hxmy-connect` 池（`core=max=CONNECT_THREADS=96` + 无界队列 → 硬顶 96、超出排队；`allowCoreThreadTimeOut`+30s keepAlive → 空闲回收到 0，不在停止后驻留）。隔离建连阻塞、与 relay/accept/DNS 池互不挤占。connect **必须保持阻塞 socket** 以支持 `Network.socketFactory` 出口分流，故无法走 NIO。
+2. **Happy Eyeballs 扇出上限**（A）：单域名解析出超多地址时只取 IPv4 优先前 `MAX_HE_CANDIDATES=6` 并行尝试，防单域名建连扇出占满 connect 池。
+3. **降 CONNECT_TIMEOUT_MS**（A）：5s→3s，经 VPN 出口（RTT~200ms）正常建连 <1s，缩短失败尾延迟（HE 已有并行兜底）。`ProxyTuning`。
+4. **准入按 FD 预算钳制**（B）：`applyTunables` 读 `/proc/self/limits` 的 Max open files，按每连接约 2 FD + 保留 256 反推 `fdSafeMaxGlobal()`，钳制有效 `maxGlobal`/`maxPerClient`，超限写告警日志。读不到 rlimit 则不钳制（避免误限）。`ProxyServerRepository`。
+
+**验证**（release 1.1.8，Pixel Fold 真机拉满档，emulator 当客户端经 `192.168.50.65:8079`）：
+- 各阻塞池峰值精确钉在硬上限：**accept 64 / connect 96 / relay 128 / dns 16**（1.1.7 压测打满全部上限、总线程 336）；connect 与 relay/accept 已隔离。
+- connect 池**空闲回收**：停止共享 35s 后 `hxmy-connect` 线程归 0（不再驻留），总线程回落 56。
+- 全程进程 PID 不变（不崩），google→stripe + 10 站点并发转发正常（前轮累计 4.4 MB）。
+- FD 钳制：真机 rlimit=32768 → 安全上限≈16256，拉满 512 远低于、不钳制（仅老设备小 rlimit 才生效）。
 
 ## 结论（verdict）
 **别全部拉满**——只把 `relayParallelism` 拉到 64（唯一有真实收益且基本无害的项），`maxGlobal`/`maxPerClient` 设中等（256–384、perClient≈maxGlobal）、`buffer` 用 32–64KB、`idle` 降到 60–120s。**拉满 maxGlobal/buffer/idle 不仅不提速，正是导致复杂页"卡死/不工作"和 native OOM 崩溃的元凶**。真正的根治是把 relay 阻塞模型换成协程非阻塞（NIO/ktor-network）。
