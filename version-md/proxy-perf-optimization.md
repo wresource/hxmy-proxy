@@ -60,11 +60,17 @@
 
 **延后**（仍属止血清单，非崩溃主因）：connect 独立有界池 + Happy Eyeballs 扇出上限 + 降 `CONNECT_TIMEOUT_MS`（第7条）；准入计入上游 socket 按 2×FD（第8条）；relay 槽独立短空闲回收。**根治**（relay 改 NIO/ktor-network）仍延后。
 
-**验证**（release 1.1.6，模拟器 loopback，**High throughput 拉满档**；Pixel Fold 真机因 PIN 锁屏待解锁后复测）：
-- 拉满档**启动不崩**（状态 Sharing，HTTP :8080 起来）。
-- **google 搜索 → stripe.com** 经代理转发 **997 KB / 9 活跃连接** 正常加载——直接驳斥「开 google 再开 stripe 代理就不 work」。
-- **10 个复杂站点并发加压**：进程 PID 不变（不崩），**线程峰值 230**（有界：accept 64 + relay 128 + DNS 16 + connect 池 + 基础线程；旧弹性视图同场景会弹到上千 → native OOM）。
-- **Stop sharing**：连接归 0、线程回落 67（`shutdownNow` 正确回收会话池；旧视图线程会滞留底层 IO 池）。
+**验证**（release 1.1.6，**拉满档**）：
+
+*模拟器 loopback*（High throughput 512/512/64/64K，自连自）：
+- 拉满档启动不崩；google→stripe 经代理转发 **997 KB / 9 活跃连接** 正常加载；10 站点并发**线程峰值 230**；Stop 后连接归 0、线程回落 67。
+
+*Pixel Fold 真机*（自定义拉满 512/512/64/**128 KiB**，**经 Google VPN 出口**；emulator 当客户端连 `192.168.50.65:8079`，真实复现「server 共享给客户端」拓扑）：
+- 拉满档启动不崩（共享中，HTTP :8079）。
+- **google 搜索 → stripe.com + 10 个复杂站点并发**：hxmy 进程 PID **21826 全程不变**（不崩），**线程峰值 254**，转发 **4.0 MB / 活跃连接 26–30**——直接复现并驳斥用户遇到的「开 google 再开 stripe 代理就不 work」。
+- **Stop sharing**：连接归 0、**线程从 254 回落 57**（`shutdownNow` 正确回收会话池）。
+
+旧弹性视图（`limitedParallelism(512)` + `limitedParallelism(128)`）在拉满 + 浏览器级并发下会把底层 IO 池弹到上千线程 → `pthread_create` 失败 / native OOM；改有界池后两环境峰值均钉在 **~230–254**，与并发量解耦。
 
 ## 结论（verdict）
 **别全部拉满**——只把 `relayParallelism` 拉到 64（唯一有真实收益且基本无害的项），`maxGlobal`/`maxPerClient` 设中等（256–384、perClient≈maxGlobal）、`buffer` 用 32–64KB、`idle` 降到 60–120s。**拉满 maxGlobal/buffer/idle 不仅不提速，正是导致复杂页"卡死/不工作"和 native OOM 崩溃的元凶**。真正的根治是把 relay 阻塞模型换成协程非阻塞（NIO/ktor-network）。
