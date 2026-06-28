@@ -18,8 +18,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.Socket
+import java.net.StandardSocketOptions
+import java.nio.channels.ServerSocketChannel
+import java.nio.channels.SocketChannel
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "hxmyproxy"
@@ -80,26 +81,27 @@ abstract class TcpProxyServerBase(
     private val _bindError = MutableStateFlow<ProxyError?>(null)
     override val bindError: StateFlow<ProxyError?> = _bindError.asStateFlow()
 
-    @Volatile private var serverSocket: ServerSocket? = null
+    @Volatile private var serverChannel: ServerSocketChannel? = null
     @Volatile private var acceptJob: Job? = null
 
     /**
-     * 在途已准入的 client socket。stop() 时主动关闭——使阻塞中的 relay read/write 立刻抛错、
-     * 协程退出、线程归还有界池、FD 立即释放，而非残留到 idle 超时（最长 10 分钟）才回收。
+     * 在途已准入的 client 连接（NIO [SocketChannel]，握手期 blocking、relay 期可切非阻塞）。stop() 时主动
+     * 关闭——使阻塞中的 relay read/write 立刻抛错、协程退出、线程归还、FD 立即释放，而非残留到 idle 超时。
      */
-    private val inFlight = ConcurrentHashMap.newKeySet<Socket>()
+    private val inFlight = ConcurrentHashMap.newKeySet<SocketChannel>()
 
     override fun start(scope: CoroutineScope, port: Int) {
         _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
-            // bind：对端口占用做有限重试——stop→start 快速重启时旧 ServerSocket 可能尚未释放端口。
-            var bound: ServerSocket? = null
+            // bind：对端口占用做有限重试——stop→start 快速重启时旧监听 socket 可能尚未释放端口。
+            var bound: ServerSocketChannel? = null
             var lastError: Throwable? = null
             for (attempt in 0 until BIND_RETRY_ATTEMPTS) {
                 if (!isActive) return@launch
-                val s = ServerSocket()
+                val s = ServerSocketChannel.open()
                 try {
-                    s.reuseAddress = true
+                    s.configureBlocking(true)
+                    s.setOption(StandardSocketOptions.SO_REUSEADDR, true)
                     s.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), ProxyTuning.ACCEPT_BACKLOG)
                     bound = s
                     break
@@ -118,13 +120,13 @@ abstract class TcpProxyServerBase(
                 FileLog.w(TAG, "$protocol bind :$port failed", lastError)
                 return@launch
             }
-            serverSocket = server
-            _boundPort.value = server.localPort
+            serverChannel = server
+            _boundPort.value = (server.localAddress as InetSocketAddress).port
             _bindError.value = null
             try {
                 while (isActive) {
                     val client = try {
-                        server.accept()
+                        server.accept()                       // 阻塞 accept，返回阻塞模式 SocketChannel
                     } catch (e: Throwable) {
                         if (!isActive) break
                         // FD 耗尽（EMFILE: too many open files）时 accept 会持续立即抛错：退避避免 100% CPU
@@ -137,8 +139,10 @@ abstract class TcpProxyServerBase(
                         }
                         continue
                     }
-                    val remote = (client.remoteSocketAddress as? InetSocketAddress)?.address
-                    val local = (client.localSocketAddress as? InetSocketAddress)?.address
+                    client.configureBlocking(true)            // 握手期阻塞（子类用 channel.socket() 流）
+                    val sock = client.socket()
+                    val remote = (sock.remoteSocketAddress as? InetSocketAddress)?.address
+                    val local = (sock.localSocketAddress as? InetSocketAddress)?.address
                     if (remote == null || local == null || !accessController.admit(local, remote)) {
                         client.closeQuietly(); continue
                     }
@@ -146,7 +150,7 @@ abstract class TcpProxyServerBase(
                         Log.i(TAG, "$protocol reject ${remote.hostAddress} (limit; active=${registry.activeGlobal})")
                         client.closeQuietly(); continue
                     }
-                    runCatching { client.tcpNoDelay = true }
+                    runCatching { sock.tcpNoDelay = true }
                     Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
                     val tracker = accounting?.openConnection(remote)
                     inFlight.add(client)
@@ -178,10 +182,10 @@ abstract class TcpProxyServerBase(
     }
 
     override fun stop() {
-        serverSocket?.closeQuietly()
+        serverChannel?.closeQuietly()
         acceptJob?.cancel()
         acceptJob = null
-        serverSocket = null
+        serverChannel = null
         // 主动关闭在途连接：阻塞中的 relay read/write 立即抛错 → 协程退出、线程归还有界池、FD 释放。
         // 只需关 client 端：一端断开后另一方向 pump 随之结束，handle 的 finally 会关上游 socket。
         inFlight.toList().forEach { it.closeQuietly() }
@@ -191,8 +195,9 @@ abstract class TcpProxyServerBase(
     }
 
     /**
-     * 处理单个已准入连接（可阻塞，运行在 [ioDispatcher]）：完成握手、连上游、relay。
-     * [tracker] 为该连接的流量记账句柄（可空）；socket 最终由基类 finally 关闭。
+     * 处理单个已准入连接（握手期阻塞，运行在 [ioDispatcher]）：完成握手、连上游、relay。
+     * [client] 为阻塞模式 [SocketChannel]（子类握手用 `client.socket()` 流；进入非阻塞 relay 前自行切非阻塞）。
+     * [tracker] 为该连接的流量记账句柄（可空）；channel 最终由基类 finally 关闭。
      */
-    protected abstract suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?)
+    protected abstract suspend fun handle(client: SocketChannel, tracker: TrafficAccounting.ConnTracker?)
 }

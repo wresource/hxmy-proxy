@@ -12,6 +12,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.Socket
+import java.nio.channels.SocketChannel
 
 /**
  * SOCKS5 代理（RFC1928 + RFC1929）。V1 仅支持 CONNECT；不支持 BIND / UDP ASSOCIATE。
@@ -34,7 +35,8 @@ class Socks5ProxyServer(
     private val ruleEngine: RuleEngine? = null,
 ) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry, accounting) {
 
-    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
+    override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
+        val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
         val input = client.getInputStream()
         val output = client.getOutputStream()

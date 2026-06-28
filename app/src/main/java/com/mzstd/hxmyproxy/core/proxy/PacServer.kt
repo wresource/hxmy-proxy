@@ -7,6 +7,7 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URLDecoder
+import java.nio.channels.SocketChannel
 
 /**
  * 极简 HTTP 服务，承载三条路由：
@@ -26,7 +27,8 @@ class PacServer(
     private val pacProvider: () -> String,
 ) : TcpProxyServerBase(ProxyProtocol.PAC, ioDispatcher, accessController, registry) {
 
-    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
+    override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
+        val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
         client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
         val input = client.getInputStream()
         val output = client.getOutputStream()

@@ -14,6 +14,7 @@ import java.io.OutputStream
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.Socket
+import java.nio.channels.SocketChannel
 import java.util.Base64
 
 /**
@@ -42,7 +43,8 @@ class HttpProxyServer(
     private val ruleEngine: RuleEngine? = null,
 ) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry, accounting) {
 
-    override suspend fun handle(client: Socket, tracker: TrafficAccounting.ConnTracker?) {
+    override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
+        val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
         val input = client.getInputStream()
         val output = client.getOutputStream()
         val auth = authProvider()
