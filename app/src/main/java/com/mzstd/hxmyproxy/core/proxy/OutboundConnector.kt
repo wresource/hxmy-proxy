@@ -11,6 +11,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import java.io.Closeable
+import java.io.FileDescriptor
+import java.io.IOException
 import java.net.ConnectException
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -19,6 +22,7 @@ import java.net.NoRouteToHostException
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.nio.channels.SocketChannel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
@@ -89,6 +93,26 @@ class OutboundConnector(
         return connectAny(listOf(addr), port, network)
     }
 
+    /**
+     * 同 [connect]，但产出已连接的（阻塞模式）[SocketChannel]，供非阻塞 relay 使用（调用方在进入 relay 前
+     * 切 `configureBlocking(false)`）。[bypassVpn]=true 时用反射取 fd + `Network.bindSocket(fd)`（connect 前）
+     * 做出口分流——Phase 0 spike 已验证（见 BindSocketSpikeTest）。反射取 fd 失败则抛 [IOException]，
+     * 调用方应回退到阻塞 [connect] + 阻塞 relay。
+     */
+    suspend fun connectChannel(host: String, port: Int, bypassVpn: Boolean = false): SocketChannel {
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        if (bypassVpn && network == null) {
+            android.util.Log.w("hxmyproxy", "bypass requested for $host but no non-VPN network; using default egress")
+        }
+        return connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
+    }
+
+    /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
+    suspend fun connectChannel(addr: InetAddress, port: Int, bypassVpn: Boolean = false): SocketChannel {
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        return connectAnyChannel(listOf(addr), port, network)
+    }
+
     /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */
     internal fun orderAddresses(addrs: List<InetAddress>): List<InetAddress> =
         addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
@@ -97,23 +121,60 @@ class OutboundConnector(
      * Happy Eyeballs 交错并行连接：首个成功者胜出，其余在途连接立即关闭（中止其阻塞中的 connect）。
      * 全部失败抛最后一次错误；候选为空（DNS 空 / 全被护栏拦）抛对应错误。
      */
+    /** 阻塞 [Socket] 版（HTTP 明文路径 / 现有调用）。出口分流靠 `network.socketFactory` 建已绑定 socket。 */
+    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int, network: Network? = null): Socket =
+        connectAnyGeneric(
+            addrs, port,
+            create = { network?.socketFactory?.createSocket() ?: Socket() },
+            connect = { s, a -> s.tcpNoDelay = true; s.connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
+        )
+
+    /**
+     * 非阻塞 relay 用：产出已连接的**阻塞** [SocketChannel]（调用方进入 relay 前切非阻塞）。
+     * 出口分流（[network] 非空）靠反射取 fd + `network.bindSocket(fd)`（**必须 connect 之前**）；
+     * 反射取 fd 失败抛 [IOException]，调用方回退阻塞路径。
+     */
+    private suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel =
+        connectAnyGeneric(
+            addrs, port,
+            create = {
+                val ch = SocketChannel.open()
+                ch.configureBlocking(true)
+                if (network != null) {
+                    val fd = fileDescriptorOf(ch)
+                        ?: run { ch.closeQuietly(); throw IOException("取 SocketChannel fd 失败，无法 bindSocket 出口分流") }
+                    network.bindSocket(fd)   // connect 之前绑定到非 VPN 网络
+                }
+                ch
+            },
+            connect = { ch, a -> ch.socket().tcpNoDelay = true; ch.socket().connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
+        )
+
+    /**
+     * Happy Eyeballs（RFC 8305）交错并行连接的泛型编排：[create] 建连接对象（可含 bindSocket），[connect] 阻塞建连。
+     * 首个成功者胜出、其余在途立即关闭；全失败抛最后错误。Socket 与 SocketChannel 共用这一份编排。
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int, network: Network? = null): Socket = coroutineScope {
+    private suspend fun <S : Closeable> connectAnyGeneric(
+        addrs: List<InetAddress>,
+        port: Int,
+        create: () -> S,
+        connect: (S, InetSocketAddress) -> Unit,
+    ): S = coroutineScope {
         val candidates = ArrayList<InetAddress>()
         var blocked = false
         for (a in addrs) if (egressGuard.isAllowed(a)) candidates.add(a) else blocked = true
         if (candidates.isEmpty()) {
             throw ProxyException(if (blocked) ProxyError.AccessDenied else ProxyError.DnsFailure)
         }
-        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取 IPv4 优先的前 N 个并行尝试，
-        // 防单域名建连扇出占满 connect 池；前 N 已覆盖 Happy Eyeballs 的快速回退需求。
+        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取 IPv4 优先的前 N 个并行尝试。
         if (candidates.size > MAX_HE_CANDIDATES) {
             candidates.subList(MAX_HE_CANDIDATES, candidates.size).clear()
         }
 
-        val results = Channel<Outcome>(Channel.UNLIMITED)
+        val results = Channel<Outcome<S>>(Channel.UNLIMITED)
         // inFlight 兼作锁对象；closed=注册闸门+清理标记：胜出/清理后置 true，使后到的尝试自行关闭而非连接。
-        val inFlight = ArrayList<Socket>()
+        val inFlight = ArrayList<S>()
         val closed = AtomicBoolean(false)
 
         // nextIdx / pending 仅在收集协程内访问 → 单线程，无需同步。
@@ -125,24 +186,22 @@ class OutboundConnector(
             val addr = candidates[nextIdx++]
             pending++
             launch(connectDispatcher) {
-                // 出口分流：network 非空时用其 socketFactory 建 socket（绑定到非 VPN 网络），否则普通 socket 跟随默认网络（含 VPN）。
-                val socket = try {
-                    network?.socketFactory?.createSocket() ?: Socket()
+                val conn = try {
+                    create()
                 } catch (e: Throwable) {
                     if (!closed.get()) results.trySend(Outcome(null, mapConnectError(e)))
                     return@launch
                 }
                 // 注册与"是否已收尾"判定同锁：收尾后才到的尝试直接放弃，杜绝落单连接逃过清理而泄漏 FD。
                 val registered = synchronized(inFlight) {
-                    if (closed.get()) false else { inFlight.add(socket); true }
+                    if (closed.get()) false else { inFlight.add(conn); true }
                 }
-                if (!registered) { socket.closeQuietly(); return@launch }
+                if (!registered) { conn.closeQuietly(); return@launch }
                 try {
-                    socket.tcpNoDelay = true
-                    socket.connect(InetSocketAddress(addr, port), ProxyTuning.CONNECT_TIMEOUT_MS)
-                    if (closed.get()) socket.closeQuietly() else results.trySend(Outcome(socket, null))
+                    connect(conn, InetSocketAddress(addr, port))
+                    if (closed.get()) conn.closeQuietly() else results.trySend(Outcome(conn, null))
                 } catch (e: Throwable) {
-                    socket.closeQuietly()
+                    conn.closeQuietly()
                     if (!closed.get()) results.trySend(Outcome(null, mapConnectError(e)))
                 }
             }
@@ -155,7 +214,7 @@ class OutboundConnector(
             while (pending > 0 || nextIdx < candidates.size) {
                 // 还有未起地址：select 等结果或到点（select 保证已投递的结果不会被丢弃），到点则并行起下一个；
                 // 地址起完：纯等结果（必有在途，故不会永久阻塞）。
-                val outcome: Outcome? = if (nextIdx < candidates.size) {
+                val outcome: Outcome<S>? = if (nextIdx < candidates.size) {
                     select {
                         results.onReceive { it }
                         onTimeout(ProxyTuning.HE_ATTEMPT_DELAY_MS.toLong()) { null }
@@ -165,14 +224,14 @@ class OutboundConnector(
                 }
                 if (outcome == null) { launchNext(); continue }  // 到点仍无结果 → 并行起下一个
                 pending--
-                val socket = outcome.socket
-                if (socket != null) {
+                val conn = outcome.conn
+                if (conn != null) {
                     synchronized(inFlight) {
                         closed.set(true)
-                        inFlight.forEach { if (it !== socket) it.closeQuietly() }
+                        inFlight.forEach { if (it !== conn) it.closeQuietly() }
                         inFlight.clear()
                     }
-                    return@coroutineScope socket
+                    return@coroutineScope conn
                 }
                 outcome.error?.let { lastError = it }
                 launchNext()  // 失败立即补起下一个（RFC 8305：不必等满间隔）
@@ -190,6 +249,25 @@ class OutboundConnector(
         }
     }
 
+    /**
+     * 反射取 [SocketChannel] 底层 [FileDescriptor]（喂 `Network.bindSocket(fd)`）。
+     * Phase 0 spike 实测：`socket().getFileDescriptor$()` 路径在目标 ROM 可用；`SocketChannelImpl.fd` 字段
+     * 在部分 ROM 不存在，作兜底。取不到返回 null（调用方回退阻塞路径）。
+     */
+    private fun fileDescriptorOf(channel: SocketChannel): FileDescriptor? {
+        runCatching {
+            val sock = channel.socket()
+            val m = sock.javaClass.getMethod("getFileDescriptor\$")
+            (m.invoke(sock) as? FileDescriptor)?.let { return it }
+        }
+        runCatching {
+            val f = Class.forName("sun.nio.ch.SocketChannelImpl").getDeclaredField("fd")
+            f.isAccessible = true
+            (f.get(channel) as? FileDescriptor)?.let { return it }
+        }
+        return null
+    }
+
     private fun mapConnectError(e: Throwable): ProxyError = when (e) {
         is SocketTimeoutException -> ProxyError.RemoteTimeout
         is ConnectException -> ProxyError.ConnectionRefused
@@ -197,7 +275,7 @@ class OutboundConnector(
         else -> ProxyError.Unknown(e.message ?: "connect failed")
     }
 
-    private class Outcome(val socket: Socket?, val error: ProxyError?)
+    private class Outcome<S>(val conn: S?, val error: ProxyError?)
 
     private class CachedAddrs(val addrs: List<InetAddress>, val atMs: Long)
 

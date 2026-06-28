@@ -15,11 +15,11 @@ class PerformanceTest {
             relayBufferBytes = 1,
             idleTimeoutSeconds = 99999,
         ).coerced()
-        assertEquals(1024, c.maxGlobalConnections)
+        assertEquals(512, c.maxGlobalConnections)
         assertEquals(16, c.maxPerClientConnections)
         assertEquals(4, c.relayParallelism)
         assertEquals(8 * 1024, c.relayBufferBytes)
-        assertEquals(1800, c.idleTimeoutSeconds)
+        assertEquals(600, c.idleTimeoutSeconds)
     }
 
     @Test fun presetsProduceExpectedDefaults() {
