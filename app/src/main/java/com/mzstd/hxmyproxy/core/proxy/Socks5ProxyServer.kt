@@ -8,6 +8,7 @@ import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
@@ -33,6 +34,9 @@ class Socks5ProxyServer(
     accounting: TrafficAccounting? = null,
     /** 规则引擎（可空，默认 null=不判定）；判为 REJECT 的目标直接拒绝（SOCKS reply 0x02）。 */
     private val ruleEngine: RuleEngine? = null,
+    /** 非阻塞 relay 反应堆；为 null 或 [useNioRelay]=false 时走旧阻塞 [relay]。 */
+    private val nioReactor: NioRelayReactor? = null,
+    private val useNioRelay: Boolean = false,
 ) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry, accounting) {
 
     override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
@@ -89,18 +93,37 @@ class Socks5ProxyServer(
             reply(output, 0x02); return
         }
         val bypass = action == RuleAction.DIRECT
-        // 4) 连上游
+        val limits = limitsProvider()
+        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
+
+        // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
+        if (useNioRelay && nioReactor != null) {
+            val upstreamCh = try {
+                if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass)
+                else connector.connectChannel(host!!, port, bypassVpn = bypass)
+            } catch (e: ProxyException) {
+                reply(output, e.error.socksReply); return
+            } catch (e: IOException) {
+                Log.w("hxmyproxy", "connectChannel 反射 fd 不可用，回退阻塞 relay: ${e.message}")
+                null
+            }
+            if (upstreamCh != null) {
+                reply(output, 0x00)
+                channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
+                upstreamCh.configureBlocking(false)
+                nioReactor.relay(channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, onBytes)
+                return
+            }
+        }
+
+        // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
             if (addr != null) connector.connect(addr, port, bypassVpn = bypass) else connector.connect(host!!, port, bypassVpn = bypass)
         } catch (e: ProxyException) {
             reply(output, e.error.socksReply); return
         }
-
-        // 5) 成功回复 + 双向转发
         reply(output, 0x00)
         client.soTimeout = 0
-        val limits = limitsProvider()
-        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
         relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
     }
 

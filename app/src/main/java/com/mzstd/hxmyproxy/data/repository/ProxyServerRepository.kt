@@ -13,6 +13,7 @@ import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
+import com.mzstd.hxmyproxy.core.proxy.NioRelayReactor
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
 import com.mzstd.hxmyproxy.core.proxy.PacGenerator
 import com.mzstd.hxmyproxy.core.proxy.PacServer
@@ -54,6 +55,12 @@ private const val ACCEPT_THREADS = 64
 private const val FD_PER_CONN = 2
 /** 给 App 自身保留的 FD（DataStore/日志/线程 pipe/监听 socket 等）。 */
 private const val FD_RESERVED = 256
+
+/** 启用 NIO 非阻塞 relay（少量 selector 线程替代每隧道 2 阻塞线程）。过渡 flag，后续可提为设置项；
+ *  false 回退旧阻塞 RelayEngine；connectChannel 反射 fd 不可用时也会单连接自动回退阻塞。 */
+private const val USE_NIO_RELAY = true
+/** NIO relay 的 selector 线程数（1–2 即可支撑大量隧道）。 */
+private const val NIO_RELAY_WORKERS = 2
 
 /**
  * 代理引擎（单例）：持有 accept/relay 有界线程池、三台 server、连接计数、mDNS 与连通性，
@@ -105,6 +112,8 @@ class ProxyServerRepository @Inject constructor(
     // limitedParallelism 弹性视图导致的线程爆炸 → native OOM。会话级，stop()/热重启时 shutdownNow。
     @Volatile private var acceptExecutor: ExecutorService? = null
     @Volatile private var relayExecutor: ExecutorService? = null
+    /** NIO 非阻塞 relay 反应堆（会话级：startServers 创建+start、stopServers stop）。 */
+    @Volatile private var nioReactor: NioRelayReactor? = null
     /** 系统单进程 FD 软上限（/proc/self/limits）。-1=未读，0=读取失败（则不钳制）。 */
     @Volatile private var cachedFdLimit = -1
     @Volatile private var lastServerKey: String = ""
@@ -256,13 +265,16 @@ class ProxyServerRepository @Inject constructor(
         relayExecutor = relExec
         val acceptDispatcher = accExec.asCoroutineDispatcher()
         val relayDispatcher = relExec.asCoroutineDispatcher()
+        // NIO 非阻塞 relay 反应堆（会话级）：flag 开则创建并 start，CONNECT/SOCKS 隧道走它；否则 null（回退阻塞 relay）。
+        val reactor = if (USE_NIO_RELAY) NioRelayReactor(workerCount = NIO_RELAY_WORKERS).also { it.start() } else null
+        nioReactor = reactor
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
-            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine)
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine, reactor, USE_NIO_RELAY)
                 .also { it.start(scope, s.httpPort); list += it }
         }
         if (s.socksEnabled) {
-            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine)
+            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine, reactor, USE_NIO_RELAY)
                 .also { it.start(scope, s.socksPort); list += it }
         }
         if (s.pacEnabled) {
@@ -291,6 +303,9 @@ class ProxyServerRepository @Inject constructor(
         // 再 shutdownNow 回收池线程释放内存。顺序很重要：阻塞 read 不响应线程中断，只响应 socket 关闭。
         servers.forEach { it.stop() }
         servers = emptyList()
+        // reactor 拆除全部在途隧道（resume 各 relay 协程）+ 关 selector；再回收阻塞池。
+        nioReactor?.stop()
+        nioReactor = null
         acceptExecutor?.shutdownNow()
         relayExecutor?.shutdownNow()
         acceptExecutor = null

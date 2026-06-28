@@ -134,8 +134,13 @@ class OutboundConnector(
      * 出口分流（[network] 非空）靠反射取 fd + `network.bindSocket(fd)`（**必须 connect 之前**）；
      * 反射取 fd 失败抛 [IOException]，调用方回退阻塞路径。
      */
-    private suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel =
-        connectAnyGeneric(
+    private suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel {
+        // 出口分流（network 非空）的前提是反射取 fd 可用。**fail-fast**：不可用直接抛 IOException，让调用方回退
+        // 阻塞 relay——否则反射失败会被 Happy Eyeballs 编排吞成 ProxyException，无法与「连接失败」区分。
+        if (network != null && !ensureFdReflectionUsable()) {
+            throw IOException("SocketChannel fd 反射不可用，无法 bindSocket 出口分流")
+        }
+        return connectAnyGeneric(
             addrs, port,
             create = {
                 val ch = SocketChannel.open()
@@ -149,6 +154,18 @@ class OutboundConnector(
             },
             connect = { ch, a -> ch.socket().tcpNoDelay = true; ch.socket().connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
         )
+    }
+
+    /** 反射取 SocketChannel fd 是否可用（探测一次并缓存；进程内不变）。 */
+    @Volatile private var fdReflectionUsable: Boolean? = null
+    private fun ensureFdReflectionUsable(): Boolean {
+        fdReflectionUsable?.let { return it }
+        val probe = SocketChannel.open()
+        val ok = fileDescriptorOf(probe) != null
+        probe.closeQuietly()
+        fdReflectionUsable = ok
+        return ok
+    }
 
     /**
      * Happy Eyeballs（RFC 8305）交错并行连接的泛型编排：[create] 建连接对象（可含 bindSocket），[connect] 阻塞建连。

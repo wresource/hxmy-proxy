@@ -9,6 +9,7 @@ import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.SocketTimeoutException
@@ -41,6 +42,9 @@ class HttpProxyServer(
     private val onTraffic: (Long, Long) -> Unit = { _, _ -> },
     /** 规则引擎（可空，默认 null=不判定）；判为 REJECT 的域名直接拒绝连接。 */
     private val ruleEngine: RuleEngine? = null,
+    /** 非阻塞 relay 反应堆；为 null 或 [useNioRelay]=false 时 CONNECT 走旧阻塞 [relay]。 */
+    private val nioReactor: NioRelayReactor? = null,
+    private val useNioRelay: Boolean = false,
 ) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry, accounting) {
 
     override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
@@ -71,7 +75,7 @@ class HttpProxyServer(
             if (auth.enabled && !checkBasicAuth(headers, auth)) { writeProxyAuthRequired(output); return }
 
             if (method.equals("CONNECT", ignoreCase = true)) {
-                handleConnect(client, output, target, tracker) // 盲隧道，终结本连接
+                handleConnect(channel, output, target, tracker) // 盲隧道，终结本连接
                 return
             }
             val keepAlive = forwardPlainHttp(client, input, output, method, target, version, headers, tracker)
@@ -79,7 +83,7 @@ class HttpProxyServer(
         }
     }
 
-    private suspend fun handleConnect(client: Socket, output: OutputStream, target: String, tracker: TrafficAccounting.ConnTracker?) {
+    private suspend fun handleConnect(channel: SocketChannel, output: OutputStream, target: String, tracker: TrafficAccounting.ConnTracker?) {
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
         tracker?.bindHost(hp.first)
@@ -88,16 +92,40 @@ class HttpProxyServer(
         if (action == RuleAction.REJECT) {
             writeStatus(output, 403, "Blocked"); return
         }
+        val bypass = action == RuleAction.DIRECT
+        val limits = limitsProvider()
+        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else onTraffic
+
+        // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
+        if (useNioRelay && nioReactor != null) {
+            val upstreamCh = try {
+                connector.connectChannel(hp.first, hp.second, bypassVpn = bypass)
+            } catch (e: ProxyException) {
+                writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
+            } catch (e: IOException) {
+                Log.w("hxmyproxy", "connectChannel 反射 fd 不可用，回退阻塞 relay: ${e.message}")
+                null
+            }
+            if (upstreamCh != null) {
+                output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+                output.flush()
+                channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
+                upstreamCh.configureBlocking(false)
+                nioReactor.relay(channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, onBytes)
+                return
+            }
+        }
+
+        // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
-            connector.connect(hp.first, hp.second, bypassVpn = action == RuleAction.DIRECT)
+            connector.connect(hp.first, hp.second, bypassVpn = bypass)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
         }
         output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
         output.flush()
+        val client = channel.socket()
         client.soTimeout = 0
-        val limits = limitsProvider()
-        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else onTraffic
         relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
     }
 
