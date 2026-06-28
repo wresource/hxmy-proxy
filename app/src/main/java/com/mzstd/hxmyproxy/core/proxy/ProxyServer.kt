@@ -20,12 +20,16 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "hxmyproxy"
 
 /** bind 端口占用时的有限重试:stop→start 快速重启时旧 socket 可能尚未释放(SO_REUSEADDR 救不了仍在 LISTEN 的端口)。 */
 private const val BIND_RETRY_ATTEMPTS = 3
 private const val BIND_RETRY_DELAY_MS = 150L
+
+/** accept 抛系统错误（如 EMFILE 文件描述符耗尽）时的退避：避免错误持续期间 100% CPU 紧凑自旋。 */
+private const val ACCEPT_ERROR_BACKOFF_MS = 100L
 
 /**
  * 对端正常关闭类异常(客户端断开 / keep-alive 空闲取消 / 网站关连接):
@@ -79,6 +83,12 @@ abstract class TcpProxyServerBase(
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var acceptJob: Job? = null
 
+    /**
+     * 在途已准入的 client socket。stop() 时主动关闭——使阻塞中的 relay read/write 立刻抛错、
+     * 协程退出、线程归还有界池、FD 立即释放，而非残留到 idle 超时（最长 10 分钟）才回收。
+     */
+    private val inFlight = ConcurrentHashMap.newKeySet<Socket>()
+
     override fun start(scope: CoroutineScope, port: Int) {
         _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
@@ -116,7 +126,16 @@ abstract class TcpProxyServerBase(
                     val client = try {
                         server.accept()
                     } catch (e: Throwable) {
-                        if (isActive) continue else break
+                        if (!isActive) break
+                        // FD 耗尽（EMFILE: too many open files）时 accept 会持续立即抛错：退避避免 100% CPU
+                        // 紧凑自旋，并记一条（仅此类系统错误；客户端正常断开不会进到这里）。
+                        val msg = (e.message ?: "").lowercase()
+                        if ("too many open files" in msg || "emfile" in msg) {
+                            Log.w(TAG, "$protocol accept FD 耗尽，退避重试: ${e.message}")
+                            FileLog.w(TAG, "$protocol accept too-many-open-files", e)
+                            delay(ACCEPT_ERROR_BACKOFF_MS)
+                        }
+                        continue
                     }
                     val remote = (client.remoteSocketAddress as? InetSocketAddress)?.address
                     val local = (client.localSocketAddress as? InetSocketAddress)?.address
@@ -130,6 +149,7 @@ abstract class TcpProxyServerBase(
                     runCatching { client.tcpNoDelay = true }
                     Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
                     val tracker = accounting?.openConnection(remote)
+                    inFlight.add(client)
                     launch(ioDispatcher) {
                         try {
                             handle(client, tracker)
@@ -142,6 +162,7 @@ abstract class TcpProxyServerBase(
                                 FileLog.w(TAG, "$protocol error ${remote.hostAddress}", e)
                             }
                         } finally {
+                            inFlight.remove(client)
                             client.closeQuietly()
                             tracker?.close()
                             registry.release(remote)
@@ -161,6 +182,10 @@ abstract class TcpProxyServerBase(
         acceptJob?.cancel()
         acceptJob = null
         serverSocket = null
+        // 主动关闭在途连接：阻塞中的 relay read/write 立即抛错 → 协程退出、线程归还有界池、FD 释放。
+        // 只需关 client 端：一端断开后另一方向 pump 随之结束，handle 的 finally 会关上游 socket。
+        inFlight.toList().forEach { it.closeQuietly() }
+        inFlight.clear()
         _boundPort.value = null
         _bindError.value = null
     }

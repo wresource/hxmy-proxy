@@ -23,9 +23,9 @@ import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import com.mzstd.hxmyproxy.core.security.SubnetAccessController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,15 +35,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** accept 握手线程池固定大小：握手是短工，建连(suspend)与 relay 期间 handle 均挂起不占线程，无需随连接数放大。 */
+private const val ACCEPT_THREADS = 64
+
 /**
- * 代理引擎（单例）：持有 `limitedParallelism(N)` 调度器、三台 server、连接计数、mDNS 与连通性，
+ * 代理引擎（单例）：持有 accept/relay 有界线程池、三台 server、连接计数、mDNS 与连通性，
  * 由前台服务以其 Scope 启停；对外暴露 [state]（[ShareState]）。
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class ProxyServerRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
@@ -86,6 +92,10 @@ class ProxyServerRepository @Inject constructor(
     // 本次会话的子 scope：所有会话内协程（监听/收集器/ticker）都挂这里，stop() 一次性取消，避免停后残留重启。
     @Volatile private var sessionScope: CoroutineScope? = null
     @Volatile private var serverObservers: Job? = null
+    // accept 握手 / relay 搬字节各自的有界线程池：硬限阻塞线程数，杜绝用户把连接数/并行度「拉满」时
+    // limitedParallelism 弹性视图导致的线程爆炸 → native OOM。会话级，stop()/热重启时 shutdownNow。
+    @Volatile private var acceptExecutor: ExecutorService? = null
+    @Volatile private var relayExecutor: ExecutorService? = null
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
 
@@ -221,13 +231,20 @@ class ProxyServerRepository @Inject constructor(
 
     /** 只启动用户开启的协议监听（关掉的不占端口）。 */
     private fun startServers(scope: CoroutineScope, s: ProxySettings) {
-        // 两个派发器分工，解除"建连排在搬字节后面"的队头阻塞：
-        //  - acceptDispatcher：每连接的 handle（握手/读头/建连）。上限=最大连接数，
-        //    保证新连接的建连不被 relay 搬字节占满线程而饿死。
-        //  - relayDispatcher：relay 双向搬字节。每连接双向各占 1 槽，故容量 = 2×relayParallelism，
-        //    使「并行度」= 可同时全速搬字节的连接数（视频多并行分段靠这个并发，别被掐到 N/2）。
-        val acceptDispatcher = Dispatchers.IO.limitedParallelism(s.limits.maxGlobalConnections)
-        val relayDispatcher = Dispatchers.IO.limitedParallelism(2 * s.limits.relayParallelism)
+        // 两个有界线程池分工，解除"建连排在搬字节后面"的队头阻塞；同时对阻塞线程数设真实硬上限：
+        //  - acceptDispatcher：每连接 handle（握手/读头/明文 keep-alive 转发）。固定 ACCEPT_THREADS——
+        //    握手是短工，建连(suspend connect)与 relay 期间 handle 均挂起不占线程，故不随 maxGlobal 放大。
+        //  - relayDispatcher：relay 双向搬字节。每连接双向各占 1 槽 → 容量 2×relayParallelism（≤128，硬顶）。
+        //    用 newFixedThreadPool 而非 Dispatchers.IO.limitedParallelism(N)：后者是弹性视图、不受
+        //    io.parallelism 钳制，「拉满」时会把底层池弹到上千线程 → native OOM 崩溃（见 HxmyProxyApp 注释）。
+        acceptExecutor?.shutdownNow()
+        relayExecutor?.shutdownNow()
+        val accExec = Executors.newFixedThreadPool(ACCEPT_THREADS, daemonFactory("hxmy-accept"))
+        val relExec = Executors.newFixedThreadPool(2 * s.limits.relayParallelism, daemonFactory("hxmy-relay"))
+        acceptExecutor = accExec
+        relayExecutor = relExec
+        val acceptDispatcher = accExec.asCoroutineDispatcher()
+        val relayDispatcher = relExec.asCoroutineDispatcher()
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {
             HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine)
@@ -259,9 +276,23 @@ class ProxyServerRepository @Inject constructor(
     private fun stopServers() {
         serverObservers?.cancel()
         serverObservers = null
+        // 先各 server.stop()（主动关在途 socket → 阻塞 read 抛错 → relay 协程退出、线程空出），
+        // 再 shutdownNow 回收池线程释放内存。顺序很重要：阻塞 read 不响应线程中断，只响应 socket 关闭。
         servers.forEach { it.stop() }
         servers = emptyList()
+        acceptExecutor?.shutdownNow()
+        relayExecutor?.shutdownNow()
+        acceptExecutor = null
+        relayExecutor = null
         _state.update { it.copy(portBindErrors = emptySet()) }
+    }
+
+    /** 守护线程工厂：daemon 不阻止进程退出；命名便于在 trace/线程转储中识别 accept/relay 池。 */
+    private fun daemonFactory(name: String): ThreadFactory {
+        val counter = AtomicInteger(0)
+        return ThreadFactory { r ->
+            Thread(r, "$name-${counter.incrementAndGet()}").apply { isDaemon = true }
+        }
     }
 
     /** 汇总各 server 的 bind 状态（端口是否起来 / bind 失败的协议）到 state，供诊断与设置页提示。 */
@@ -281,9 +312,12 @@ class ProxyServerRepository @Inject constructor(
         }
     }
 
-    /** 影响监听结构的设置指纹（端口/协议开关/并行度）；变化即触发热重启。 */
+    /**
+     * 影响监听结构的设置指纹（端口/协议开关）；变化即触发热重启。
+     * relayParallelism 已移出——避免拖性能滑块触发热重启把活跃隧道变孤儿（其变更在下次启动时生效）。
+     */
     private fun serverKey(s: ProxySettings): String =
-        "${s.httpEnabled}:${s.httpPort}|${s.socksEnabled}:${s.socksPort}|${s.pacEnabled}:${s.pacPort}|${s.limits.relayParallelism}"
+        "${s.httpEnabled}:${s.httpPort}|${s.socksEnabled}:${s.socksPort}|${s.pacEnabled}:${s.pacPort}"
 
     /** 停止态也扫描接口，便于用户先选接口再启动（运行态由 [refresh] 维护，故此处直接返回）。 */
     suspend fun refreshInterfaces() {

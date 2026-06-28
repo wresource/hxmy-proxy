@@ -12,9 +12,12 @@ import java.io.File
 @HiltAndroidApp
 class HxmyProxyApp : Application() {
     override fun onCreate() {
-        // 抬高 kotlinx 的 IO 线程池上限（默认 64）：relay 池要 2×relayParallelism（HIGH 档 = 128）个阻塞搬字节线程，
-        // 若不抬高，relay 占满 64 会把 acceptDispatcher 的握手线程饿死 → 回退 Stripe 队头阻塞修复。
-        // 必须先于任何 Dispatchers.IO 使用（这里是进程最早期，代理引擎要到前台服务才启动）。线程按需创建、空闲回收。
+        // 限定「直接派到 Dispatchers.IO」的阻塞任务上限（默认 64）：仅约束 OutboundConnector 的阻塞 connect /
+        // Happy Eyeballs 扇出 / 出口探活等。accept 握手与 relay 搬字节已各自走独立的有界线程池
+        // （见 ProxyServerRepository.startServers），不在此池内、也不受此值约束。
+        // 关键：Dispatchers.IO.limitedParallelism(N) 是弹性视图、同样不受此值钳制（峰值会叠加到近无界），故本工程
+        // 已弃用该视图、改用 newFixedThreadPool 硬限线程，杜绝用户「拉满」时线程爆炸 → native OOM 崩溃。
+        // 必须先于任何 Dispatchers.IO 使用（进程最早期，代理引擎到前台服务才启动）。
         System.setProperty("kotlinx.coroutines.io.parallelism", "192")
         super.onCreate()
         FileLog.init(File(filesDir, "logs"))
