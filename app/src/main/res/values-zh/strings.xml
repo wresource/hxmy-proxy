@@ -32,8 +32,6 @@
     <string name="monitor_top_domains">目标域名</string>
     <string name="monitor_no_clients">暂无客户端（其他设备经 hxmy 上网后显示在这里）</string>
     <string name="monitor_no_domains">暂无流量</string>
-    <string name="monitor_protocol_traffic">按协议</string>
-    <string name="monitor_no_protocol_traffic">暂无流量</string>
     <string name="monitor_expand">展开全部（%1$d）</string>
     <string name="monitor_collapse">收起</string>
     <string name="back">返回</string>

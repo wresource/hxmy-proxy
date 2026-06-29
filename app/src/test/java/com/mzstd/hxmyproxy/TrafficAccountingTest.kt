@@ -58,17 +58,17 @@ class TrafficAccountingTest {
         assertTrue("空闲已关闭的客户端应被老化", acc.snapshot(10).clients.none { it.clientIp == ip1 })
     }
 
-    @Test fun accumulatesPerProtocol() {
+    @Test fun domainCarriesProtocolAndSplitsByProtocol() {
         val acc = TrafficAccounting()
-        acc.openConnection(ip1, ProxyProtocol.HTTP).also { it.add(100, 200) }
-        acc.openConnection(ip1, ProxyProtocol.SOCKS5).also { it.add(0, 50) }
+        // 同一域名分别经 HTTP 与 SOCKS5 访问 → 应拆成两行，各带自己的协议与字节。
+        acc.openConnection(ip1, ProxyProtocol.HTTP).also { it.bindHost("example.com"); it.add(100, 200) }
+        acc.openConnection(ip1, ProxyProtocol.SOCKS5).also { it.bindHost("example.com"); it.add(0, 50) }
         val snap = acc.snapshot(10)
-        val http = snap.protocols.first { it.protocol == ProxyProtocol.HTTP }
+        val http = snap.topDomains.first { it.host == "example.com" && it.protocol == ProxyProtocol.HTTP }
         assertEquals(100, http.uploadBytes); assertEquals(200, http.downloadBytes)
-        val socks = snap.protocols.first { it.protocol == ProxyProtocol.SOCKS5 }
+        val socks = snap.topDomains.first { it.host == "example.com" && it.protocol == ProxyProtocol.SOCKS5 }
         assertEquals(50, socks.downloadBytes)
-        // 协议桶按枚举顺序：HTTP 在 SOCKS5 之前。
-        assertEquals(ProxyProtocol.HTTP, snap.protocols.first().protocol)
+        assertEquals("同域名两协议应分两行", 2, snap.topDomains.count { it.host == "example.com" })
     }
 
     @Test fun resetClears() {

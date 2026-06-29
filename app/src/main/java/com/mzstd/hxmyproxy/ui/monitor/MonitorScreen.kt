@@ -241,38 +241,6 @@ fun MonitorScreen(
             )
         }
 
-        // —— 按协议流量（HTTP/SOCKS5/PAC：圆圈=活跃连接数，下方=累计上下行）——标题始终显示；空时给提示。
-        item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
-        item { Text(stringResource(R.string.monitor_protocol_traffic), style = MaterialTheme.typography.titleMedium) }
-        if (ui.share.protocolTraffic.isEmpty()) {
-            item {
-                Text(
-                    stringResource(R.string.monitor_no_protocol_traffic),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            // 最多 3 个协议，一排（columns=3）放得下，不会超出 → 无展开按钮。
-            gridSection(
-                items = ui.share.protocolTraffic,
-                collapsedRows = 1,
-                expanded = false,
-                onToggle = {},
-                columns = 3,
-            ) { mod, p ->
-                GridCell(
-                    modifier = mod,
-                    iconText = p.activeConnections.toString(),
-                    iconBg = Color(protocolColor(p.protocol.name)),
-                    iconColor = Color.White,
-                    name = p.protocol.name,
-                    value = "↓${fmtBytes(p.downloadBytes)} ↑${fmtBytes(p.uploadBytes)}",
-                    valueColor = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-
         // —— 客户端会话（按来源 IP 聚合）——标题始终显示；空时给提示。
         item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
         item { Text(stringResource(R.string.monitor_clients), style = MaterialTheme.typography.titleMedium) }
@@ -318,20 +286,21 @@ fun MonitorScreen(
                 )
             }
         } else {
-            // 域名网格：按最近转发时间降序，默认 1 排（4 个），超出可展开。
+            // 域名网格：按最近转发时间降序，一行 3 个（给协议标注留宽度）；圆圈底色=协议、value 前缀=协议名。
             gridSection(
                 items = ui.share.topDomains.sortedByDescending { it.lastSeenAtEpochMs },
                 collapsedRows = 1,
                 expanded = domainsExpanded,
                 onToggle = { domainsExpanded = !domainsExpanded },
+                columns = 3,
             ) { mod, d ->
                 GridCell(
                     modifier = mod,
                     iconText = (d.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                    iconBg = MaterialTheme.colorScheme.secondaryContainer,
-                    iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    iconBg = Color(protocolColor(d.protocol.name)),
+                    iconColor = Color.White,
                     name = d.host,
-                    value = fmtBytes(d.uploadBytes + d.downloadBytes),
+                    value = "${d.protocol.name} · ${fmtBytes(d.uploadBytes + d.downloadBytes)}",
                     valueColor = MaterialTheme.colorScheme.onSurface,
                 )
             }
