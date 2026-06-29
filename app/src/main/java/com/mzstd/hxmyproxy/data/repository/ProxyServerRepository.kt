@@ -411,10 +411,15 @@ class ProxyServerRepository @Inject constructor(
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
         val currentIps = selected.mapNotNull { it.address.hostAddress }.toSet()
-        if (running && s.mdnsEnabled && lastInterfaceIps.isNotEmpty() && currentIps != lastInterfaceIps) {
-            mdnsPublisher.republish()
-        }
-        lastInterfaceIps = currentIps
+        val ipChanged = running && s.mdnsEnabled && currentIps.isNotEmpty() &&
+            lastInterfaceIps.isNotEmpty() && currentIps != lastInterfaceIps
+        // **先**更新 lastInterfaceIps 再 republish：republish 会改 mdnsPublisher.registeredName，触发
+        // `registeredName.collect { refresh() }` 的另一次 refresh；若此时 lastInterfaceIps 仍是旧值，
+        // 那次 refresh 会判定 IP「还在变」→ 再次 republish → registeredName 又变 → 无限 republish 风暴
+        // （NsdManager 抖动 + CPU 打满 → 前台服务被系统杀 → 服务停止）。先更新即可让那次 refresh 不再 republish。
+        // 切换瞬间网卡可能短暂无 IP（currentIps 空）：此时不更新（保留旧 IP），等新 IP 出现再比较触发，避免漏发。
+        if (currentIps.isNotEmpty()) lastInterfaceIps = currentIps
+        if (ipChanged) mdnsPublisher.republish()
         val entries = computeEntries(selected, s)
         // 记录入口到历史（运行中、入口非空、且与上次不同才写——覆盖启动后选接口/IP 变化，避免重复写盘）
         if (running && entries.isNotEmpty()) {
