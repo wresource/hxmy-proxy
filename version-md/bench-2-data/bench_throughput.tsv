@@ -1,0 +1,8 @@
+url	round	hxmy_Bps	hxmy_secs	every_Bps	every_secs
+https://speed.cloudflare.com/__down?bytes=20000000	1	5907143	3.385731	4775282	4.188234
+https://speed.cloudflare.com/__down?bytes=20000000	2	6171344	3.240785	5417100	3.692012
+https://speed.cloudflare.com/__down?bytes=20000000	3	6206459	3.222449	5630533	3.552061
+https://ash-speed.hetzner.com/100MB.bin	1	7726863	13.570526	4153424	25.246059
+https://ash-speed.hetzner.com/100MB.bin	2	4200393	24.963756	7906399	13.262371
+https://ash-speed.hetzner.com/100MB.bin	3	4144505	25.300388	6759362	15.512943
+DONE
