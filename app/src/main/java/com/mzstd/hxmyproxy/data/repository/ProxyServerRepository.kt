@@ -118,6 +118,8 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var cachedFdLimit = -1
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
+    /** 上次刷新时已选接口的 IP 集合；与本次比较，在 WiFi 切换/IP 变化时主动重发 mDNS（新 IP 的 A 记录）。 */
+    @Volatile private var lastInterfaceIps: Set<String> = emptySet()
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -244,6 +246,7 @@ class ProxyServerRepository @Inject constructor(
         totalUp.set(0)
         totalDown.set(0)
         lastRecordedEntryKey = ""
+        lastInterfaceIps = emptySet()
         registry.reset()
         accounting.reset()
         _state.value = ShareState()
@@ -405,6 +408,13 @@ class ProxyServerRepository @Inject constructor(
         val selected = interfaces.filter { it.isSelected }
         accessController.update(selected.map { it.address }.toSet())
         publishMdns(s)
+        // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
+        // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
+        val currentIps = selected.mapNotNull { it.address.hostAddress }.toSet()
+        if (running && s.mdnsEnabled && lastInterfaceIps.isNotEmpty() && currentIps != lastInterfaceIps) {
+            mdnsPublisher.republish()
+        }
+        lastInterfaceIps = currentIps
         val entries = computeEntries(selected, s)
         // 记录入口到历史（运行中、入口非空、且与上次不同才写——覆盖启动后选接口/IP 变化，避免重复写盘）
         if (running && entries.isNotEmpty()) {
