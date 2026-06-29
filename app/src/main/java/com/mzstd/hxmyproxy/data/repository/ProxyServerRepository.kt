@@ -459,7 +459,11 @@ class ProxyServerRepository @Inject constructor(
         servers.firstOrNull { it.protocol == p }?.boundPort?.value != null
 
     private fun computeEntries(selected: List<ShareInterface>, s: ProxySettings): List<ProxyEntry> {
-        val mdnsName = if (s.mdnsEnabled) MDNS_HOST else null
+        // hxmyproxy.local 不再作为入口便利名：NsdManager 任何版本都无法注册自定义 mDNS 主机名（无 setHostname），
+        // 该名从未被通告 A 记录、客户端解析不到（实测 macOS 解析失败、用 IP 正常）。故 mdnsName 恒 null、入口只给
+        // 真实 IP（符合 D1「IP 永为兜底」）。mDNS 仍注册 DNS-SD 服务（_http._tcp 等），进阶用户可用 Bonjour 服务发现；
+        // 要让 hxmyproxy.local 真正可解析须自建 mDNS responder（jmDNS），留作后续可选便利层。
+        val mdnsName: String? = null
         val list = ArrayList<ProxyEntry>()
         for (iface in selected) {
             val ip = iface.address.hostAddress ?: continue
@@ -484,7 +488,6 @@ class ProxyServerRepository @Inject constructor(
     fun generatePac(): String = PacGenerator.generate(_state.value.recommendedEntries)
 
     private companion object {
-        const val MDNS_HOST = "hxmyproxy.local"
         const val TOP_DOMAINS = 20
         const val ACCOUNTING_AGE_OUT_MS = 5 * 60 * 1000L
     }

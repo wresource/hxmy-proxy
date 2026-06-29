@@ -18,8 +18,8 @@ android {
         // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
         //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
         //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
-        versionCode = 19
-        versionName = "1.2.6"
+        versionCode = 20
+        versionName = "1.2.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
