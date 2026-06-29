@@ -24,4 +24,16 @@ data class ProxyEntry(
 
     /** 便利名端点，如 "hxmyproxy.local:1080"；无 mDNS 时为 null。 */
     val mdnsEndpoint: String? get() = mdnsName?.let { "$it:$port" }
+
+    /**
+     * 入口卡**行内展示**文本。PAC 必须给**完整 URL**（`http://ip:port/proxy.pac`）——系统/浏览器的
+     * 「自动代理配置（PAC）」字段要的就是这个；只给裸 `ip:port` 用户粘进去必然失效（这正是 PAC「拉得到却用不起来」的根因）。
+     * HTTP/SOCKS 则给 `host:port`（直接填代理服务器/端口）。
+     */
+    val displayEndpoint: String get() =
+        if (protocol == ProxyProtocol.PAC) "http://$ipEndpoint/proxy.pac" else ipEndpoint
+
+    /** 「复制」写入剪贴板的文本：PAC 给完整 PAC URL；HTTP/SOCKS 优先便利名、回退 IP 端点。 */
+    val copyValue: String get() =
+        if (protocol == ProxyProtocol.PAC) "http://$ipEndpoint/proxy.pac" else (mdnsEndpoint ?: ipEndpoint)
 }

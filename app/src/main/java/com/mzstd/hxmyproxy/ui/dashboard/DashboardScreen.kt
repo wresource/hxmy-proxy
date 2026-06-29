@@ -197,7 +197,7 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                     shownEntries.forEach { e ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("${e.protocol.name}  ${e.ipEndpoint}", style = MaterialTheme.typography.bodyLarge)
+                                Text("${e.protocol.name}  ${e.displayEndpoint}", style = MaterialTheme.typography.bodyLarge)
                                 e.mdnsEndpoint?.let {
                                     Text(
                                         "${e.protocol.name}  $it",
@@ -207,7 +207,7 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                                 }
                             }
                             TextButton(onClick = {
-                                clipboard.setText(AnnotatedString(e.mdnsEndpoint ?: e.ipEndpoint))
+                                clipboard.setText(AnnotatedString(e.copyValue))
                                 Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                             }) { Text(stringResource(R.string.copy)) }
                         }
