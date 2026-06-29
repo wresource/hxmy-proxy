@@ -49,7 +49,7 @@ enum class PerformancePreset {
     fun toLimits(): ConnectionLimits = when (this) {
         BATTERY -> ConnectionLimits(64, 64, 16, 16 * 1024, 60)
         BALANCED -> ConnectionLimits(256, 256, 32, 64 * 1024, 120)
-        HIGH_THROUGHPUT -> ConnectionLimits(512, 512, 64, 64 * 1024, 120)
+        HIGH_THROUGHPUT -> ConnectionLimits(512, 512, 64, 128 * 1024, 120)
         CUSTOM -> ConnectionLimits(256, 256, 32, 64 * 1024, 120)
     }
 

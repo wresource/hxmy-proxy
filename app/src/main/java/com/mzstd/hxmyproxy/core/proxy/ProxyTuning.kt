@@ -6,9 +6,9 @@ package com.mzstd.hxmyproxy.core.proxy
 object ProxyTuning {
     /**
      * 上游 TCP 连接建立超时（**单个地址**）。Happy Eyeballs 下各地址并行，总耗时≈最快者，不再逐个累加。
-     * 经 VPN 出口（RTT~200ms）正常建连 <1s；3s 给慢站留足余量，超时即放弃该地址换下一个，缩短失败尾延迟。
+     * 经 VPN 出口跨 CDN（如 Cloudflare）建连可能需数秒，故给 8s 余量避免误杀慢建连；超时即换下一地址。
      */
-    const val CONNECT_TIMEOUT_MS = 3_000
+    const val CONNECT_TIMEOUT_MS = 8_000
     /** Happy Eyeballs（RFC 8305）连接尝试间隔：起一个地址后等这么久仍未成功，就并行起下一个。 */
     const val HE_ATTEMPT_DELAY_MS = 250
     /** 握手阶段（SOCKS 协商 / HTTP 请求行+头）读超时，防慢速攻击挂死。 */
