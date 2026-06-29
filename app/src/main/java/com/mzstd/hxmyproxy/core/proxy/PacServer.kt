@@ -22,10 +22,12 @@ class PacServer(
     ioDispatcher: CoroutineDispatcher,
     accessController: AccessController,
     registry: ConnectionRegistry,
+    /** 流量记账：传入则 PAC 的配置下发量计入「按协议」统计（让监控里能看到 PAC 被拉取）；为 null 不计。 */
+    accounting: TrafficAccounting? = null,
     /** HTTP 代理端口提供者：HTTP 启用时返回端口、否则 null。非 null → iPhone 描述文件用 Manual HTTP（免 PAC，最稳）。 */
     private val httpProxyPort: () -> Int? = { null },
     private val pacProvider: () -> String,
-) : TcpProxyServerBase(ProxyProtocol.PAC, ioDispatcher, accessController, registry) {
+) : TcpProxyServerBase(ProxyProtocol.PAC, ioDispatcher, accessController, registry, accounting) {
 
     override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
         val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
@@ -70,12 +72,14 @@ class PacServer(
                     output, 200, "OK", "application/x-ns-proxy-autoconfig", body,
                     cacheControl = "max-age=300",
                 )
+                tracker?.add(0L, body.size.toLong())   // 计入「按协议」流量：PAC 配置下发量
             }
             "/", "/setup" -> {
                 if (base == null) { writeNoBase(output); return }
                 val html = SetupPageGenerator.html(base, userAgent, manualProxy = manualHttp != null)
                     .toByteArray(Charsets.UTF_8)
                 writeResponse(output, 200, "OK", "text/html; charset=utf-8", html)
+                tracker?.add(0L, html.size.toLong())
             }
             "/hxmy.mobileconfig" -> {
                 if (base == null) { writeNoBase(output); return }
@@ -85,6 +89,7 @@ class PacServer(
                     output, 200, "OK", "application/x-apple-aspen-config", cfg,
                     disposition = "attachment; filename=\"hxmy.mobileconfig\"",
                 )
+                tracker?.add(0L, cfg.size.toLong())
             }
             else -> writeResponse(output, 404, "Not Found", null, null)
         }

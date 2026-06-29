@@ -213,6 +213,7 @@ class ProxyServerRepository @Inject constructor(
                         signalDbm = sig.dbm,
                         clients = snap.clients,
                         topDomains = snap.topDomains,
+                        protocolTraffic = snap.protocols,
                     )
                 }
             }
@@ -284,7 +285,7 @@ class ProxyServerRepository @Inject constructor(
         }
         if (s.pacEnabled) {
             PacServer(
-                acceptDispatcher, accessController, registry,
+                acceptDispatcher, accessController, registry, accounting,
                 httpProxyPort = { if (currentSettings.httpEnabled) currentSettings.httpPort else null },
             ) { generatePac() }
                 .also { it.start(scope, s.pacPort); list += it }

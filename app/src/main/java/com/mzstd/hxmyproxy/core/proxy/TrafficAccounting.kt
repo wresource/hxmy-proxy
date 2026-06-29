@@ -2,6 +2,8 @@ package com.mzstd.hxmyproxy.core.proxy
 
 import com.mzstd.hxmyproxy.core.model.ClientSession
 import com.mzstd.hxmyproxy.core.model.DomainTraffic
+import com.mzstd.hxmyproxy.core.model.ProtocolTraffic
+import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.LongAdder
@@ -24,14 +26,19 @@ class TrafficAccounting(
 ) {
     private val perClient = ConcurrentHashMap<InetAddress, Acc>()
     private val perDomain = ConcurrentHashMap<String, Acc>()
+    // 按协议（HTTP/SOCKS5/PAC）聚合：键就 3 个、常驻不老化，监控页「按协议」区块用。
+    private val perProtocol = ConcurrentHashMap<ProxyProtocol, Acc>()
     // 上次快照各 IP 累计，用于在单线程 ticker 内做 1s 速率差分（仅 ticker 访问，无需同步）。
     private val lastClientBytes = HashMap<InetAddress, LongArray>()
 
-    /** 每条连接开始时建一次，绑定 [clientIp]；host 解析出来后再 [ConnTracker.bindHost]。 */
-    fun openConnection(clientIp: InetAddress): ConnTracker = ConnTracker(clientIp)
+    /** 每条连接开始时建一次，绑定 [clientIp] 与 [protocol]；host 解析出来后再 [ConnTracker.bindHost]。 */
+    fun openConnection(clientIp: InetAddress, protocol: ProxyProtocol): ConnTracker = ConnTracker(clientIp, protocol)
 
-    inner class ConnTracker(clientIp: InetAddress) {
+    inner class ConnTracker(clientIp: InetAddress, protocol: ProxyProtocol) {
         private val clientAcc = perClient.computeIfAbsent(clientIp) { Acc(clientIp.hostAddress ?: "?") }
+            .also { it.conns.increment() }
+        // 协议固定（不像 host 会随 keep-alive 切换），开连接时一次性绑定。
+        private val protocolAcc = perProtocol.computeIfAbsent(protocol) { Acc(protocol.name) }
             .also { it.conns.increment() }
         @Volatile private var domainAcc: Acc? = null
 
@@ -53,10 +60,11 @@ class TrafficAccounting(
 
         /** 热路径：每搬一块字节后调用，纯原子加；同时喂全局速率仪表。 */
         fun add(up: Long, down: Long) {
-            if (up > 0) { clientAcc.up.add(up); domainAcc?.up?.add(up) }
-            if (down > 0) { clientAcc.down.add(down); domainAcc?.down?.add(down) }
+            if (up > 0) { clientAcc.up.add(up); protocolAcc.up.add(up); domainAcc?.up?.add(up) }
+            if (down > 0) { clientAcc.down.add(down); protocolAcc.down.add(down); domainAcc?.down?.add(down) }
             val now = clock()
             clientAcc.lastSeen = now
+            protocolAcc.lastSeen = now
             domainAcc?.let { it.lastSeen = now }
             globalSink(up, down)
         }
@@ -64,6 +72,7 @@ class TrafficAccounting(
         /** 连接结束：活跃连接数 -1（累计字节保留到老化淘汰）。 */
         fun close() {
             clientAcc.conns.decrement()
+            protocolAcc.conns.decrement()
             domainAcc?.conns?.decrement()
         }
     }
@@ -92,7 +101,13 @@ class TrafficAccounting(
         val domains = perDomain.values.map { a ->
             DomainTraffic(a.key, a.up.sum(), a.down.sum(), a.conns.sum().coerceAtLeast(0), a.lastSeen)
         }.sortedByDescending { it.uploadBytes + it.downloadBytes }.take(topN)
-        return Snapshot(clients, domains)
+
+        // 按协议：固定按枚举顺序（HTTP/SOCKS5/PAC），只列出现过的协议；UI 顺序稳定不跳动。
+        val protocols = ProxyProtocol.values().mapNotNull { p ->
+            val a = perProtocol[p] ?: return@mapNotNull null
+            ProtocolTraffic(p, a.up.sum(), a.down.sum(), a.conns.sum().toInt().coerceAtLeast(0))
+        }
+        return Snapshot(clients, domains, protocols)
     }
 
     /** 移除空闲超 [idleMs] 且无活跃连接的条目（"(其他)" 桶保留）。在 ticker 顺带调用。 */
@@ -104,11 +119,15 @@ class TrafficAccounting(
 
     /** 会话边界清零（start/stop 调用）。 */
     fun reset() {
-        perClient.clear(); perDomain.clear()
+        perClient.clear(); perDomain.clear(); perProtocol.clear()
         lastClientBytes.clear()
     }
 
-    class Snapshot(val clients: List<ClientSession>, val topDomains: List<DomainTraffic>)
+    class Snapshot(
+        val clients: List<ClientSession>,
+        val topDomains: List<DomainTraffic>,
+        val protocols: List<ProtocolTraffic>,
+    )
 
     private class Acc(val key: String) {
         val up = LongAdder()

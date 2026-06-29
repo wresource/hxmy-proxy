@@ -67,6 +67,14 @@ private fun serviceColor(name: String): Long = when (name) {
     else -> 0xFF5C6BC0L
 }
 
+/** 协议识别色：HTTP 蓝、SOCKS5 绿、PAC 橙（仅作圆形底色）。 */
+private fun protocolColor(name: String): Long = when (name) {
+    "HTTP" -> 0xFF4285F4L
+    "SOCKS5" -> 0xFF10A37FL
+    "PAC" -> 0xFFF38020L
+    else -> 0xFF5C6BC0L
+}
+
 @Composable
 private fun fmtBytes(bytes: Long): String =
     android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
@@ -231,6 +239,38 @@ fun MonitorScreen(
                 value = if (r.millis == null) stringResource(R.string.latency_timeout) else "${r.millis} ms",
                 valueColor = latencyColor(r.millis),
             )
+        }
+
+        // —— 按协议流量（HTTP/SOCKS5/PAC：圆圈=活跃连接数，下方=累计上下行）——标题始终显示；空时给提示。
+        item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
+        item { Text(stringResource(R.string.monitor_protocol_traffic), style = MaterialTheme.typography.titleMedium) }
+        if (ui.share.protocolTraffic.isEmpty()) {
+            item {
+                Text(
+                    stringResource(R.string.monitor_no_protocol_traffic),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            // 最多 3 个协议，一排（columns=3）放得下，不会超出 → 无展开按钮。
+            gridSection(
+                items = ui.share.protocolTraffic,
+                collapsedRows = 1,
+                expanded = false,
+                onToggle = {},
+                columns = 3,
+            ) { mod, p ->
+                GridCell(
+                    modifier = mod,
+                    iconText = p.activeConnections.toString(),
+                    iconBg = Color(protocolColor(p.protocol.name)),
+                    iconColor = Color.White,
+                    name = p.protocol.name,
+                    value = "↓${fmtBytes(p.downloadBytes)} ↑${fmtBytes(p.uploadBytes)}",
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
 
         // —— 客户端会话（按来源 IP 聚合）——标题始终显示；空时给提示。

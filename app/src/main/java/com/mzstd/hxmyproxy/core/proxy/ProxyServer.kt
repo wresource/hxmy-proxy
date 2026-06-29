@@ -152,7 +152,7 @@ abstract class TcpProxyServerBase(
                     }
                     runCatching { sock.tcpNoDelay = true }
                     Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
-                    val tracker = accounting?.openConnection(remote)
+                    val tracker = accounting?.openConnection(remote, protocol)
                     inFlight.add(client)
                     launch(ioDispatcher) {
                         try {
