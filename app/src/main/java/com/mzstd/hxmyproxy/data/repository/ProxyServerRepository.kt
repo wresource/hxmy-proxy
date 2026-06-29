@@ -59,8 +59,8 @@ private const val FD_RESERVED = 256
 /** 启用 NIO 非阻塞 relay（少量 selector 线程替代每隧道 2 阻塞线程）。过渡 flag，后续可提为设置项；
  *  false 回退旧阻塞 RelayEngine；connectChannel 反射 fd 不可用时也会单连接自动回退阻塞。 */
 private const val USE_NIO_RELAY = true
-/** NIO relay 的 selector 线程数（1–2 即可支撑大量隧道）。 */
-private const val NIO_RELAY_WORKERS = 2
+/** NIO relay selector 线程数上限：超过对吞吐无益（瓶颈在出口带宽/RTT，非 selector）。实际按 CPU 核数取，封顶于此。 */
+private const val NIO_RELAY_WORKERS_MAX = 4
 
 /**
  * 代理引擎（单例）：持有 accept/relay 有界线程池、三台 server、连接计数、mDNS 与连通性，
@@ -266,7 +266,9 @@ class ProxyServerRepository @Inject constructor(
         val acceptDispatcher = accExec.asCoroutineDispatcher()
         val relayDispatcher = relExec.asCoroutineDispatcher()
         // NIO 非阻塞 relay 反应堆（会话级）：flag 开则创建并 start，CONNECT/SOCKS 隧道走它；否则 null（回退阻塞 relay）。
-        val reactor = if (USE_NIO_RELAY) NioRelayReactor(workerCount = NIO_RELAY_WORKERS).also { it.start() } else null
+        // selector 数按 CPU 核数自动拉满（NIO 的并行维度），封顶 NIO_RELAY_WORKERS_MAX。
+        val nioWorkers = Runtime.getRuntime().availableProcessors().coerceIn(2, NIO_RELAY_WORKERS_MAX)
+        val reactor = if (USE_NIO_RELAY) NioRelayReactor(workerCount = nioWorkers).also { it.start() } else null
         nioReactor = reactor
         val list = mutableListOf<ProxyServer>()
         if (s.httpEnabled) {

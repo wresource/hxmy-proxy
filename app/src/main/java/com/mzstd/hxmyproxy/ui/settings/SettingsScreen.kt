@@ -153,10 +153,9 @@ private fun CustomLimits(limits: ConnectionLimits, viewModel: MainViewModel) {
     LimitSlider(stringResource(R.string.limit_per_client), limits.maxPerClientConnections, ConnectionLimits.RANGE_PER_CLIENT) {
         viewModel.setCustomLimits(limits.copy(maxPerClientConnections = it))
     }
-    LimitSlider(stringResource(R.string.limit_parallelism), limits.relayParallelism, ConnectionLimits.RANGE_PARALLELISM) {
-        viewModel.setCustomLimits(limits.copy(relayParallelism = it))
-    }
-    LimitSlider(stringResource(R.string.limit_buffer), limits.relayBufferBytes / 1024, 8..256) {
+    // 「转发并行度」滑块已移除：NIO relay 用 selector（按 CPU 核数自动拉满），不再是「每隧道 2 线程」模型，
+    // 该参数对 HTTPS/SOCKS 主流量无效。buffer 上限对齐 128KiB（RANGE_BUFFER_BYTES）。
+    LimitSlider(stringResource(R.string.limit_buffer), limits.relayBufferBytes / 1024, 8..128) {
         viewModel.setCustomLimits(limits.copy(relayBufferBytes = it * 1024))
     }
     LimitSlider(stringResource(R.string.limit_idle), limits.idleTimeoutSeconds, ConnectionLimits.RANGE_IDLE_SECONDS) {
