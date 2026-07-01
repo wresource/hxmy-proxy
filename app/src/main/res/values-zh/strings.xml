@@ -47,6 +47,7 @@
     <string name="stop_sharing">停止共享</string>
     <string name="shareable_interfaces">可分享入口</string>
     <string name="no_interfaces">未发现可用接口</string>
+    <string name="hint_enable_hotspot">当前是移动网络，开启个人热点后其他设备才能连上共享</string>
 
     <!-- 接口类型 -->
     <string name="iface_wifi">Wi-Fi</string>

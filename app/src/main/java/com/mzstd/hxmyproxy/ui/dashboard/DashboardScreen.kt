@@ -146,7 +146,14 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)
                 if (interfaces.isEmpty()) {
-                    Text(stringResource(R.string.no_interfaces), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // 走蜂窝上网时没有局域网可共享,引导用户开个人热点;否则给通用「无接口」提示。
+                    Text(
+                        stringResource(
+                            if (share.needsHotspotHint) R.string.hint_enable_hotspot
+                            else R.string.no_interfaces,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
                     shownIfaces.forEach { iface ->

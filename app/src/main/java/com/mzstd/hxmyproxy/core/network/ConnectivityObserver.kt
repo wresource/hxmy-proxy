@@ -87,6 +87,27 @@ class ConnectivityObserver(context: Context) {
         override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) { _networkChanges.tryEmit(Unit) }
     }
 
+    /**
+     * 当前上网的底层链路是否为**蜂窝**(移动数据)。开着 VPN 时默认网络是 VPN、看不出真实上行,故扫
+     * [ConnectivityManager.getAllNetworks] 找带 INTERNET 的非 VPN 网络看其 transport:只要存在 WiFi/以太网
+     * 上行就返回 false(它们能组局域网);仅当上行只有蜂窝时返回 true。用于「移动网络需开热点才能共享」引导。
+     */
+    @Suppress("DEPRECATION") // getAllNetworks:与 computeVpnState 同因,bypassable VPN 下无现成替代
+    fun uplinkIsCellular(): Boolean {
+        val networks = cm?.allNetworks ?: return false
+        var cellular = false
+        for (n in networks) {
+            val caps = cm.getNetworkCapabilities(n) ?: continue
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            ) return false
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) cellular = true
+        }
+        return cellular
+    }
+
     fun start() {
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
         // 单独监听 VPN transport（NetworkRequest.Builder 默认带 NOT_VPN，须先移除才能匹配 VPN 网络）。

@@ -225,6 +225,14 @@ class ProxyServerRepository @Inject constructor(
                 _state.update { it.copy(lockdownSuspected = !realOk && probeEgress(bypass = false)) }
             }
         }
+        // 热点(AP)接口出现**不走网络回调**（它不是上网网络，ConnectivityManager 不上报）→ 只能周期重扫捕捉。
+        // 换到「蜂窝+开热点」后,热点接口 up 时自动被 refresh 纳入入口+准入,无需手动重启共享。低频(数秒)且 refresh 幂等,耗电可忽略。
+        session.launch {
+            while (isActive) {
+                delay(HOTSPOT_RESCAN_MS)
+                refresh()
+            }
+        }
         _state.update { it.copy(running = true) }
     }
 
@@ -406,11 +414,15 @@ class ProxyServerRepository @Inject constructor(
         val s = currentSettings
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
         val selected = interfaces.filter { it.isSelected }
-        accessController.update(selected.map { it.address }.toSet())
+        // 回退规则:用户**选过**接口(selectedIds 非空)但一个都没匹配上(selected 空)→ 说明选的接口因换网/换热点
+        // 消失了,回退到「全部可共享接口」,让新出现的热点自动成为入口 + 准入放行,无需重启共享(换 WiFi→热点这类
+        // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
+        val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
+        accessController.update(effective.map { it.address }.toSet())
         publishMdns(s)
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
-        val currentIps = selected.mapNotNull { it.address.hostAddress }.toSet()
+        val currentIps = effective.mapNotNull { it.address.hostAddress }.toSet()
         val ipChanged = running && s.mdnsEnabled && currentIps.isNotEmpty() &&
             lastInterfaceIps.isNotEmpty() && currentIps != lastInterfaceIps
         // **先**更新 lastInterfaceIps 再 republish：republish 会改 mdnsPublisher.registeredName，触发
@@ -420,7 +432,9 @@ class ProxyServerRepository @Inject constructor(
         // 切换瞬间网卡可能短暂无 IP（currentIps 空）：此时不更新（保留旧 IP），等新 IP 出现再比较触发，避免漏发。
         if (currentIps.isNotEmpty()) lastInterfaceIps = currentIps
         if (ipChanged) mdnsPublisher.republish()
-        val entries = computeEntries(selected, s)
+        val entries = computeEntries(effective, s)
+        // 走蜂窝上网且没有任何可共享入口(没开热点)→ 引导用户开个人热点。放 refresh 里算,随网络变化即时更新。
+        val needsHotspotHint = entries.isEmpty() && connectivityObserver.uplinkIsCellular()
         // 记录入口到历史（运行中、入口非空、且与上次不同才写——覆盖启动后选接口/IP 变化，避免重复写盘）
         if (running && entries.isNotEmpty()) {
             val entryKey = entries.joinToString("|") { "${it.protocol}:${it.host}:${it.port}" }
@@ -442,6 +456,7 @@ class ProxyServerRepository @Inject constructor(
                 localNetworkPermissionGranted = perm,
                 interfaces = interfaces,
                 recommendedEntries = entries,
+                needsHotspotHint = needsHotspotHint,
                 signalLevel = sig.level,
                 signalDbm = sig.dbm,
                 diagnostics = st.diagnostics.copy(
@@ -490,5 +505,7 @@ class ProxyServerRepository @Inject constructor(
     private companion object {
         const val TOP_DOMAINS = 20
         const val ACCOUNTING_AGE_OUT_MS = 5 * 60 * 1000L
+        /** 热点接口出现无网络回调,周期重扫捕捉的间隔(秒级足够快、又不至于耗电)。 */
+        const val HOTSPOT_RESCAN_MS = 3000L
     }
 }

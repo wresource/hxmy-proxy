@@ -30,6 +30,8 @@ class InterfaceScanner {
         for (nif in Collections.list(nifs)) {
             val up = try { nif.isUp && !nif.isLoopback } catch (e: Exception) { false }
             if (!up) continue
+            // 蜂窝/VPN 是上行链路,不能给局域网设备连 → 整个接口排除,不进可共享列表(避免误导用户去选)。
+            if (InterfaceClassifier.isUplinkOnly(nif.name)) continue
             for (ia in nif.interfaceAddresses) {
                 val addr = ia.address ?: continue
                 if (addr !is Inet4Address) continue

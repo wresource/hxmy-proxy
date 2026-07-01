@@ -47,6 +47,7 @@
     <string name="stop_sharing">Stop sharing</string>
     <string name="shareable_interfaces">Shareable interfaces</string>
     <string name="no_interfaces">No interfaces found</string>
+    <string name="hint_enable_hotspot">Using mobile data — turn on the personal hotspot, then other devices can connect and share.</string>
 
     <!-- Interface types -->
     <string name="iface_wifi">Wi-Fi</string>
