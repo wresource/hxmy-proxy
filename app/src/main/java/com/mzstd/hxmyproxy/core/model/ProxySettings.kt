@@ -15,7 +15,8 @@ data class ProxySettings(
     val pacPort: Int = 8899,
     val selectedInterfaceIds: Set<String> = emptySet(),
     val vpnDownStrategy: VpnDownStrategy = VpnDownStrategy.BLOCK,
-    val mdnsEnabled: Boolean = true,
+    // mDNS 默认关:hxmyproxy.local 系统 API 无法注册(解析不到)、DNS-SD 普通用户用不到,已从 UI 移除、后端不发布。
+    val mdnsEnabled: Boolean = false,
     val authEnabled: Boolean = false,
     /** 反 SSRF：默认放行私网出口；置 true 则连私网也禁（loopback/链路本地始终禁）。 */
     val blockPrivateLanEgress: Boolean = false,

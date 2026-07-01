@@ -1,0 +1,244 @@
+=== hxmy proxy 错误日志 ===
+time: 2026-06-27 05:14:52
+package: com.mzstd.hxmyproxy
+version: 1.1.1 (2)
+
+06-26 18:53:14.811 W/hxmyproxy: SOCKS5 bind :1080 failed
+java.net.BindException: bind failed: EADDRINUSE (Address already in use)
+	at libcore.io.IoBridge.bind(IoBridge.java:149)
+	at java.net.PlainSocketImpl.socketBind(PlainSocketImpl.java:162)
+	at java.net.AbstractPlainSocketImpl.bind(AbstractPlainSocketImpl.java:427)
+	at java.net.ServerSocket.bind(ServerSocket.java:399)
+	at com.mzstd.hxmyproxy.core.proxy.TcpProxyServerBase$start$1.invokeSuspend(ProxyServer.kt:67)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+Caused by: android.system.ErrnoException: bind failed: EADDRINUSE (Address already in use)
+	at libcore.io.Linux.bind(Native Method)
+	at libcore.io.ForwardingOs.bind(ForwardingOs.java:139)
+	at libcore.io.ForwardingOs.bind(ForwardingOs.java:139)
+	at libcore.io.IoBridge.bind(IoBridge.java:145)
+	... 12 more
+06-26 18:53:22.807 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:53:22.808 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:53:26.486 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:53:30.668 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:53:30.673 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:54:09.354 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:09.503 W/hxmyproxy: HTTP error 192.168.50.148
+sun.net.ConnectionResetException: Connection reset
+	at java.net.SocketOutputStream.socketWrite0(Native Method)
+	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:116)
+	at java.net.SocketOutputStream.write(SocketOutputStream.java:144)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handleConnect(HttpProxyServer.kt:94)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.access$handleConnect(HttpProxyServer.kt:28)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer$handleConnect$1.invokeSuspend(HttpProxyServer.kt:18)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+06-26 18:54:10.336 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:14.150 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:15.651 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:17.199 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:22.955 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:28.667 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:31.116 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:40.952 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:44.534 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:54:45.118 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:14.334 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:55:14.947 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@73c8585
+06-26 18:55:35.330 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:40.955 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:47.611 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:47.669 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:50.070 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:56.553 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:56.587 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:55:57.027 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:56:00.007 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:56:01.391 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:56:52.165 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:58:54.513 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:43.879 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:44.996 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:46.148 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:46.717 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:47.031 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:47.039 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:47.903 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:47.906 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 18:59:51.331 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 19:00:01.733 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 19:01:21.634 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-26 19:02:00.997 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@66f9ade
+06-27 02:06:35.406 W/hxmyproxy: HTTP error 192.168.50.148
+sun.net.ConnectionResetException: Connection reset
+	at java.net.SocketOutputStream.socketWrite0(Native Method)
+	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:116)
+	at java.net.SocketOutputStream.write(SocketOutputStream.java:144)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handleConnect(HttpProxyServer.kt:94)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.access$handleConnect(HttpProxyServer.kt:28)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer$handleConnect$1.invokeSuspend(HttpProxyServer.kt:18)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+06-27 02:06:37.114 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:41.244 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:42.336 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:43.393 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:47.380 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:47.604 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:48.715 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:49.318 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:50.279 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:51.706 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:06:57.980 W/hxmyproxy: HTTP error 192.168.50.148
+kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled; job=StandaloneCoroutine{Cancelling}@e6873d2
+06-27 02:40:40.669 W/hxmyproxy: HTTP error 192.168.50.148
+sun.net.ConnectionResetException: Connection reset
+	at java.net.SocketOutputStream.socketWrite0(Native Method)
+	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:116)
+	at java.net.SocketOutputStream.write(SocketOutputStream.java:144)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.writeStatus(HttpProxyServer.kt:224)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handleConnect(HttpProxyServer.kt:87)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handle(HttpProxyServer.kt:72)
+	at com.mzstd.hxmyproxy.core.proxy.TcpProxyServerBase$start$1$2.invokeSuspend(ProxyServer.kt:102)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+06-27 02:40:41.092 W/hxmyproxy: HTTP error 192.168.50.148
+java.net.SocketException: Broken pipe
+	at java.net.SocketOutputStream.socketWrite0(Native Method)
+	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:116)
+	at java.net.SocketOutputStream.write(SocketOutputStream.java:144)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handleConnect(HttpProxyServer.kt:94)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.access$handleConnect(HttpProxyServer.kt:28)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer$handleConnect$1.invokeSuspend(HttpProxyServer.kt:18)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+06-27 02:40:41.096 W/hxmyproxy: HTTP error 192.168.50.148
+java.net.SocketException: Broken pipe
+	at java.net.SocketOutputStream.socketWrite0(Native Method)
+	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:116)
+	at java.net.SocketOutputStream.write(SocketOutputStream.java:144)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handleConnect(HttpProxyServer.kt:94)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.access$handleConnect(HttpProxyServer.kt:28)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer$handleConnect$1.invokeSuspend(HttpProxyServer.kt:18)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+06-27 02:41:54.249 W/hxmyproxy: HTTP error 192.168.50.148
+java.net.SocketException: Connection reset
+	at java.net.SocketInputStream.read(SocketInputStream.java:191)
+	at java.net.SocketInputStream.read(SocketInputStream.java:143)
+	at java.net.SocketInputStream.read(SocketInputStream.java:205)
+	at com.mzstd.hxmyproxy.core.proxy.IoUtilsKt.readAsciiLine(IoUtils.kt:28)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer.handle(HttpProxyServer.kt:54)
+	at com.mzstd.hxmyproxy.core.proxy.HttpProxyServer$handle$1.invokeSuspend(HttpProxyServer.kt:15)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:35)
+	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:101)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:47)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:798)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)

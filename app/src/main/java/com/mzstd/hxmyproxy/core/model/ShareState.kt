@@ -9,6 +9,10 @@ data class DiagnosticsSummary(
     val httpPortUp: Boolean = false,
     val socksPortUp: Boolean = false,
     val pacPortUp: Boolean = false,
+    // 各协议是否被用户启用——诊断区分「未启用(中性)」与「启用但端口没起来(异常)」,避免关掉某协议就误报红叉。
+    val httpEnabled: Boolean = true,
+    val socksEnabled: Boolean = true,
+    val pacEnabled: Boolean = true,
     val mdnsPublished: Boolean = false,
     val vpnDetected: Boolean = false,
     val batteryOptimizationIgnored: Boolean = false,

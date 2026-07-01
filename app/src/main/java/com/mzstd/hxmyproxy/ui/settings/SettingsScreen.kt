@@ -135,7 +135,8 @@ fun SettingsScreen(
         ChipRow(VpnDownStrategy.entries, s.vpnDownStrategy, { stringResource(it.labelRes()) }, viewModel::setVpnStrategy)
 
         HorizontalDivider()
-        SwitchRow(stringResource(R.string.settings_mdns), s.mdnsEnabled, viewModel::setMdnsEnabled)
+        // mDNS 已移除:hxmyproxy.local 主机名系统 API 无法注册(从来解析不到),DNS-SD 服务发现普通用户用不到,
+        // 保留只会让「发布 mDNS (hxmyproxy.local)」文案误导。mdnsEnabled 默认 false、后端不再发布。
         SwitchRow(stringResource(R.string.settings_block_private), s.blockPrivateLanEgress, viewModel::setBlockPrivateLan)
 
         HorizontalDivider()

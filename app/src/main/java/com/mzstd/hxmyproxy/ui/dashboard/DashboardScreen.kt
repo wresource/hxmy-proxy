@@ -200,7 +200,11 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                     Text(stringResource(R.string.no_entry))
                 } else {
                     val allEntries = share.recommendedEntries
-                    val shownEntries = if (entriesExpanded) allEntries else listOf(primaryEntry)
+                    // 折叠态除首选(HTTP)外,常显 PAC 那条——PAC 给的是「系统/浏览器自动配置」要用的完整
+                    // http://ip:port/proxy.pac URL,过去被折进「展开」里用户根本找不到(见 PAC 诊断)。
+                    val pacEntry = allEntries.firstOrNull { it.protocol == ProxyProtocol.PAC && it != primaryEntry }
+                    val collapsedEntries = listOfNotNull(primaryEntry, pacEntry)
+                    val shownEntries = if (entriesExpanded) allEntries else collapsedEntries
                     shownEntries.forEach { e ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -219,7 +223,17 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                             }) { Text(stringResource(R.string.copy)) }
                         }
                     }
-                    if (allEntries.size > 1) {
+                    // PAC 已开但 HTTP/SOCKS 全关 → 生成的 pac 退化成 return "DIRECT"(能拉取但不代理),明确告警。
+                    if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) {
+                        Text(
+                            stringResource(R.string.pac_needs_backend),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    // 仅当有被折叠隐藏的入口(总数 > 折叠已显示数)才显示展开按钮——避免 [HTTP,PAC] 恰好两条时,
+                    // 折叠态已全显却仍弹出「展开(2)」点开无变化的无效按钮(审查发现)。
+                    if (allEntries.size > collapsedEntries.size) {
                         TextButton(
                             onClick = { entriesExpanded = !entriesExpanded },
                             modifier = Modifier.fillMaxWidth(),
@@ -254,6 +268,12 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                             QrImage(setupUrl, sizeDp = 220)
                             Text(stringResource(R.string.qr_setup_hint), style = MaterialTheme.typography.bodyMedium)
                             Text(setupUrl, style = MaterialTheme.typography.bodySmall)
+                            // 扫码落地页配的是 HTTP 代理;SOCKS5/PAC 请在入口卡手动复制配置,故此处注明适用范围。
+                            Text(
+                                stringResource(R.string.qr_http_only),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 },

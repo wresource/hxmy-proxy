@@ -175,13 +175,14 @@ fun MonitorScreen(
         // —— 诊断（原独立页并入，圆形图标一眼正常/异常）——
         item { Text(stringResource(R.string.monitor_diagnostics), style = MaterialTheme.typography.titleMedium) }
         val diag = ui.share.diagnostics
+        // Triple(label, enabled, up):enabled=false → 中性「未启用」(不是故障);enabled&&up → 绿✓正常;
+        // enabled&&!up → 红✗异常。协议行(HTTP/SOCKS/PAC)带各自 enabled,避免用户关掉某协议就被误报成红叉异常。
         val diagItems = listOf(
-            R.string.diag_local_net_perm to diag.localNetworkPermissionGranted,
-            R.string.diag_vpn to diag.vpnDetected,
-            R.string.diag_http_port to diag.httpPortUp,
-            R.string.diag_socks_port to diag.socksPortUp,
-            R.string.diag_pac_port to diag.pacPortUp,
-            R.string.diag_mdns to diag.mdnsPublished,
+            Triple(R.string.diag_local_net_perm, true, diag.localNetworkPermissionGranted),
+            Triple(R.string.diag_vpn, true, diag.vpnDetected),
+            Triple(R.string.diag_http_port, diag.httpEnabled, diag.httpPortUp),
+            Triple(R.string.diag_socks_port, diag.socksEnabled, diag.socksPortUp),
+            Triple(R.string.diag_pac_port, diag.pacEnabled, diag.pacPortUp),
         )
         gridSection(
             items = diagItems,
@@ -189,17 +190,49 @@ fun MonitorScreen(
             expanded = diagExpanded,
             onToggle = { diagExpanded = !diagExpanded },
         ) { mod, item ->
-            val (label, ok) = item
-            val c = if (ok) StatusColors.good() else StatusColors.bad()
-            GridCell(
-                modifier = mod,
-                iconText = if (ok) "✓" else "✗",
-                iconBg = c.copy(alpha = 0.18f),
-                iconColor = c,
-                name = stringResource(label),
-                value = stringResource(if (ok) R.string.diag_ok else R.string.diag_fail),
-                valueColor = c,
-            )
+            val (label, enabled, up) = item
+            // PAC 开着但 HTTP/SOCKS 全关 → PAC 只生成 return "DIRECT"(不代理),端口虽 up 也不算「正常」;
+            // 标黄「仅直连」,与主页入口卡的退化告警保持一致,避免两屏一红一绿自相矛盾(审查发现)。
+            val pacDirectOnly = label == R.string.diag_pac_port &&
+                diag.pacEnabled && !diag.httpEnabled && !diag.socksEnabled
+            when {
+                !enabled -> {
+                    val c = MaterialTheme.colorScheme.onSurfaceVariant
+                    GridCell(
+                        modifier = mod,
+                        iconText = "—",
+                        iconBg = c.copy(alpha = 0.14f),
+                        iconColor = c,
+                        name = stringResource(label),
+                        value = stringResource(R.string.diag_disabled),
+                        valueColor = c,
+                    )
+                }
+                pacDirectOnly -> {
+                    val c = StatusColors.warn()
+                    GridCell(
+                        modifier = mod,
+                        iconText = "!",
+                        iconBg = c.copy(alpha = 0.18f),
+                        iconColor = c,
+                        name = stringResource(label),
+                        value = stringResource(R.string.diag_pac_direct_only),
+                        valueColor = c,
+                    )
+                }
+                else -> {
+                    val c = if (up) StatusColors.good() else StatusColors.bad()
+                    GridCell(
+                        modifier = mod,
+                        iconText = if (up) "✓" else "✗",
+                        iconBg = c.copy(alpha = 0.18f),
+                        iconColor = c,
+                        name = stringResource(label),
+                        value = stringResource(if (up) R.string.diag_ok else R.string.diag_fail),
+                        valueColor = c,
+                    )
+                }
+            }
         }
 
         // —— 服务延迟 ——

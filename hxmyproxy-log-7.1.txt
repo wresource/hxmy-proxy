@@ -1,0 +1,43 @@
+=== hxmy proxy 错误日志 ===
+time: 2026-07-01 10:38:46
+package: com.mzstd.hxmyproxy
+version: 1.2.10 (23)
+
+06-28 21:58:45.492 W/hxmyproxy: HTTP forward error d.xfinfr.com:80
+java.net.SocketTimeoutException: Read timed out
+	at java.net.SocketInputStream.socketRead0(Native Method)
+	at java.net.SocketInputStream.socketRead(SocketInputStream.java:118)
+	at java.net.SocketInputStream.read(SocketInputStream.java:173)
+	at java.net.SocketInputStream.read(SocketInputStream.java:143)
+	at java.net.SocketInputStream.read(SocketInputStream.java:205)
+	at zv.M(SourceFile:8)
+	at ed0.c(SourceFile:640)
+	at bd0.r(SourceFile:20)
+	at vd.h(SourceFile:7)
+	at dy.run(SourceFile:113)
+	at po0.run(SourceFile:22)
+	at tw1.run(SourceFile:2)
+	at nr.run(SourceFile:87)
+06-30 02:51:38.256 W/hxmyproxy: HTTP forward error downloads.majestic.com:80
+java.io.IOException: Broken pipe
+	at sun.nio.ch.FileDispatcherImpl.write0(Native Method)
+	at sun.nio.ch.SocketDispatcher.write(SocketDispatcher.java:55)
+	at sun.nio.ch.IOUtil.writeFromNativeBuffer(IOUtil.java:93)
+	at sun.nio.ch.IOUtil.write(IOUtil.java:65)
+	at sun.nio.ch.SocketChannelImpl.write(SocketChannelImpl.java:512)
+	at java.nio.channels.Channels.writeFullyImpl(Channels.java:75)
+	at java.nio.channels.Channels.writeFully(Channels.java:95)
+	at java.nio.channels.Channels.-$$Nest$smwriteFully(Channels.java:0)
+	at java.nio.channels.Channels$1.write(Channels.java:173)
+	at dw.m(SourceFile:23)
+	at dw.l(SourceFile:187)
+	at gd0.c(SourceFile:919)
+	at dd0.r(SourceFile:20)
+	at vd.h(SourceFile:7)
+	at pk1.D(SourceFile:6)
+	at q.h(SourceFile:22)
+	at vd.h(SourceFile:32)
+	at ey.run(SourceFile:113)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1100)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:1572)

@@ -113,6 +113,10 @@
     <string name="diag_vpn">VPN egress</string>
     <string name="diag_ok">OK</string>
     <string name="diag_fail">Problem</string>
+    <string name="diag_disabled">Off</string>
+    <string name="diag_pac_direct_only">DIRECT only</string>
+    <string name="pac_needs_backend">PAC is on but HTTP and SOCKS are both off — it only returns DIRECT (no proxying). Enable HTTP or SOCKS.</string>
+    <string name="qr_http_only">This QR/setup configures the HTTP proxy only. For SOCKS5 or PAC, copy the address from the entry card and set them up manually.</string>
     <string name="diag_logs_title">Logs</string>
     <string name="diag_logs_hint">Records errors, crashes and session events. Export and send the file for analysis.</string>
     <string name="export_logs">Export logs</string>

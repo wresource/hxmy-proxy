@@ -370,7 +370,13 @@ class ProxyServerRepository @Inject constructor(
             it.copy(
                 interfaces = interfaces,
                 localNetworkPermissionGranted = perm,
-                diagnostics = it.diagnostics.copy(localNetworkPermissionGranted = perm),
+                // 未运行时也写入各协议启用态,否则诊断 enabled 停留默认 true → 关闭的协议被误报红叉(审查发现)。
+                diagnostics = it.diagnostics.copy(
+                    localNetworkPermissionGranted = perm,
+                    httpEnabled = s.httpEnabled,
+                    socksEnabled = s.socksEnabled,
+                    pacEnabled = s.pacEnabled,
+                ),
                 signalLevel = sig.level,
                 signalDbm = sig.dbm,
             )
@@ -464,6 +470,9 @@ class ProxyServerRepository @Inject constructor(
                     httpPortUp = portUp(ProxyProtocol.HTTP),
                     socksPortUp = portUp(ProxyProtocol.SOCKS5),
                     pacPortUp = portUp(ProxyProtocol.PAC),
+                    httpEnabled = s.httpEnabled,
+                    socksEnabled = s.socksEnabled,
+                    pacEnabled = s.pacEnabled,
                     mdnsPublished = s.mdnsEnabled && mdnsPublisher.lastRegisteredName != null,
                 ),
             )
@@ -482,9 +491,11 @@ class ProxyServerRepository @Inject constructor(
         val list = ArrayList<ProxyEntry>()
         for (iface in selected) {
             val ip = iface.address.hostAddress ?: continue
-            if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, mdnsName, priority = 10))
-            if (s.httpEnabled) list.add(ProxyEntry(ip, s.httpPort, ProxyProtocol.HTTP, iface.id, mdnsName, priority = 5))
-            if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, mdnsName, priority = 1))
+            // 展示顺序 HTTP > SOCKS5 > PAC(HTTP 最通用、客户端配置最简单)。priority 与顺序一致(HTTP 最高),
+            // 作为唯一优先级来源,避免与通知/主页硬编码的「HTTP 优先」相矛盾(旧值 SOCKS5 最高是反的)。
+            if (s.httpEnabled) list.add(ProxyEntry(ip, s.httpPort, ProxyProtocol.HTTP, iface.id, mdnsName, priority = 30))
+            if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, mdnsName, priority = 20))
+            if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, mdnsName, priority = 10))
         }
         return list
     }
