@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy.core.network
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -68,7 +69,22 @@ class ConnectivityObserver(context: Context) {
     private val vpnCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
         override fun onLost(network: Network) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { _vpnState.value = computeVpnState() }
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
+    }
+
+    /**
+     * 监听底层「非 VPN」网络（WiFi/以太网/热点上游）的接入、断开、IP 变化。
+     *
+     * **为何必需**：开着系统 VPN（如 Google One）时，默认网络恒为 VPN、Network 对象不变，换 WiFi / DHCP 续约
+     * 只反映在底层网络的 [LinkProperties]（IP/路由）上——上面的默认网络回调与 VPN 回调都收不到这类变化。
+     * 若不单独监听底层网络的 [onLinkPropertiesChanged]，换 WiFi 后 [networkChanges] 不发信号 → 上层 refresh 不跑
+     * → 准入地址（[SubnetAccessController]）、入口 IP、mDNS 全停在旧网段 → 新网段客户端被准入层拒 → 表现为
+     * 「换 WiFi 中断，需重启才恢复」。故必须补这条监听。NOT_VPN 不限 transport：WiFi/以太网/热点上游都覆盖。
+     */
+    private val underlyingCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { _networkChanges.tryEmit(Unit) }
+        override fun onLost(network: Network) { _networkChanges.tryEmit(Unit) }
+        override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) { _networkChanges.tryEmit(Unit) }
     }
 
     fun start() {
@@ -79,11 +95,17 @@ class ConnectivityObserver(context: Context) {
             .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
             .build()
         runCatching { cm?.registerNetworkCallback(vpnReq, vpnCallback) }
+        // 底层非 VPN 网络（WiFi/以太网/热点）的 IP 变化监听——换 WiFi 无缝的关键（见 underlyingCallback 注释）。
+        val underlyingReq = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching { cm?.registerNetworkCallback(underlyingReq, underlyingCallback) }
         _vpnState.value = computeVpnState()   // 注册后主动算一次，VPN 已稳定连接时即时检出
     }
 
     fun stop() {
         runCatching { cm?.unregisterNetworkCallback(callback) }
         runCatching { cm?.unregisterNetworkCallback(vpnCallback) }
+        runCatching { cm?.unregisterNetworkCallback(underlyingCallback) }
     }
 }

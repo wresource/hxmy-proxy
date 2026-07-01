@@ -18,6 +18,10 @@ class InterfaceScanner {
 
     fun scan(selectedIds: Set<String>): List<ShareInterface> {
         val result = ArrayList<ShareInterface>()
+        // 选中匹配容忍 IP 变化：id 形如 "wlan0/192.168.1.34" 含 IP，换 WiFi/DHCP 续约后 IP 变、id 变，
+        // 若只按完整 id 比对，选中会丢失 → 入口列表空、准入退化。故同时按「接口名」（'/' 前）比对：
+        // 只要该接口名曾被选中，新 IP 下仍算选中 → refresh 后自动纳入新地址、无缝跟随换网。
+        val selectedNames = selectedIds.mapNotNull { it.substringBefore('/').ifEmpty { null } }.toSet()
         val nifs = try {
             NetworkInterface.getNetworkInterfaces() ?: return result
         } catch (e: Exception) {
@@ -40,7 +44,7 @@ class InterfaceScanner {
                         address = addr,
                         prefixLength = prefix,
                         gatewayLike = isGatewayLike(addr),
-                        isSelected = id in selectedIds,
+                        isSelected = id in selectedIds || nif.name in selectedNames,
                         status = InterfaceStatus.UP,
                     )
                 )
