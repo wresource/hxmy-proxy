@@ -126,6 +126,9 @@
     <string name="guide_localnet_title">Local network permission</string>
     <string name="guide_localnet_body">Since Android 17, the local network permission is required to accept connections from LAN devices. Please allow it in app settings.</string>
     <string name="settings_general">General</string>
+    <string name="qr_sheet_hint">Scan with another device and follow the page to finish setup. HTTP proxy only.</string>
+    <string name="qr_dismiss_hint">Tap outside to close</string>
+    <string name="localnet_versions_body">By Android version:\n· Android 15 and below — no such permission; apps can access the local network directly.\n· Android 16 (this device) — local network protection is an opt-in test feature; regular apps are unaffected, so no grant is needed.\n· Android 17+ — a mandatory runtime permission; it must be granted to accept LAN connections. This item will then show the grant state and open the settings on tap.</string>
     <string name="help_f_title">Avoid interruptions</string>
     <string name="help_f_body">For long sharing sessions, keep the system from killing the app: 1) Set battery usage to Unrestricted (Settings → Apps → hxmy proxy → Battery; or tap the Battery item in Monitor → Diagnostics). 2) Don\'t swipe away the persistent notification — some systems kill the service with it. 3) On MIUI/EMUI etc., also allow the app in Autostart / background manager. 4) Battery saver / extreme saver freezes background apps — turn it off while sharing. 5) Data Saver may limit background data. After 1) and 2), Diagnostics should show Battery: Unrestricted and Notifications: OK.</string>
     <string name="pac_needs_backend">PAC is on but HTTP and SOCKS are both off — it only returns DIRECT (no proxying). Enable HTTP or SOCKS.</string>

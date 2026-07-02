@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
@@ -44,6 +45,11 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                 Text(stringResource(R.string.monitor_no_history), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
+            // 按 IP 聚合：同一 IP 的 HTTP/SOCKS5/PAC 三条记录合成一行(原来每个 IP 三条太多——用户反馈)。
+            // 复制=复制 IP,删除=删除该 IP 全部协议记录;时间取最近、可用性取任一可用。存储粒度不变。
+            val grouped = ui.history.groupBy { it.entry.ip }.map { (ip, list) ->
+                Triple(ip, list.maxOf { it.entry.lastUsedMillis }, list.any { it.available })
+            }.sortedByDescending { it.second }
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -52,16 +58,16 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                         .asPaddingValues().calculateBottomPadding(),
                 ),
             ) {
-                items(ui.history, key = { "${it.entry.protocol}|${it.entry.ip}|${it.entry.port}" }) { v ->
+                items(grouped, key = { it.first }) { (ip, lastUsed, available) ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("${v.entry.protocol} ${v.entry.endpoint}", style = MaterialTheme.typography.bodyLarge)
+                            Text(ip, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace)
                             Text(
-                                dateFmt.format(Date(v.entry.lastUsedMillis)),
+                                dateFmt.format(Date(lastUsed)),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (!v.available) {
+                            if (!available) {
                                 Text(
                                     stringResource(R.string.history_unavailable),
                                     color = MaterialTheme.colorScheme.error,
@@ -70,12 +76,12 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                             }
                         }
                         TextButton(onClick = {
-                            clipboard.setText(AnnotatedString(v.entry.endpoint))
+                            clipboard.setText(AnnotatedString(ip))
                             Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                         }) { Text(stringResource(R.string.copy)) }
-                        TextButton(onClick = { mainViewModel.removeHistoryEndpoint(v.entry) }) {
-                            Text(stringResource(R.string.delete))
-                        }
+                        TextButton(onClick = {
+                            ui.history.filter { it.entry.ip == ip }.forEach { mainViewModel.removeHistoryEndpoint(it.entry) }
+                        }) { Text(stringResource(R.string.delete)) }
                     }
                     HorizontalDivider()
                 }

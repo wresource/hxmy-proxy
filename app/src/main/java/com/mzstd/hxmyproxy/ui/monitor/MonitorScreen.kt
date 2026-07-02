@@ -257,7 +257,20 @@ fun MonitorScreen(
     var domainsExpanded by remember { mutableStateOf(false) }
     var clientsExpanded by remember { mutableStateOf(false) }
     var guideShown by remember { mutableStateOf<DiagGuide?>(null) }
+    var showLocalNetInfo by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // 本地网络权限版本说明(16- 设备上点「无需授权」格子)：讲清各版本差异,只有「知道了」。
+    if (showLocalNetInfo) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLocalNetInfo = false },
+            title = { Text(stringResource(R.string.guide_localnet_title)) },
+            text = { Text(stringResource(R.string.localnet_versions_body)) },
+            confirmButton = {
+                TextButton(onClick = { showLocalNetInfo = false }) { Text(stringResource(R.string.setup_close)) }
+            },
+        )
+    }
 
     // 诊断补全引导：说明为什么需要 + 一键跳系统对应页面。
     guideShown?.let { g ->
@@ -322,11 +335,15 @@ fun MonitorScreen(
                 CardGrid(items = diagItems, collapsedRows = 2) { mod, item ->
                     val pacDirectOnly = item.label == R.string.diag_pac_port &&
                         diag.pacEnabled && !diag.httpEnabled && !diag.socksEnabled
-                    // 异常且有引导的项可点击 → 弹「为什么需要 + 去开启」补全引导。
+                    // 异常且有引导的项可点击 → 弹「为什么需要 + 去开启」补全引导;
+                    // 本地网络「无需授权」中性格子也可点 → 各 Android 版本差异说明。
                     val clickable = item.guide != null && !item.up && !item.notApplicable
-                    val cellMod = if (clickable) {
-                        mod.clip(MaterialTheme.shapes.small).clickable { guideShown = item.guide }
-                    } else mod
+                    val cellMod = when {
+                        clickable -> mod.clip(MaterialTheme.shapes.small).clickable { guideShown = item.guide }
+                        item.notApplicable && item.label == R.string.diag_local_net_perm ->
+                            mod.clip(MaterialTheme.shapes.small).clickable { showLocalNetInfo = true }
+                        else -> mod
+                    }
                     when {
                         item.notApplicable -> {
                             val c = MaterialTheme.colorScheme.onSurfaceVariant

@@ -246,39 +246,37 @@ private fun EntryCard(ui: MainUiState) {
                         )
                     }
                 }
-                OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                     Text(stringResource(R.string.qr_setup))
                 }
             }
         }
     }
 
-    // 扫码配置：底部弹层（替代简陋的 AlertDialog）——大标题 + 白底圆角 QR 容器（深色下保扫码
-    // 可靠性）+ 等宽 URL 一键复制 + 适用范围注明，与全 app 卡片语言统一。
+    // 扫码配置底部弹层：一开即完整展开(skipPartiallyExpanded,不遮内容);文字全部在上、
+    // 二维码垫底;白底 QR 容器保深色下扫码可靠;文案精简 + 「点击空白处关闭」提示。
     if (showQr) {
         val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showQr = false }) {
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { showQr = false },
+            sheetState = sheetState,
+        ) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
                 if (!ui.settings.pacEnabled || setupUrl == null) {
                     Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(
-                        stringResource(R.string.qr_setup_hint),
+                        stringResource(R.string.qr_sheet_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = androidx.compose.ui.graphics.Color.White,
-                    ) {
-                        Column(Modifier.padding(20.dp)) { QrImage(setupUrl, sizeDp = 240) }
-                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             setupUrl,
@@ -291,11 +289,16 @@ private fun EntryCard(ui: MainUiState) {
                         }) { Text(stringResource(R.string.copy)) }
                     }
                     Text(
-                        stringResource(R.string.qr_http_only),
+                        stringResource(R.string.qr_dismiss_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
                     )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = androidx.compose.ui.graphics.Color.White,
+                    ) {
+                        Column(Modifier.padding(18.dp)) { QrImage(setupUrl, sizeDp = 216) }
+                    }
                 }
             }
         }

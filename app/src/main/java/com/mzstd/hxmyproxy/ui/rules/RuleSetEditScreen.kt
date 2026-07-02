@@ -101,9 +101,9 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                     val domains = parseDomains(t)
                     if (isBuiltin) viewModel.setGroupOverride(id, domains) else viewModel.setRuleSetDomains(id, domains)
                     onBack()
-                }) { Text(stringResource(R.string.ruleset_save)) }
-                OutlinedButton(onClick = { importLauncher.launch(arrayOf("text/plain")) }) { Text(stringResource(R.string.ruleset_import)) }
-                OutlinedButton(onClick = { exportLauncher.launch("$title.txt") }) { Text(stringResource(R.string.ruleset_export)) }
+                }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_save)) }
+                OutlinedButton(onClick = { importLauncher.launch(arrayOf("text/plain")) }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_import)) }
+                OutlinedButton(onClick = { exportLauncher.launch("$title.txt") }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_export)) }
             }
             if (isBuiltin && hasOverride) {
                 TextButton(onClick = { viewModel.clearGroupOverride(id); onBack() }) {

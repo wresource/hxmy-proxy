@@ -110,9 +110,9 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                 )
                 OutlinedButton(onClick = {
                     if (input.isNotBlank()) { viewModel.addUserDirectRule(input); input = "" }
-                }) { Text(stringResource(R.string.rules_add)) }
+                }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.rules_add)) }
             }
-            OutlinedButton(onClick = { showHistory = true }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { showHistory = true }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                 Text(stringResource(R.string.rules_add_from_history))
             }
             val rules = s.userDirectRules.sorted()
@@ -120,7 +120,7 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
             shownRules.forEach { domain ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(domain, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(onClick = { viewModel.removeUserDirectRule(domain) }) {
+                    OutlinedButton(onClick = { viewModel.removeUserDirectRule(domain) }, shape = MaterialTheme.shapes.large) {
                         Text(stringResource(R.string.rules_remove))
                     }
                 }
@@ -158,7 +158,7 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                     repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
-            OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                 Text(stringResource(R.string.rules_manage))
             }
         }

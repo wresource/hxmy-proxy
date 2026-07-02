@@ -83,7 +83,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             Dots(pager.currentPage)
             Spacer(Modifier.weight(1f))
             if (pager.currentPage < PAGES - 1) {
-                Button(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }) {
+                Button(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }, shape = MaterialTheme.shapes.large) {
                     Text(stringResource(R.string.ob_next))
                 }
             }
@@ -184,7 +184,7 @@ private fun PermissionPage(onAllow: () -> Unit, onLater: () -> Unit) {
         color = MaterialTheme.colorScheme.primary,
     )
     Spacer(Modifier.height(8.dp))
-    Button(onClick = onAllow, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ob5_allow)) }
+    Button(onClick = onAllow, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ob5_allow)) }
     TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ob5_later)) }
 }
 

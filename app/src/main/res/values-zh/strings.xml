@@ -126,6 +126,9 @@
     <string name="guide_localnet_title">本地网络权限</string>
     <string name="guide_localnet_body">Android 17 起需要本地网络权限才能接受局域网设备的连接。请在应用设置中允许。</string>
     <string name="settings_general">通用</string>
+    <string name="qr_sheet_hint">用另一台设备扫码，按页面提示完成配置。仅适用于 HTTP 代理。</string>
+    <string name="qr_dismiss_hint">点击空白处关闭</string>
+    <string name="localnet_versions_body">各版本的区别：\n· Android 15 及以下——没有这项权限，应用可直接访问局域网；\n· Android 16（当前系统）——本地网络保护为可选测试特性，普通应用不受限，因此无需授权；\n· Android 17 起——强制运行时权限，必须授权才能接受局域网设备连接，届时此项会显示授权状态并可点击开启。</string>
     <string name="help_f_title">避免共享间断</string>
     <string name="help_f_body">长时间共享要防系统「杀后台」：① 电池优化设为「无限制」（设置 → 应用 → hxmy proxy → 电池；或直接在监控页诊断里点「电池优化」一键开启）。② 别划掉常驻通知——部分系统划掉通知会连带终止服务。③ 小米/华为等系统还需在「自启动 / 后台管理」里允许本应用。④ 系统「省电模式 / 极致省电」会冻结后台，共享期间建议关闭。⑤ 开着「流量节省程序」时，后台数据可能受限。做完 ①② 后，监控页诊断应显示「电池优化：无限制」「通知权限：正常」。</string>
     <string name="pac_needs_backend">PAC 已开启但 HTTP 和 SOCKS 都关了，只会直连、不代理。请至少开启 HTTP 或 SOCKS。</string>
