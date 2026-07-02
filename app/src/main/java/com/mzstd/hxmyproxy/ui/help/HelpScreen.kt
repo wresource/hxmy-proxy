@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ElevatedCard
@@ -26,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.ui.components.DetailScaffold
 
 /**
  * 帮助页：可折叠分组（这是什么 / 常见问题 / 各端怎么连 / 故障排查 / 关于）。
@@ -33,16 +33,9 @@ import com.mzstd.hxmyproxy.R
  */
 @Composable
 fun HelpScreen(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onBack) { Text(stringResource(R.string.back)) }
-            Text(stringResource(R.string.help_title), style = MaterialTheme.typography.titleLarge)
-        }
+    DetailScaffold(title = stringResource(R.string.help_title), onBack = onBack) { padding ->
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Section(R.string.help_a_title, startOpen = true) { Para(R.string.help_a_body) }

@@ -61,9 +61,13 @@ fun AppRoot(viewModel: MainViewModel) {
 
     // 自适应：平板/折叠屏（≥600dp）把底部导航换成边缘 nav rail（adaptive skill Step 2），手机仍用底栏。
     val wide = LocalConfiguration.current.screenWidthDp >= EXPANDED_WIDTH_DP
+    // 顶层 tab 才显示导航栏；详情页（history/logs/help/ruleset_*）全屏沉浸、由 DetailScaffold 提供返回。
+    // current=null（NavHost 初始化瞬间）按顶层处理，避免启动时底栏闪没。
+    val currentRoute = navController.currentRoute()
+    val topLevel = currentRoute == null || destinations.any { it.route == currentRoute }
 
     Scaffold(
-        bottomBar = { if (!wide) BottomNavBar(navController, destinations) },
+        bottomBar = { if (!wide && topLevel) BottomNavBar(navController, destinations) },
         // 系统栏/刘海由 Scaffold 处理；IME 交给各内容页自己的 imePadding（在 verticalScroll 外层）：
         // 这样键盘弹出时滚动视口收缩、自动把聚焦的输入框滚到键盘上方。
         // （若这里 safeDrawing 含 IME，innerPadding 会 consume 掉 IME，页内 imePadding 就失效。）
@@ -71,7 +75,7 @@ fun AppRoot(viewModel: MainViewModel) {
     ) { padding ->
         // padding 只施于内容侧：让 NavigationRail 占满全高、由其自身 insets 绘制到屏幕边缘（edge-to-edge）。
         Row(Modifier.fillMaxSize()) {
-            if (wide) SideNavRail(navController, destinations)
+            if (wide && topLevel) SideNavRail(navController, destinations)
             // 大屏（平板/折叠屏）把内容限宽并居中，避免行宽过长；手机（<640dp）无影响。
             Box(
                 Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
@@ -133,9 +137,11 @@ fun AppRoot(viewModel: MainViewModel) {
 private fun NavController.currentRoute(): String? =
     currentBackStackEntryAsState().value?.destination?.route
 
+// 官方 bottom-nav 模式：saveState/restoreState 保住各 tab 的滚动位置与展开状态，切 tab 不再丢。
 private fun NavController.switchTo(dest: Dest) = navigate(dest.route) {
     launchSingleTop = true
-    popUpTo(Dest.Dashboard.route)
+    restoreState = true
+    popUpTo(Dest.Dashboard.route) { saveState = true }
 }
 
 @Composable

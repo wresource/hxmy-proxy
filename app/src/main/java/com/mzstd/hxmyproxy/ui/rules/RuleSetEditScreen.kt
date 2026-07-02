@@ -76,14 +76,11 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
         }
     }
 
+    com.mzstd.hxmyproxy.ui.components.DetailScaffold(title = title, onBack = onBack) { padding ->
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.back)) }
-            Text(title, style = MaterialTheme.typography.titleLarge)
-        }
         Text(stringResource(R.string.ruleset_edit_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         val t = text
@@ -110,6 +107,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 }
             }
         }
+    }
     }
 
     val pending = pendingImport

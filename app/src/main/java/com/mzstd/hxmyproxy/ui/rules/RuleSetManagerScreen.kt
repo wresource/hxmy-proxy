@@ -51,19 +51,14 @@ import kotlinx.coroutines.withContext
 @Composable
 fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -> Unit, onEdit: (String, String) -> Unit) {
     var showNew by remember { mutableStateOf(false) }
+    com.mzstd.hxmyproxy.ui.components.DetailScaffold(
+        title = stringResource(R.string.ruleset_manager_title),
+        onBack = onBack,
+    ) { padding ->
     LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.back))
-                }
-                Text(stringResource(R.string.ruleset_manager_title), style = MaterialTheme.typography.titleLarge)
-            }
-        }
-
         // —— 我的规则集 ——
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -89,6 +84,7 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
         items(RuleCatalog.all, key = { it.id }) { group ->
             BuiltinGroupCard(group, group.id in ui.settings.enabledRuleGroups, viewModel, onEdit)
         }
+    }
     }
 
     if (showNew) {
