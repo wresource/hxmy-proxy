@@ -175,6 +175,7 @@ private fun HeroStatus(ui: MainUiState) {
 }
 
 /** 入口地址卡（学 Tailscale 钉在最前）：主地址等宽大字 + 一键复制；PAC 常显；停止态给引导文案。 */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun EntryCard(ui: MainUiState) {
     val context = LocalContext.current
@@ -252,33 +253,52 @@ private fun EntryCard(ui: MainUiState) {
         }
     }
 
+    // 扫码配置：底部弹层（替代简陋的 AlertDialog）——大标题 + 白底圆角 QR 容器（深色下保扫码
+    // 可靠性）+ 等宽 URL 一键复制 + 适用范围注明，与全 app 卡片语言统一。
     if (showQr) {
         val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
-        AlertDialog(
-            onDismissRequest = { showQr = false },
-            confirmButton = { TextButton(onClick = { showQr = false }) { Text(stringResource(R.string.setup_close)) } },
-            title = { Text(stringResource(R.string.qr_setup)) },
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (!ui.settings.pacEnabled || setupUrl == null) {
-                        Text(stringResource(R.string.qr_need_pac))
-                    } else {
-                        QrImage(setupUrl, sizeDp = 220)
-                        Text(stringResource(R.string.qr_setup_hint), style = MaterialTheme.typography.bodyMedium)
-                        Text(setupUrl, style = MaterialTheme.typography.bodySmall)
-                        // 扫码落地页配的是 HTTP 代理;SOCKS5/PAC 请在入口卡复制地址手动配置,故此处注明适用范围。
-                        Text(
-                            stringResource(R.string.qr_http_only),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showQr = false }) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
+                if (!ui.settings.pacEnabled || setupUrl == null) {
+                    Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text(
+                        stringResource(R.string.qr_setup_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = androidx.compose.ui.graphics.Color.White,
+                    ) {
+                        Column(Modifier.padding(20.dp)) { QrImage(setupUrl, sizeDp = 240) }
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            setupUrl,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(setupUrl))
+                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                        }) { Text(stringResource(R.string.copy)) }
+                    }
+                    Text(
+                        stringResource(R.string.qr_http_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
                 }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -399,11 +419,7 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
 private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
     val context = LocalContext.current
     val running = ui.share.running
-    val corner by animateDpAsState(
-        targetValue = if (running) 16.dp else 28.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "btnCorner",
-    )
+    // 圆角两态统一 16dp(用户选定,全局一致);状态只用颜色的弹簧过渡表达(蓝=开始 ↔ 浅红=停止)。
     val container by animateColorAsState(
         targetValue = if (running) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
         label = "btnColor",
@@ -419,7 +435,7 @@ private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .height(56.dp),
-        shape = RoundedCornerShape(corner),
+        shape = MaterialTheme.shapes.large,
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
     ) {
         Text(

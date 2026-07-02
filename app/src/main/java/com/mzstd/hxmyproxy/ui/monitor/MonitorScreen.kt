@@ -89,6 +89,40 @@ private fun protocolPair(name: String): Pair<Color, Color> {
 private fun fmtBytes(bytes: Long): String =
     android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
 
+/** 诊断项：label + 三态 + 可选修复引导 + 「无需授权」中性态（本地网络权限在 Android 16- 不强制）。 */
+private data class DiagItem(
+    val label: Int,
+    val enabled: Boolean,
+    val up: Boolean,
+    val guide: DiagGuide? = null,
+    val notApplicable: Boolean = false,
+)
+
+/** 可修复诊断的引导类型：弹「为什么需要 + 去开启」并直跳对应系统页面（错过首次授权的补全入口）。 */
+private enum class DiagGuide(val titleRes: Int, val bodyRes: Int) {
+    NOTIFICATION(R.string.guide_notif_title, R.string.guide_notif_body),
+    BATTERY(R.string.guide_battery_title, R.string.guide_battery_body),
+    LOCAL_NET(R.string.guide_localnet_title, R.string.guide_localnet_body),
+    ;
+
+    fun intent(context: android.content.Context): android.content.Intent {
+        val pkg = context.packageName
+        return when (this) {
+            NOTIFICATION -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, pkg)
+            // 直接弹系统「允许不受限制」授权框（manifest 已声明 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS）。
+            BATTERY -> android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:$pkg"),
+            )
+            LOCAL_NET -> android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:$pkg"),
+            )
+        }
+    }
+}
+
 /** 网格单元：上=圆形字符图标，中=名称（单行省略），下=值。诊断/延迟网格用。 */
 @Composable
 private fun GridCell(
@@ -222,6 +256,26 @@ fun MonitorScreen(
     val measuring by vm.measuring.collectAsStateWithLifecycle()
     var domainsExpanded by remember { mutableStateOf(false) }
     var clientsExpanded by remember { mutableStateOf(false) }
+    var guideShown by remember { mutableStateOf<DiagGuide?>(null) }
+    val context = LocalContext.current
+
+    // 诊断补全引导：说明为什么需要 + 一键跳系统对应页面。
+    guideShown?.let { g ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { guideShown = null },
+            title = { Text(stringResource(g.titleRes)) },
+            text = { Text(stringResource(g.bodyRes)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(g.intent(context)) }
+                    guideShown = null
+                }) { Text(stringResource(R.string.diag_go_enable)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { guideShown = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
 
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
@@ -249,35 +303,57 @@ fun MonitorScreen(
             }
         }
 
-        // —— 诊断（三态：未启用/正常/异常；PAC 退化标黄「仅直连」）——
+        // —— 诊断（三态：未启用/正常/异常；PAC 退化标黄；异常且可修复项**可点击**弹引导）——
         item {
             GroupCard(stringResource(R.string.monitor_diagnostics)) {
                 val diag = ui.share.diagnostics
+                // 本地网络权限 Android 17(SDK 37) 起才强制;更低版本显示中性「无需授权」而非绿✓,
+                // 避免在 16- 设备上误以为「已授过权」。
+                val localNetNotRequired = android.os.Build.VERSION.SDK_INT < 37
                 val diagItems = listOf(
-                    Triple(R.string.diag_local_net_perm, true, diag.localNetworkPermissionGranted),
-                    Triple(R.string.diag_vpn, true, diag.vpnDetected),
-                    Triple(R.string.diag_http_port, diag.httpEnabled, diag.httpPortUp),
-                    Triple(R.string.diag_socks_port, diag.socksEnabled, diag.socksPortUp),
-                    Triple(R.string.diag_pac_port, diag.pacEnabled, diag.pacPortUp),
+                    DiagItem(R.string.diag_local_net_perm, true, diag.localNetworkPermissionGranted, DiagGuide.LOCAL_NET, localNetNotRequired),
+                    DiagItem(R.string.diag_vpn, true, diag.vpnDetected),
+                    DiagItem(R.string.diag_notif_perm, true, diag.notificationPermissionGranted, DiagGuide.NOTIFICATION),
+                    DiagItem(R.string.diag_battery, true, diag.batteryOptimizationIgnored, DiagGuide.BATTERY),
+                    DiagItem(R.string.diag_http_port, diag.httpEnabled, diag.httpPortUp),
+                    DiagItem(R.string.diag_socks_port, diag.socksEnabled, diag.socksPortUp),
+                    DiagItem(R.string.diag_pac_port, diag.pacEnabled, diag.pacPortUp),
                 )
                 CardGrid(items = diagItems, collapsedRows = 2) { mod, item ->
-                    val (label, enabled, up) = item
-                    val pacDirectOnly = label == R.string.diag_pac_port &&
+                    val pacDirectOnly = item.label == R.string.diag_pac_port &&
                         diag.pacEnabled && !diag.httpEnabled && !diag.socksEnabled
+                    // 异常且有引导的项可点击 → 弹「为什么需要 + 去开启」补全引导。
+                    val clickable = item.guide != null && !item.up && !item.notApplicable
+                    val cellMod = if (clickable) {
+                        mod.clip(MaterialTheme.shapes.small).clickable { guideShown = item.guide }
+                    } else mod
                     when {
-                        !enabled -> {
+                        item.notApplicable -> {
                             val c = MaterialTheme.colorScheme.onSurfaceVariant
-                            GridCell(mod, "—", c.copy(alpha = 0.14f), c, stringResource(label), stringResource(R.string.diag_disabled), c)
+                            GridCell(cellMod, "—", c.copy(alpha = 0.14f), c, stringResource(item.label), stringResource(R.string.diag_not_required), c)
+                        }
+                        !item.enabled -> {
+                            val c = MaterialTheme.colorScheme.onSurfaceVariant
+                            GridCell(cellMod, "—", c.copy(alpha = 0.14f), c, stringResource(item.label), stringResource(R.string.diag_disabled), c)
                         }
                         pacDirectOnly -> {
                             val c = StatusColors.warn()
-                            GridCell(mod, "!", c.copy(alpha = 0.18f), c, stringResource(label), stringResource(R.string.diag_pac_direct_only), c)
+                            GridCell(cellMod, "!", c.copy(alpha = 0.18f), c, stringResource(item.label), stringResource(R.string.diag_pac_direct_only), c)
+                        }
+                        item.label == R.string.diag_battery -> {
+                            // 电池优化专属文案:无限制/受限(「正常/异常」在这里语义不清)。
+                            val c = if (item.up) StatusColors.good() else StatusColors.bad()
+                            GridCell(
+                                cellMod, if (item.up) "✓" else "✗", c.copy(alpha = 0.18f), c,
+                                stringResource(item.label),
+                                stringResource(if (item.up) R.string.diag_battery_unrestricted else R.string.diag_battery_restricted), c,
+                            )
                         }
                         else -> {
-                            val c = if (up) StatusColors.good() else StatusColors.bad()
+                            val c = if (item.up) StatusColors.good() else StatusColors.bad()
                             GridCell(
-                                mod, if (up) "✓" else "✗", c.copy(alpha = 0.18f), c,
-                                stringResource(label), stringResource(if (up) R.string.diag_ok else R.string.diag_fail), c,
+                                cellMod, if (item.up) "✓" else "✗", c.copy(alpha = 0.18f), c,
+                                stringResource(item.label), stringResource(if (item.up) R.string.diag_ok else R.string.diag_fail), c,
                             )
                         }
                     }

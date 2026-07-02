@@ -45,6 +45,7 @@ fun HelpScreen(onBack: () -> Unit) {
             Section(R.string.help_b_title) { FaqList() }
             Section(R.string.help_c_title) { PlatformList() }
             Section(R.string.help_d_title) { Para(R.string.help_d_body) }
+            Section(R.string.help_f_title) { Para(R.string.help_f_body) }
             Section(R.string.help_e_title) { Para(R.string.help_e_body) }
             // 底部手势条穿透：内容能完整滚出手势条区,不留死白。
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))

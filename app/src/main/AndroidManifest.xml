@@ -22,6 +22,8 @@
 
     <!-- 常驻通知（Android 13+ 运行时权限） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 电池优化白名单请求（诊断「电池优化」引导直接弹系统授权框；长时共享防后台冻结间断） -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- 电池优化白名单引导（Play 敏感权限，仅用于减少后台被杀） -->
     <uses-permission

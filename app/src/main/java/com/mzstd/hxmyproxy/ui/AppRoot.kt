@@ -1,5 +1,10 @@
 package com.mzstd.hxmyproxy.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -96,6 +101,18 @@ fun AppRoot(viewModel: MainViewModel) {
                     navController = navController,
                     startDestination = NavTab.DASHBOARD.route,
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
+                    // 全局统一转场：淡入+轻微上滑,220ms——盖住目标页首帧渲染/数据加载,
+                    // 消除「历史 IP/日志点进去像掉帧」的生硬切换(之前无动画,页面瞬间替换)。
+                    enterTransition = {
+                        fadeIn(animationSpec = tween(220)) +
+                            slideInVertically(animationSpec = tween(220)) { it / 24 }
+                    },
+                    exitTransition = { fadeOut(animationSpec = tween(150)) },
+                    popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+                    popExitTransition = {
+                        fadeOut(animationSpec = tween(150)) +
+                            slideOutVertically(animationSpec = tween(150)) { it / 24 }
+                    },
                 ) {
                     composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel) }
                     composable(NavTab.RULES.route) {

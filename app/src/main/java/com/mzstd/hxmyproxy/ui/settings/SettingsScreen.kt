@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
@@ -96,13 +97,20 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 分组圆角容器（Pixel 系统设置样式）：设置页与主页/规则页统一「卡片分组」语言，
-        // 替代原先 SectionTitle+Divider 平铺（三页三风格的最后一页）。
-        SettingsGroup(stringResource(R.string.settings_language)) {
+        // 分组圆角容器（Pixel 系统设置样式）：设置页与主页/规则页统一「卡片分组」语言。
+        // 语言+外观内容同构（都是三选 chips），合成一张「通用」卡两小节，chips 左缘对齐。
+        SettingsGroup(stringResource(R.string.settings_general)) {
+            Text(
+                stringResource(R.string.settings_language),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage)
-        }
-
-        SettingsGroup(stringResource(R.string.settings_appearance)) {
+            Text(
+                stringResource(R.string.settings_appearance),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
         }
 
@@ -440,14 +448,15 @@ private fun NavTabCell(
     }
     val clickMod = if (onClick != null) {
         Modifier
-            .clip(MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.small)
             .clickable(onClickLabel = a11y, onClick = onClick)
     } else {
         Modifier
     }
-    Box(modifier.then(clickMod).padding(vertical = 6.dp)) {
+    // 外层 Box 不裁剪、留出顶部空间——徽标挂在外层,不会被点击区的圆角 clip 切掉(修「徽标被遮挡」)。
+    Box(modifier.padding(top = 6.dp)) {
         Column(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().then(clickMod).padding(vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -458,7 +467,7 @@ private fun NavTabCell(
             )
             Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1)
         }
-        // 徽标：红−/绿+，含符号（不只靠颜色）。挂在格子右上角。
+        // 徽标：红−/绿+，含符号（不只靠颜色）。悬于外层右上角（上移 6dp 进预留区），完整显示不被裁。
         if (badge != null) {
             val (bg, sym) = when (badge) {
                 NavBadge.REMOVE -> MaterialTheme.colorScheme.error to "−"
@@ -467,6 +476,7 @@ private fun NavTabCell(
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
+                    .offset(y = (-6).dp)
                     .size(16.dp)
                     .clip(androidx.compose.foundation.shape.CircleShape)
                     .background(bg),

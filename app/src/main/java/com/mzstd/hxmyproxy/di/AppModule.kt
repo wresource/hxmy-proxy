@@ -44,6 +44,10 @@ object AppModule {
         LocalNetworkPermissionManager(context)
 
     @Provides @Singleton
+    fun permissionProbe(@ApplicationContext context: Context): com.mzstd.hxmyproxy.core.network.PermissionProbe =
+        com.mzstd.hxmyproxy.core.network.PermissionProbe(context)
+
+    @Provides @Singleton
     fun signalProvider(@ApplicationContext context: Context): SignalProvider =
         SignalProvider(context)
 
