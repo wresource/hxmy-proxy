@@ -89,11 +89,23 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
             items(ui.settings.userRuleSets, key = { it.id }) { set -> UserRuleSetCard(set, viewModel, onEdit) }
         }
 
-        // —— 内置规则集 ——
+        // —— 内置规则集（60+ 组按分类分节）——
         item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
         item { Text(stringResource(R.string.ruleset_builtin), style = MaterialTheme.typography.titleMedium) }
-        items(RuleCatalog.all, key = { it.id }) { group ->
-            BuiltinGroupCard(group, group.id in ui.settings.enabledRuleGroups, viewModel, onEdit)
+        val byCategory = RuleCatalog.all.groupBy { it.category }
+        com.mzstd.hxmyproxy.core.rules.RuleCategory.entries.forEach { cat ->
+            val groups = byCategory[cat] ?: return@forEach
+            item(key = "cat-${cat.name}") {
+                Text(
+                    stringResource(cat.titleRes),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            items(groups, key = { it.id }) { group ->
+                BuiltinGroupCard(group, group.id in ui.settings.enabledRuleGroups, viewModel, onEdit)
+            }
         }
     }
     }

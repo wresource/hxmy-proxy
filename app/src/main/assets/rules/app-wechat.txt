@@ -1,5 +1,4 @@
 apd-pcdnwxlogin.teg.tencent-cloud.net
-btrace.qq.com
 dldir1.qq.com
 iot-tencent.com
 lbs.gtimg.com

@@ -149,14 +149,22 @@ fun RulesScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            val descs = RuleCatalog.appGroups.map { g ->
-                RuleCellDesc(g.titleRes, null, groupIcon(g.id), g.id in s.enabledRuleGroups) {
-                    viewModel.toggleRuleGroup(g.id, g.id !in s.enabledRuleGroups)
+            // 64 个内置组平铺会爆——规则页网格只显示**已启用**的组(快速开关),全部组去「管理」按分类启用。
+            val descs = RuleCatalog.appGroups.filter { it.id in s.enabledRuleGroups }.map { g ->
+                RuleCellDesc(g.titleRes, null, groupIcon(g.id), true) {
+                    viewModel.toggleRuleGroup(g.id, false)
                 }
             } + s.userRuleSets.map { set ->
                 RuleCellDesc(null, set.name, R.drawable.ic_rule_label, set.enabled) {
                     viewModel.toggleRuleSet(set.id, !set.enabled)
                 }
+            }
+            if (descs.isEmpty()) {
+                Text(
+                    stringResource(R.string.rules_none_enabled),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             descs.chunked(4).forEach { row ->
                 Row(Modifier.fillMaxWidth()) {

@@ -79,6 +79,7 @@ bilicdn2.com
 bilicdn3.com
 bilicdn4.com
 bilicdn5.com
+bilicomic.com
 bilicomics.com
 biligame.cn
 biligame.co
@@ -100,10 +101,13 @@ hdslb.com.w.kunlunhuf.com
 hdslb.com.w.kunlunpi.com
 hdslb.net
 hdslb.org
+huasheng.cn
 im9.com
+maoer.com
 maoercdn.com
 mcbbs.net
 mincdn.com
+missevan.com
 p-bstarstatic.akamaized.net
 p.bstarstatic.com
 sharejoytech.com
