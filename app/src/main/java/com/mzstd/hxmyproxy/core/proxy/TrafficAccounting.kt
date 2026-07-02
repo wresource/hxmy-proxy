@@ -40,8 +40,9 @@ class TrafficAccounting(
             .also { it.conns.increment() }
         @Volatile private var domainAcc: Acc? = null
 
-        /** 目标解析出来后调用；按 (当前 host, 本连接协议) 归属。同连接协议固定、只 host 随 keep-alive 变。幂等。 */
-        fun bindHost(host: String) {
+        /** 目标解析出来后调用；按 (当前 host, 本连接协议) 归属。[direct]=规则决策为直连出口（绕过 VPN）。
+         *  同连接协议固定、只 host 随 keep-alive 变。幂等。 */
+        fun bindHost(host: String, direct: Boolean = false) {
             val hostKey = host.lowercase()
             val cur = domainAcc
             if (cur != null && cur.key == hostKey) return   // 同连接协议不变，host 相同即同桶
@@ -54,6 +55,7 @@ class TrafficAccounting(
                 else perDomain.computeIfAbsent(key) { Acc(hostKey, protocol) }
             acc.conns.increment()
             acc.lastSeen = clock()
+            acc.direct = direct   // 同域名决策由规则决定,稳定;监控据此显示「直连」徽标
             domainAcc = acc
         }
 
@@ -96,7 +98,7 @@ class TrafficAccounting(
         lastClientBytes.keys.retainAll(perClient.keys)   // 清理已不在的 IP 的差分缓存
 
         val domains = perDomain.values.map { a ->
-            DomainTraffic(a.key, a.protocol ?: ProxyProtocol.HTTP, a.up.sum(), a.down.sum(), a.conns.sum().coerceAtLeast(0), a.lastSeen)
+            DomainTraffic(a.key, a.protocol ?: ProxyProtocol.HTTP, a.up.sum(), a.down.sum(), a.conns.sum().coerceAtLeast(0), a.lastSeen, a.direct)
         }.sortedByDescending { it.uploadBytes + it.downloadBytes }.take(topN)
         return Snapshot(clients, domains)
     }
@@ -124,6 +126,7 @@ class TrafficAccounting(
         val down = LongAdder()
         val conns = LongAdder()
         @Volatile var lastSeen = 0L
+        @Volatile var direct = false
     }
 
     private companion object {

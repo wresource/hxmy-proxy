@@ -12,4 +12,6 @@ data class DomainTraffic(
     val downloadBytes: Long = 0,
     val connections: Long = 0,
     val lastSeenAtEpochMs: Long = 0,
+    /** 规则决策为直连出口（绕过共享 VPN,仍经本代理转发）——监控据此显示「直连」标识。 */
+    val direct: Boolean = false,
 )

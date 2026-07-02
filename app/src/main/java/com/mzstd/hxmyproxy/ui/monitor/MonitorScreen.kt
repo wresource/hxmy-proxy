@@ -472,7 +472,11 @@ fun MonitorScreen(
                             dotFg = fg,
                             dotText = (d.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
                             title = d.host,
-                            subtitle = d.protocol.name,
+                            // 「直连」标识:规则白名单命中的域名流量绕过 VPN 直连出口(仍经本代理转发,
+                            // 故仍出现在监控)——有了标识,规则是否生效一眼可见。
+                            subtitle = if (d.direct) {
+                                "${d.protocol.name} · ${stringResource(R.string.route_direct)}"
+                            } else d.protocol.name,
                             value = fmtBytes(d.uploadBytes + d.downloadBytes),
                         )
                     }

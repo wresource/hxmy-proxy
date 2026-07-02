@@ -85,10 +85,10 @@ class Socks5ProxyServer(
         if (cmd != 0x01) { reply(output, 0x07); return }   // 仅 CONNECT
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
-        tracker?.bindHost(host ?: addr?.hostAddress ?: "?")
         val ruleHost = host ?: addr?.hostAddress
         val action = if (ruleHost != null) ruleEngine?.decide(ruleHost) else null
         Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
+        tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
             reply(output, 0x02); return
         }
