@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -86,73 +87,92 @@ fun SettingsScreen(
             .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SectionTitle(stringResource(R.string.settings_language))
-        ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage)
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_appearance))
-        ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
-
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_preset))
-        ChipRow(PerformancePreset.entries, s.preset, { stringResource(it.labelRes()) }, viewModel::setPreset)
-        if (s.preset == PerformancePreset.CUSTOM) {
-            CustomLimits(s.limits, viewModel)
+        // 分组圆角容器（Pixel 系统设置样式）：设置页与主页/规则页统一「卡片分组」语言，
+        // 替代原先 SectionTitle+Divider 平铺（三页三风格的最后一页）。
+        SettingsGroup(stringResource(R.string.settings_language)) {
+            ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage)
         }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_protocols))
-        SwitchRow(stringResource(R.string.proto_http), s.httpEnabled, viewModel::setHttpEnabled)
-        SwitchRow(stringResource(R.string.proto_socks), s.socksEnabled, viewModel::setSocksEnabled)
-        SwitchRow(stringResource(R.string.proto_pac), s.pacEnabled, viewModel::setPacEnabled)
+        SettingsGroup(stringResource(R.string.settings_appearance)) {
+            ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
+        }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_ports))
-        val bindErrors = ui.share.portBindErrors
-        // 重复校验包含未启用协议的端口：端口值持久化，启用后仍会撞端口，故配置期就该拦下。
-        PortField(
-            stringResource(R.string.port_http), s.httpPort,
-            otherPorts = setOf(s.socksPort, s.pacPort),
-            bindError = ProxyProtocol.HTTP in bindErrors, onCommit = viewModel::setHttpPort,
-        )
-        PortField(
-            stringResource(R.string.port_socks), s.socksPort,
-            otherPorts = setOf(s.httpPort, s.pacPort),
-            bindError = ProxyProtocol.SOCKS5 in bindErrors, onCommit = viewModel::setSocksPort,
-        )
-        PortField(
-            stringResource(R.string.port_pac), s.pacPort,
-            otherPorts = setOf(s.httpPort, s.socksPort),
-            bindError = ProxyProtocol.PAC in bindErrors, onCommit = viewModel::setPacPort,
-        )
+        SettingsGroup(stringResource(R.string.settings_preset)) {
+            ChipRow(PerformancePreset.entries, s.preset, { stringResource(it.labelRes()) }, viewModel::setPreset)
+            if (s.preset == PerformancePreset.CUSTOM) {
+                CustomLimits(s.limits, viewModel)
+            }
+        }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_auth))
-        SwitchRow(stringResource(R.string.auth_enable), s.authEnabled, viewModel::setAuthEnabled)
-        if (s.authEnabled) {
-            AuthCredentials(ui.credentials, viewModel::setCredentials)
-        } else {
-            Text(
-                stringResource(R.string.auth_warning),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
+        SettingsGroup(stringResource(R.string.settings_protocols)) {
+            SwitchRow(stringResource(R.string.proto_http), s.httpEnabled, viewModel::setHttpEnabled, stringResource(R.string.proto_http_sub))
+            SwitchRow(stringResource(R.string.proto_socks), s.socksEnabled, viewModel::setSocksEnabled, stringResource(R.string.proto_socks_sub))
+            SwitchRow(stringResource(R.string.proto_pac), s.pacEnabled, viewModel::setPacEnabled, stringResource(R.string.proto_pac_sub))
+        }
+
+        SettingsGroup(stringResource(R.string.settings_ports)) {
+            val bindErrors = ui.share.portBindErrors
+            // 重复校验包含未启用协议的端口：端口值持久化，启用后仍会撞端口，故配置期就该拦下。
+            PortField(
+                stringResource(R.string.port_http), s.httpPort,
+                otherPorts = setOf(s.socksPort, s.pacPort),
+                bindError = ProxyProtocol.HTTP in bindErrors, onCommit = viewModel::setHttpPort,
+            )
+            PortField(
+                stringResource(R.string.port_socks), s.socksPort,
+                otherPorts = setOf(s.httpPort, s.pacPort),
+                bindError = ProxyProtocol.SOCKS5 in bindErrors, onCommit = viewModel::setSocksPort,
+            )
+            PortField(
+                stringResource(R.string.port_pac), s.pacPort,
+                otherPorts = setOf(s.httpPort, s.socksPort),
+                bindError = ProxyProtocol.PAC in bindErrors, onCommit = viewModel::setPacPort,
             )
         }
 
-        HorizontalDivider()
-        SectionTitle(stringResource(R.string.settings_vpn_strategy))
-        ChipRow(VpnDownStrategy.entries, s.vpnDownStrategy, { stringResource(it.labelRes()) }, viewModel::setVpnStrategy)
+        SettingsGroup(stringResource(R.string.settings_auth)) {
+            SwitchRow(stringResource(R.string.auth_enable), s.authEnabled, viewModel::setAuthEnabled)
+            if (s.authEnabled) {
+                AuthCredentials(ui.credentials, viewModel::setCredentials)
+            } else {
+                Text(
+                    stringResource(R.string.auth_warning),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
 
-        HorizontalDivider()
-        // mDNS 已移除:hxmyproxy.local 主机名系统 API 无法注册(从来解析不到),DNS-SD 服务发现普通用户用不到,
-        // 保留只会让「发布 mDNS (hxmyproxy.local)」文案误导。mdnsEnabled 默认 false、后端不再发布。
-        SwitchRow(stringResource(R.string.settings_block_private), s.blockPrivateLanEgress, viewModel::setBlockPrivateLan)
+        SettingsGroup(stringResource(R.string.settings_vpn_strategy)) {
+            ChipRow(VpnDownStrategy.entries, s.vpnDownStrategy, { stringResource(it.labelRes()) }, viewModel::setVpnStrategy)
+        }
 
-        HorizontalDivider()
+        SettingsGroup(stringResource(R.string.settings_privacy)) {
+            SwitchRow(
+                stringResource(R.string.settings_block_private), s.blockPrivateLanEgress,
+                viewModel::setBlockPrivateLan, stringResource(R.string.block_private_sub),
+            )
+        }
+
         TextButton(onClick = onOpenHelp) { Text(stringResource(R.string.help_open)) }
         TextButton(onClick = onReplayOnboarding) { Text(stringResource(R.string.replay_onboarding)) }
+    }
+}
+
+/** 分组圆角容器：surfaceContainerLow 底 + 组标题，组内 8dp 节奏（三页统一的分组卡语言）。 */
+@Composable
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.large)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        content()
     }
 }
 
@@ -181,9 +201,19 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, subtitle: String? = null) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label)
+            // 副标题说明：一行讲清这项是干嘛的（审计:原来只有一行字,新手看不懂每项含义）。
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }

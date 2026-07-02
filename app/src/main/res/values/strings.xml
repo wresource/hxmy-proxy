@@ -118,6 +118,11 @@
     <string name="pac_needs_backend">PAC is on but HTTP and SOCKS are both off — it only returns DIRECT (no proxying). Enable HTTP or SOCKS.</string>
     <string name="qr_http_only">This QR/setup configures the HTTP proxy only. For SOCKS5 or PAC, copy the address from the entry card and set them up manually.</string>
     <string name="start_to_show_entries">Start sharing to see proxy addresses here.</string>
+    <string name="proto_http_sub">Most compatible — works with system proxy settings and browsers</string>
+    <string name="proto_socks_sub">For terminals, games and other TCP apps</string>
+    <string name="proto_pac_sub">Auto-config file; browsers/system route traffic by rules</string>
+    <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
+    <string name="settings_privacy">Privacy &amp; security</string>
     <string name="stat_conns">Connections</string>
     <string name="stat_traffic">Total</string>
     <string name="stat_signal">Signal</string>
