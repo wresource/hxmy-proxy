@@ -100,6 +100,7 @@
     <string name="rules_add_from_history">Re-add removed</string>
     <string name="rules_history_empty">No removed domains yet</string>
     <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network.</string>
+    <string name="rules_app_sets_hint">Toggle a set to route that app\'s domains in one tap. Tap Manage to edit sets and domains.</string>
     <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
     <string name="rules_remove">Remove</string>
 

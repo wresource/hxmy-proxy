@@ -50,29 +50,35 @@ private fun latencyColor(millis: Long?): Color = when {
     else -> StatusColors.bad()
 }
 
-/** 各监控服务的品牌识别色（公开品牌主色，仅作圆形底色，不含 logo 图形）。 */
-private fun serviceColor(name: String): Long = when (name) {
-    "GitHub" -> 0xFF24292FL
-    "Google" -> 0xFF4285F4L
-    "OpenAI" -> 0xFF10A37FL
-    "Claude" -> 0xFFD97757L
-    "Cloudflare" -> 0xFFF38020L
-    "YouTube" -> 0xFFFF0000L
-    "Bing" -> 0xFF008373L
-    "Wikipedia" -> 0xFF636466L
-    "X" -> 0xFF111111L
-    "npm" -> 0xFFCB3837L
-    "Hugging Face" -> 0xFFFF9D00L
-    "Docker Hub" -> 0xFF2496EDL
-    else -> 0xFF5C6BC0L
+/**
+ * 头像配色（背景 → 前景）：**从主题派生**、按名称 hash 稳定取色——替代原先 13 个写死的
+ * 第三方品牌色（不随主题、暗色下对比度未验证、与蓝粉主题打架）。container 配对保证 AA 对比。
+ */
+@Composable
+private fun avatarPair(name: String): Pair<Color, Color> {
+    val cs = MaterialTheme.colorScheme
+    val palette = listOf(
+        cs.primaryContainer to cs.onPrimaryContainer,
+        cs.secondaryContainer to cs.onSecondaryContainer,
+        cs.tertiaryContainer to cs.onTertiaryContainer,
+        cs.primary to cs.onPrimary,
+        cs.secondary to cs.onSecondary,
+        cs.tertiary to cs.onTertiary,
+    )
+    // hashCode 可能为 Int.MIN_VALUE（abs 溢出），用 mod 折回非负。
+    return palette[((name.hashCode() % palette.size) + palette.size) % palette.size]
 }
 
-/** 协议识别色：HTTP 蓝、SOCKS5 绿、PAC 橙（仅作圆形底色）。 */
-private fun protocolColor(name: String): Long = when (name) {
-    "HTTP" -> 0xFF4285F4L
-    "SOCKS5" -> 0xFF10A37FL
-    "PAC" -> 0xFFF38020L
-    else -> 0xFF5C6BC0L
+/** 协议配色：HTTP=蓝 primary（主协议）、SOCKS5=蓝灰 secondary、PAC=粉 tertiary（点睛）。 */
+@Composable
+private fun protocolPair(name: String): Pair<Color, Color> {
+    val cs = MaterialTheme.colorScheme
+    return when (name) {
+        "HTTP" -> cs.primary to cs.onPrimary
+        "SOCKS5" -> cs.secondary to cs.onSecondary
+        "PAC" -> cs.tertiary to cs.onTertiary
+        else -> cs.surfaceVariant to cs.onSurfaceVariant
+    }
 }
 
 @Composable
@@ -170,7 +176,8 @@ fun MonitorScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        // 与主页/规则页统一节奏（8dp 组内、divider 12dp 组间），信息密度最高的一页不再最挤。
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // —— 诊断（原独立页并入，圆形图标一眼正常/异常）——
         item { Text(stringResource(R.string.monitor_diagnostics), style = MaterialTheme.typography.titleMedium) }
@@ -263,11 +270,12 @@ fun MonitorScreen(
             expanded = latencyExpanded,
             onToggle = { latencyExpanded = !latencyExpanded },
         ) { mod, r ->
+            val (bg, fg) = avatarPair(r.service.name)
             GridCell(
                 modifier = mod,
                 iconText = (r.service.name.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                iconBg = Color(serviceColor(r.service.name)),
-                iconColor = Color.White,
+                iconBg = bg,
+                iconColor = fg,
                 name = r.service.name,
                 value = if (r.millis == null) stringResource(R.string.latency_timeout) else "${r.millis} ms",
                 valueColor = latencyColor(r.millis),
@@ -327,11 +335,12 @@ fun MonitorScreen(
                 onToggle = { domainsExpanded = !domainsExpanded },
                 columns = 3,
             ) { mod, d ->
+                val (bg, fg) = protocolPair(d.protocol.name)
                 GridCell(
                     modifier = mod,
                     iconText = (d.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                    iconBg = Color(protocolColor(d.protocol.name)),
-                    iconColor = Color.White,
+                    iconBg = bg,
+                    iconColor = fg,
                     name = d.host,
                     value = "${d.protocol.name} · ${fmtBytes(d.uploadBytes + d.downloadBytes)}",
                     valueColor = MaterialTheme.colorScheme.onSurface,

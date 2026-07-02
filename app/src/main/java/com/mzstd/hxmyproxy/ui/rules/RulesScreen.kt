@@ -135,17 +135,17 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
         // —— ② App / 服务规则集 + 自建集（每集一个开关；管理入口可增删集/集内域名）——
         SectionCard(stringResource(R.string.rules_module_apps)) {
             Text(
-                stringResource(R.string.rules_user_direct_hint),
+                // 专属提示：原来错误复用了白名单的 rules_user_direct_hint（审计发现的文案 bug）。
+                stringResource(R.string.rules_app_sets_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val descs = RuleCatalog.appGroups.map { g ->
-                val (icon, c) = groupVisual(g.id)
-                RuleCellDesc(g.titleRes, null, icon, c, g.id in s.enabledRuleGroups) {
+                RuleCellDesc(g.titleRes, null, groupIcon(g.id), g.id in s.enabledRuleGroups) {
                     viewModel.toggleRuleGroup(g.id, g.id !in s.enabledRuleGroups)
                 }
             } + s.userRuleSets.map { set ->
-                RuleCellDesc(null, set.name, R.drawable.ic_rule_label, null, set.enabled) {
+                RuleCellDesc(null, set.name, R.drawable.ic_rule_label, set.enabled) {
                     viewModel.toggleRuleSet(set.id, !set.enabled)
                 }
             }
@@ -203,35 +203,35 @@ private fun GroupSwitchRow(
 /** 规则集网格单元描述（非 composable，避免在 map 里调 composable）。 */
 private class RuleCellDesc(
     val titleRes: Int?, val titleStr: String?, val iconRes: Int,
-    val colorLong: Long?, val enabled: Boolean, val onToggle: () -> Unit,
+    val enabled: Boolean, val onToggle: () -> Unit,
 )
 
-/** 内置 App 集的语义图标（Material 开源图标）+ 品牌色。避免商标：用音乐/视频/聊天等通用图标。 */
-private fun groupVisual(id: String): Pair<Int, Long?> = when (id) {
-    "app-neteasemusic" -> R.drawable.ic_rule_music to 0xFFC20C0CL
-    "app-bilibili" -> R.drawable.ic_rule_video to 0xFFFB7299L
-    "app-wechat" -> R.drawable.ic_rule_chat to 0xFF07C160L
-    else -> R.drawable.ic_rule_label to null
+/** 内置 App 集的语义图标（Material 开源图标）。避免商标：用音乐/视频/聊天等通用图标。 */
+private fun groupIcon(id: String): Int = when (id) {
+    "app-neteasemusic" -> R.drawable.ic_rule_music
+    "app-bilibili" -> R.drawable.ic_rule_video
+    "app-wechat" -> R.drawable.ic_rule_chat
+    else -> R.drawable.ic_rule_label
 }
 
-/** 规则集圆形图标网格单元：圆形(开=品牌色 / 关=灰) + 名称；点击切换开关。 */
+/** 规则集圆形图标网格单元：圆形(开=主题 primary / 关=灰) + 名称；点击切换开关。
+ *  开关状态只用主题色表达——原先的第三方品牌色(网易红/B站粉/微信绿)不随主题、与蓝粉打架,已收敛。 */
 @Composable
 private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
     val name = d.titleRes?.let { stringResource(it) } ?: d.titleStr ?: ""
-    val brand = d.colorLong?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
     Column(
         modifier.clickable { d.onToggle() }.padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier.size(44.dp).clip(CircleShape)
-                .background(if (d.enabled) brand else MaterialTheme.colorScheme.surfaceVariant),
+                .background(if (d.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painterResource(d.iconRes),
                 contentDescription = name,
-                tint = if (d.enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (d.enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp),
             )
         }

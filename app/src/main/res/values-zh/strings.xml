@@ -100,6 +100,7 @@
     <string name="rules_add_from_history">添加移除过的</string>
     <string name="rules_history_empty">还没有移除过的域名</string>
     <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN,从手机真实网络出口。</string>
+    <string name="rules_app_sets_hint">按 App/服务一键分流：打开即对该 App 的域名生效；点「管理」可编辑集合与域名。</string>
     <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
     <string name="rules_remove">移除</string>
 
