@@ -61,6 +61,7 @@ private val EmphasizedAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
 private fun tabIdx(route: String?) = NavTab.entries.indexOfFirst { it.route == route }
 
+
 @Composable
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
@@ -102,17 +103,18 @@ fun AppRoot(viewModel: MainViewModel) {
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                // shared axis X 规范位移 30dp（MaterialSharedAxis 默认 slide distance）。
-                val slidePx = with(androidx.compose.ui.platform.LocalDensity.current) { 30.dp.roundToPx() }
                 NavHost(
                     navController = navController,
                     startDestination = NavTab.DASHBOARD.route,
                     // 单列内容上限 840dp（M3 布局指南 pane 上限）：Fold 展开/横屏(~800dp)内容全宽,
                     // 消除「视觉边界与滑动边界差很多」的两侧空带;真正的大平板才触发限宽。
                     modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
-                    // 官方双轨转场（M2/M3 规范 + Pixel 系统设置实践）：
-                    // tab↔tab = fade through（快速淡出→淡入+92% 缩放,顶级目的地刻意不建立方向关系）;
-                    // tab→详情 = shared axis X（前进新页从右滑入 30dp,返回反向——层级方向感）。
+                    // 双轨转场：
+                    // tab↔tab = fade through（官方规范,顶级目的地不建立方向关系）;
+                    // tab→详情 = 整屏 push/pop（系统 Activity 转场同款）：新页**不透明**从右整屏滑入
+                    //   盖住旧页,旧页左移 1/4 视差;返回反向。全程无透明度动画——之前的
+                    //   「30dp 微滑+渐变」在整页场景会出现旧页已淡完、新页未显形的空白闪帧(用户实测糟糕)。
+                    //   AnimatedContent 默认把 target 绘制在上层:push=详情盖入,pop=父页盖回,对称无穿帮。
                     enterTransition = {
                         val from = tabIdx(initialState.destination.route)
                         val to = tabIdx(targetState.destination.route)
@@ -122,8 +124,8 @@ fun AppRoot(viewModel: MainViewModel) {
                         } else {
                             slideIntoContainer(
                                 AnimatedContentTransitionScope.SlideDirection.Start,
-                                tween(300, easing = EmphasizedDecel),
-                            ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                                tween(350, easing = EmphasizedDecel),
+                            )
                         }
                     },
                     exitTransition = {
@@ -134,13 +136,12 @@ fun AppRoot(viewModel: MainViewModel) {
                         } else {
                             slideOutOfContainer(
                                 AnimatedContentTransitionScope.SlideDirection.Start,
-                                tween(300, easing = EmphasizedDecel),
-                            ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
+                                tween(350, easing = EmphasizedDecel),
+                            ) { it / 4 }
                         }
                     },
-                    // pop 也要判断 tab：switchTo 用 popUpTo(主页),tab 切换时旧 tab 是被「弹出」的,
-                    // 走 popExit——若无条件滑动,旧页会向右「反方向弹一下」(用户实测)。tab 参与的
-                    // pop 一律 fade through,只有层级返回(详情→父页)才 shared axis 滑动。
+                    // pop 也判断 tab：switchTo 用 popUpTo(主页),tab 切换时旧 tab 走 popExit,
+                    // 必须与 enter/exit 对称否则「反方向弹一下」。
                     popEnterTransition = {
                         val from = tabIdx(initialState.destination.route)
                         val to = tabIdx(targetState.destination.route)
@@ -150,8 +151,8 @@ fun AppRoot(viewModel: MainViewModel) {
                         } else {
                             slideIntoContainer(
                                 AnimatedContentTransitionScope.SlideDirection.End,
-                                tween(300, easing = EmphasizedDecel),
-                            ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                                tween(350, easing = EmphasizedDecel),
+                            ) { it / 4 }
                         }
                     },
                     popExitTransition = {
@@ -162,8 +163,8 @@ fun AppRoot(viewModel: MainViewModel) {
                         } else {
                             slideOutOfContainer(
                                 AnimatedContentTransitionScope.SlideDirection.End,
-                                tween(300, easing = EmphasizedDecel),
-                            ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
+                                tween(350, easing = EmphasizedDecel),
+                            )
                         }
                     },
                 ) {
