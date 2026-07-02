@@ -43,6 +43,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.GroupCard
+import com.mzstd.hxmyproxy.ui.components.NavRow
 import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
 @Composable
@@ -203,17 +204,6 @@ private fun DataRow(
     }
 }
 
-/** 「更多」卡里的导航行：标题 + 右箭头。 */
-@Composable
-private fun MoreRow(title: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
 
 /**
  * 监控页（重设计）：统一「分组卡」语言的六张卡——
@@ -398,11 +388,11 @@ fun MonitorScreen(
             }
         }
 
-        // —— 更多：历史入口 / 错误日志（导航行，替代两个孤立按钮）——
+        // —— 历史入口 / 错误日志（无标题导航卡；「更多」标题冗余已删）——
         item {
-            GroupCard(stringResource(R.string.monitor_more)) {
-                MoreRow("${stringResource(R.string.monitor_open_history)} (${ui.history.size})", onOpenHistory)
-                MoreRow(stringResource(R.string.error_logs), onOpenLogs)
+            GroupCard(title = null) {
+                NavRow("${stringResource(R.string.monitor_open_history)} (${ui.history.size})", onOpenHistory)
+                NavRow(stringResource(R.string.error_logs), onOpenLogs)
             }
         }
     }

@@ -169,9 +169,10 @@ private fun BottomNavBar(navController: NavController, destinations: List<Dest>)
 private fun SideNavRail(navController: NavController, destinations: List<Dest>) {
     NavigationRail {
         val current = navController.currentRoute()
-        // 上下弹性空隙：四个导航项垂直居中（默认从顶部排列,横屏/展开态挤在上面很突兀）。
+        // 均匀分散：两端 + 项间都用弹性空隙（近似 SpaceEvenly），横屏/展开态不再挤成一坨。
         Spacer(Modifier.weight(1f))
-        destinations.forEach { dest ->
+        destinations.forEachIndexed { i, dest ->
+            if (i > 0) Spacer(Modifier.weight(0.6f))
             NavigationRailItem(
                 modifier = Modifier.testTag("nav_${dest.route}"),
                 selected = current == dest.route,

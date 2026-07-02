@@ -59,7 +59,6 @@
     <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
 
     <!-- 规则 -->
-    <string name="rules_title">规则分流</string>
     <string name="rules_wip">按域名分流(直连 / 代理 / 拦截)与广告拦截即将上线。</string>
     <string name="rules_module_list">IP / 域名白名单</string>
     <string name="rules_module_apps">App 与服务规则集</string>
@@ -171,8 +170,8 @@
     <string name="auth_incomplete">请设置用户名和密码，否则客户端无法通过认证。</string>
     <string name="auth_warning">未开启认证。同一网络内的设备可能连接你的代理，建议仅在可信网络下使用。</string>
     <string name="settings_vpn_strategy">VPN 断开时</string>
-    <string name="vpn_continue">继续走普通网络</string>
-    <string name="vpn_block">阻断（fail closed）</string>
+    <string name="vpn_continue">继续</string>
+    <string name="vpn_block">阻断</string>
     <string name="vpn_warn">警告但继续</string>
     <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
     <string name="settings_limits">连接上限</string>

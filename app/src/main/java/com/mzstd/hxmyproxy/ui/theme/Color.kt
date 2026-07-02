@@ -14,7 +14,8 @@ import androidx.compose.ui.graphics.Color
  */
 
 // ---- Primary（蓝，保真 palette：hue/chroma 取自 seed #3A7DFF）----
-val BluePrimaryLight = Color(0xFF0057CD)          // P40
+// light 主蓝用 tone48（能保住 AA 的最浅档：白字对比 4.81:1）——tone40 #0057CD 偏深（用户反馈）。
+val BluePrimaryLight = Color(0xFF1E6BEC)          // P48
 val OnBluePrimaryLight = Color(0xFFFFFFFF)
 val BlueContainerLight = Color(0xFFDAE2FF)        // P90
 val OnBlueContainerLight = Color(0xFF00419D)      // P30

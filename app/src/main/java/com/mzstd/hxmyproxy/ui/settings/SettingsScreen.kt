@@ -159,8 +159,11 @@ fun SettingsScreen(
             )
         }
 
-        TextButton(onClick = onOpenHelp) { Text(stringResource(R.string.help_open)) }
-        TextButton(onClick = onReplayOnboarding) { Text(stringResource(R.string.replay_onboarding)) }
+        // 帮助/引导合成一张无标题导航卡(与监控页同 NavRow 组件),替代两个裸 TextButton——样式全 app 闭环。
+        com.mzstd.hxmyproxy.ui.components.GroupCard(title = null) {
+            com.mzstd.hxmyproxy.ui.components.NavRow(stringResource(R.string.help_open), onOpenHelp)
+            com.mzstd.hxmyproxy.ui.components.NavRow(stringResource(R.string.replay_onboarding), onReplayOnboarding)
+        }
         // 底部手势条穿透：无底栏时(横屏 rail)本 Spacer=手势条高;有底栏时 inset 已被消费=0。
         androidx.compose.foundation.layout.Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }

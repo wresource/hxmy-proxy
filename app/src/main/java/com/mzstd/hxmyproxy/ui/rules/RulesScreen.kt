@@ -72,7 +72,7 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(stringResource(R.string.rules_title), style = MaterialTheme.typography.titleLarge)
+        // 页内大标题已删：底栏已标「规则」,页内再写「规则分流」冗余(用户反馈)。
         if (ui.share.lockdownSuspected) {
             ElevatedCard(
                 Modifier.fillMaxWidth(),
