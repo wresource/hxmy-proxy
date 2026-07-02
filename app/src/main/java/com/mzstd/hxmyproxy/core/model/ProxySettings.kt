@@ -25,6 +25,8 @@ data class ProxySettings(
     val language: AppLanguage = AppLanguage.SYSTEM,
     /** 外观：跟随系统/浅色/深色。 */
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** 被隐藏的顶层 tab（route 集合，仅监控/规则可隐藏；主页/设置在 UI 层强制保留）。 */
+    val hiddenTabs: Set<String> = emptySet(),
     // —— 规则分流（Phase 2）——
     /** 规则分流总开关（默认关：保持「全部走代理」的现有行为，用户在规则页主动开启）。 */
     val ruleEngineEnabled: Boolean = false,

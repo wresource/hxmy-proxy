@@ -20,6 +20,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,13 +46,6 @@ import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
 import com.mzstd.hxmyproxy.ui.rules.RulesScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
-private sealed class Dest(val route: String, val label: Int, val icon: Int) {
-    data object Dashboard : Dest("dashboard", R.string.nav_dashboard, R.drawable.ic_nav_dashboard)
-    data object Rules : Dest("rules", R.string.nav_rules, R.drawable.ic_nav_rules)
-    data object Monitor : Dest("monitor", R.string.nav_monitor, R.drawable.ic_nav_monitor)
-    data object Settings : Dest("settings", R.string.nav_settings, R.drawable.ic_nav_settings)
-}
-
 // 大屏断点（Material：compact < 600dp 用底栏，medium/expanded 用侧边 nav rail）。
 private const val EXPANDED_WIDTH_DP = 600
 
@@ -59,14 +53,26 @@ private const val EXPANDED_WIDTH_DP = 600
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
-    val destinations = listOf(Dest.Dashboard, Dest.Monitor, Dest.Rules, Dest.Settings)
+    // 可见 tab 由设置过滤（主页/设置强制保留）；NavHost 仍注册**全部**路由——
+    // 隐藏只影响导航栏显示，任何遗留导航都落在已注册 route 上，不存在「未注册 route」崩溃面。
+    val destinations = NavTab.visible(ui.settings.hiddenTabs)
 
     // 自适应：平板/折叠屏（≥600dp）把底部导航换成边缘 nav rail（adaptive skill Step 2），手机仍用底栏。
     val wide = LocalConfiguration.current.screenWidthDp >= EXPANDED_WIDTH_DP
     // 顶层 tab 才显示导航栏；详情页（history/logs/help/ruleset_*）全屏沉浸、由 DetailScaffold 提供返回。
-    // current=null（NavHost 初始化瞬间）按顶层处理，避免启动时底栏闪没。
+    // current=null（NavHost 初始化瞬间）按顶层处理，避免启动时底栏闪没。topLevel 用全量 NavTab 判断
+    // （而非 visible）：防御场景下站在被隐藏 tab 上时仍按顶层布局，等回退生效。
     val currentRoute = navController.currentRoute()
-    val topLevel = currentRoute == null || destinations.any { it.route == currentRoute }
+    val topLevel = currentRoute == null || NavTab.entries.any { it.route == currentRoute }
+
+    // 防御性回退：若当前顶层 route 恰好被隐藏（正常流程不可能——隐藏操作只发生在设置页；
+    // 该分支兜住 restoreState/深层链接等间接路径），自动回主页而非停留在无高亮的“幽灵页”。
+    LaunchedEffect(currentRoute, ui.settings.hiddenTabs) {
+        val cur = NavTab.entries.firstOrNull { it.route == currentRoute }
+        if (cur != null && !cur.fixed && cur.route in ui.settings.hiddenTabs) {
+            navController.switchTo(NavTab.DASHBOARD)
+        }
+    }
 
     Scaffold(
         bottomBar = { if (!wide && topLevel) BottomNavBar(navController, destinations) },
@@ -88,14 +94,14 @@ fun AppRoot(viewModel: MainViewModel) {
             ) {
                 NavHost(
                     navController = navController,
-                    startDestination = Dest.Dashboard.route,
+                    startDestination = NavTab.DASHBOARD.route,
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 ) {
-                    composable(Dest.Dashboard.route) { DashboardScreen(ui, viewModel) }
-                    composable(Dest.Rules.route) {
+                    composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel) }
+                    composable(NavTab.RULES.route) {
                         RulesScreen(ui, viewModel, onManage = { navController.navigate("ruleset_manager") })
                     }
-                    composable(Dest.Monitor.route) {
+                    composable(NavTab.MONITOR.route) {
                         MonitorScreen(
                             ui,
                             onOpenHistory = { navController.navigate("history_detail") },
@@ -108,7 +114,7 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable("logs_detail") {
                         LogsDetailScreen(onBack = { navController.popBackStack() })
                     }
-                    composable(Dest.Settings.route) {
+                    composable(NavTab.SETTINGS.route) {
                         SettingsScreen(
                             ui, viewModel,
                             onOpenHelp = { navController.navigate("help") },
@@ -143,14 +149,14 @@ private fun NavController.currentRoute(): String? =
     currentBackStackEntryAsState().value?.destination?.route
 
 // 官方 bottom-nav 模式：saveState/restoreState 保住各 tab 的滚动位置与展开状态，切 tab 不再丢。
-private fun NavController.switchTo(dest: Dest) = navigate(dest.route) {
+private fun NavController.switchTo(dest: NavTab) = navigate(dest.route) {
     launchSingleTop = true
     restoreState = true
-    popUpTo(Dest.Dashboard.route) { saveState = true }
+    popUpTo(NavTab.DASHBOARD.route) { saveState = true }
 }
 
 @Composable
-private fun BottomNavBar(navController: NavController, destinations: List<Dest>) {
+private fun BottomNavBar(navController: NavController, destinations: List<NavTab>) {
     NavigationBar {
         val current = navController.currentRoute()
         destinations.forEach { dest ->
@@ -166,7 +172,7 @@ private fun BottomNavBar(navController: NavController, destinations: List<Dest>)
 }
 
 @Composable
-private fun SideNavRail(navController: NavController, destinations: List<Dest>) {
+private fun SideNavRail(navController: NavController, destinations: List<NavTab>) {
     NavigationRail {
         val current = navController.currentRoute()
         // 均匀分散：两端 + 项间都用弹性空隙（近似 SpaceEvenly），横屏/展开态不再挤成一坨。

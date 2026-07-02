@@ -106,6 +106,11 @@ class MainViewModel @Inject constructor(
 
     fun setThemeMode(mode: com.mzstd.hxmyproxy.core.model.ThemeMode) = update { it.copy(themeMode = mode) }
 
+    /** 隐藏/恢复顶层 tab（仅监控/规则会被传入；主页/设置在 UI 层无入口且过滤时强制保留）。 */
+    fun setTabHidden(route: String, hidden: Boolean) = update {
+        it.copy(hiddenTabs = if (hidden) it.hiddenTabs + route else it.hiddenTabs - route)
+    }
+
     fun setPreset(preset: PerformancePreset) = update {
         it.copy(preset = preset, limits = if (preset == PerformancePreset.CUSTOM) it.limits else preset.toLimits())
     }

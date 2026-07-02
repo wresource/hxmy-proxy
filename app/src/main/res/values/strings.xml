@@ -122,6 +122,12 @@
     <string name="proto_pac_sub">Auto-config file; browsers/system route traffic by rules</string>
     <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
     <string name="settings_privacy">Privacy &amp; security</string>
+    <string name="settings_nav">Navigation bar</string>
+    <string name="nav_hidden_section">Hidden</string>
+    <string name="nav_hidden_empty">No hidden pages</string>
+    <string name="nav_customize_hint">Dashboard and Settings can\'t be hidden. Hiding Rules only hides the page — the rule engine keeps working.</string>
+    <string name="nav_hide_a11y">Hide %1$s</string>
+    <string name="nav_restore_a11y">Restore %1$s</string>
     <string name="monitor_realtime">Live speed</string>
     <string name="monitor_down">Download</string>
     <string name="monitor_up">Upload</string>

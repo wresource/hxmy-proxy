@@ -76,6 +76,7 @@ class SettingsRepository @Inject constructor(
         val LIM_IDLE = intPreferencesKey("lim_idle")
         val LANGUAGE = stringPreferencesKey("language")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val HIDDEN_TABS = stringSetPreferencesKey("hidden_tabs")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
         val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
@@ -112,6 +113,7 @@ class SettingsRepository @Inject constructor(
             limits = limits,
             language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
             themeMode = this[THEME_MODE]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.themeMode,
+            hiddenTabs = this[HIDDEN_TABS] ?: d.hiddenTabs,
             ruleEngineEnabled = this[RULE_ENABLED] ?: d.ruleEngineEnabled,
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectEnabled = this[USER_DIRECT_ENABLED] ?: d.userDirectEnabled,
@@ -142,6 +144,7 @@ class SettingsRepository @Inject constructor(
         prefs[LIM_IDLE] = limits.idleTimeoutSeconds
         prefs[LANGUAGE] = language.name
         prefs[THEME_MODE] = themeMode.name
+        prefs[HIDDEN_TABS] = hiddenTabs
         prefs[RULE_ENABLED] = ruleEngineEnabled
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT_ENABLED] = userDirectEnabled

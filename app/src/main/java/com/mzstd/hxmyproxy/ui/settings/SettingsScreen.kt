@@ -1,10 +1,13 @@
 package com.mzstd.hxmyproxy.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -157,6 +161,10 @@ fun SettingsScreen(
                 stringResource(R.string.settings_block_private), s.blockPrivateLanEgress,
                 viewModel::setBlockPrivateLan, stringResource(R.string.block_private_sub),
             )
+        }
+
+        SettingsGroup(stringResource(R.string.settings_nav)) {
+            NavBarEditor(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
         }
 
         // 帮助/引导合成一张无标题导航卡(与监控页同 NavRow 组件),替代两个裸 TextButton——样式全 app 闭环。
@@ -350,5 +358,126 @@ private fun LimitSlider(label: String, value: Int, range: IntRange, onChange: (I
             onValueChangeFinished = { onChange(v.toInt()) },
             valueRange = range.first.toFloat()..range.last.toFloat(),
         )
+    }
+}
+
+/**
+ * 导航栏自定义（支付宝「我的应用」编辑模式）：上排=当前显示的 tab，可隐藏项右上角红「−」徽标；
+ * 下方「已隐藏」区，项右上角绿「+」徽标；点击整项（≥48dp 热区）在两区间移动，即时生效。
+ * 主页/设置为固定项不显示徽标（不加锁不置灰，噪音最小）。徽标内含 −/+ 符号而非纯色点——
+ * WCAG 1.4.1 禁止仅靠颜色传达含义（红绿色盲无法区分红/绿），纯红点还会被误读为未读通知。
+ */
+@Composable
+private fun NavBarEditor(hiddenTabs: Set<String>, onSetHidden: (String, Boolean) -> Unit) {
+    val visible = com.mzstd.hxmyproxy.ui.NavTab.visible(hiddenTabs)
+    val hidden = com.mzstd.hxmyproxy.ui.NavTab.entries.filter { !it.fixed && it.route in hiddenTabs }
+
+    androidx.compose.foundation.layout.Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        visible.forEach { tab ->
+            NavTabCell(
+                tab = tab,
+                badge = if (tab.fixed) null else NavBadge.REMOVE,
+                onClick = if (tab.fixed) null else ({ onSetHidden(tab.route, true) }),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // 少于 4 个时补空位，保持格宽稳定不跳动。
+        repeat(4 - visible.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+    }
+
+    Text(
+        stringResource(R.string.nav_hidden_section),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (hidden.isEmpty()) {
+        Text(
+            stringResource(R.string.nav_hidden_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            hidden.forEach { tab ->
+                NavTabCell(
+                    tab = tab,
+                    badge = NavBadge.ADD,
+                    onClick = { onSetHidden(tab.route, false) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            repeat(4 - hidden.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+        }
+    }
+    Text(
+        stringResource(R.string.nav_customize_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private enum class NavBadge { REMOVE, ADD }
+
+/** 导航项格子：图标+名称，右上角可选 −/+ 徽标；整格可点（≥48dp 热区），徽标只是视觉提示。 */
+@Composable
+private fun NavTabCell(
+    tab: com.mzstd.hxmyproxy.ui.NavTab,
+    badge: NavBadge?,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val label = stringResource(tab.label)
+    val a11y = when (badge) {
+        NavBadge.REMOVE -> stringResource(R.string.nav_hide_a11y, label)
+        NavBadge.ADD -> stringResource(R.string.nav_restore_a11y, label)
+        null -> label
+    }
+    val clickMod = if (onClick != null) {
+        Modifier
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClickLabel = a11y, onClick = onClick)
+    } else {
+        Modifier
+    }
+    Box(modifier.then(clickMod).padding(vertical = 6.dp)) {
+        Column(
+            Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            androidx.compose.material3.Icon(
+                androidx.compose.ui.res.painterResource(tab.icon),
+                contentDescription = a11y,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(label, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+        // 徽标：红−/绿+，含符号（不只靠颜色）。挂在格子右上角。
+        if (badge != null) {
+            val (bg, sym) = when (badge) {
+                NavBadge.REMOVE -> MaterialTheme.colorScheme.error to "−"
+                NavBadge.ADD -> com.mzstd.hxmyproxy.ui.theme.StatusColors.good() to "+"
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(16.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(bg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    sym,
+                    color = MaterialTheme.colorScheme.surface,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+        }
     }
 }
