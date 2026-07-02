@@ -109,7 +109,6 @@
     <string name="diag_http_port">HTTP 端口</string>
     <string name="diag_socks_port">SOCKS5 端口</string>
     <string name="diag_pac_port">PAC 端口</string>
-    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
     <string name="diag_vpn">VPN 出口</string>
     <string name="diag_ok">正常</string>
     <string name="diag_fail">异常</string>
@@ -157,7 +156,6 @@
     <string name="vpn_continue">继续走普通网络</string>
     <string name="vpn_block">阻断（fail closed）</string>
     <string name="vpn_warn">警告但继续</string>
-    <string name="settings_mdns">发布 mDNS (hxmyproxy.local)</string>
     <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
     <string name="settings_limits">连接上限</string>
     <string name="limit_global">最大连接数</string>
@@ -199,7 +197,7 @@
     <string name="ob3_s1_title">连同一个 WiFi</string>
     <string name="ob3_s1_body">手机和其他设备在同一个网里才能互相找到（用手机热点也行）。</string>
     <string name="ob3_s2_title">点「开始共享」</string>
-    <string name="ob3_s2_body">App 会给你一个地址，像 192.168.x.x:1080，或更好记的 hxmyproxy.local。</string>
+    <string name="ob3_s2_body">App 会给你一个地址，像 192.168.x.x:1080。</string>
     <string name="ob3_s3_title">在其他设备填这个地址</string>
     <string name="ob3_s3_body">在电脑/平板的「代理设置」里填进去就连上了。各端怎么填，帮助页有图文。</string>
     <string name="ob3_footer">填完后，那台设备的网就和这台手机一样了——它连的 VPN 也一起借给你。</string>
@@ -233,8 +231,6 @@
     <string name="faq_a1">不用。可以理解成「让 A 设备替 B 设备出门上网」。你只要在这台手机点开始、把地址填到另一台设备上就行。</string>
     <string name="faq_q2">这安全吗？会偷我的数据吗？</string>
     <string name="faq_a2">hxmy proxy 不联网、不上传、不收集任何信息，代码也公开。它只在你自己的 WiFi 里帮设备之间「搭桥」。</string>
-    <string name="faq_q3">hxmyproxy.local 和那串数字地址有什么区别？</string>
-    <string name="faq_a3">两个都能用。.local 好记；数字地址是「保险地址」，万一某台设备认不出 .local（Windows、个别路由器偶尔），就改填数字地址，一定能连。</string>
     <string name="faq_q4">HTTP、SOCKS5、PAC 我该选哪个？</string>
     <string name="faq_a4">不知道就用 HTTP，最通用。要更全面的支持选 SOCKS5。PAC 是给想让浏览器自动按规则走代理的进阶用户，新手可忽略。</string>
     <string name="faq_q5">其他设备真的会用到我手机的 VPN 吗？</string>
@@ -243,7 +239,7 @@
     <string name="faq_a6">默认不设，方便快速用。在公共/办公 WiFi 担心别人蹭，可在「设置」里开启用户名密码，只有知道的人能连。</string>
     <string name="help_c_title">各端怎么连</string>
     <string name="plat_win_title">Windows 电脑</string>
-    <string name="plat_win_body">设置 → 网络和 Internet → 代理 → 手动设置代理，填地址（hxmyproxy.local 或数字地址）和端口，保存。</string>
+    <string name="plat_win_body">设置 → 网络和 Internet → 代理 → 手动设置代理，填主页显示的地址和端口，保存。</string>
     <string name="plat_mac_title">Mac 电脑</string>
     <string name="plat_mac_body">系统设置 → 网络 → 当前 WiFi → 详细信息 → 代理，勾「网页代理(HTTP)」（或 SOCKS），填地址和端口。</string>
     <string name="plat_ios_title">iPhone / iPad</string>
@@ -253,7 +249,7 @@
     <string name="plat_browser_title">浏览器单独设置</string>
     <string name="plat_browser_body">只想让浏览器走代理：用浏览器的代理扩展，或在主页开启 PAC 后用「扫码配置」拿到 PAC 地址，填到「使用安装脚本」一栏。</string>
     <string name="help_d_title">连不上？故障排查</string>
-    <string name="help_d_body">① 先确认两台设备在同一个 WiFi（最常见原因）。② hxmyproxy.local 连不上就改填数字地址。③ 核对地址、端口、类型有没有填错（端口很容易错）。④ 看手机通知栏「共享」还开着吗，被划掉就停了。⑤ 提示要账号密码 = 手机开了认证，去设置查。⑥ 突然全断可能是手机 VPN 掉了，默认保护下会自动停。⑦ 还不行去「诊断」页看哪一步出问题。</string>
+    <string name="help_d_body">① 先确认两台设备在同一个 WiFi（最常见原因）。② 核对地址、端口、类型有没有填错（端口很容易错）。③ 看手机通知栏「共享」还开着吗，被划掉就停了。④ 提示要账号密码 = 手机开了认证，去设置查。⑤ 突然全断可能是手机 VPN 掉了，默认保护下会自动停。⑥ 还不行去「诊断」页看哪一步出问题。</string>
     <string name="help_e_title">关于 · 隐私 · 开源</string>
     <string name="help_e_body">hxmy proxy 是开源、免费、无广告的本地工具。不收集数据、不联网汇报、没有账号。你的所有连接都只在本地 WiFi 内，我们看不到、也存不了。</string>
 </resources>

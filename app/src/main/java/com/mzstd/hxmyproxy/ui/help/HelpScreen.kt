@@ -107,7 +107,6 @@ private fun PlatformList() {
 private val FAQ = listOf(
     R.string.faq_q1 to R.string.faq_a1,
     R.string.faq_q2 to R.string.faq_a2,
-    R.string.faq_q3 to R.string.faq_a3,
     R.string.faq_q4 to R.string.faq_a4,
     R.string.faq_q5 to R.string.faq_a5,
     R.string.faq_q6 to R.string.faq_a6,

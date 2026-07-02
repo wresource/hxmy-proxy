@@ -209,13 +209,6 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("${e.protocol.name}  ${e.displayEndpoint}", style = MaterialTheme.typography.bodyLarge)
-                                e.mdnsEndpoint?.let {
-                                    Text(
-                                        "${e.protocol.name}  $it",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                             }
                             TextButton(onClick = {
                                 clipboard.setText(AnnotatedString(e.copyValue))

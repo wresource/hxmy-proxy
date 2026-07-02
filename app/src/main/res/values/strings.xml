@@ -109,7 +109,6 @@
     <string name="diag_http_port">HTTP port</string>
     <string name="diag_socks_port">SOCKS5 port</string>
     <string name="diag_pac_port">PAC port</string>
-    <string name="diag_mdns">mDNS (hxmyproxy.local)</string>
     <string name="diag_vpn">VPN egress</string>
     <string name="diag_ok">OK</string>
     <string name="diag_fail">Problem</string>
@@ -157,7 +156,6 @@
     <string name="vpn_continue">Continue on plain network</string>
     <string name="vpn_block">Block (fail closed)</string>
     <string name="vpn_warn">Warn but continue</string>
-    <string name="settings_mdns">Publish mDNS (hxmyproxy.local)</string>
     <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
     <string name="settings_limits">Connection limits</string>
     <string name="limit_global">Max connections</string>
@@ -199,7 +197,7 @@
     <string name="ob3_s1_title">Same Wi-Fi</string>
     <string name="ob3_s1_body">Put this phone and the other device on the same network (a hotspot works too).</string>
     <string name="ob3_s2_title">Tap “Start sharing”</string>
-    <string name="ob3_s2_body">The app gives you an address like 192.168.x.x:1080, or the friendlier hxmyproxy.local.</string>
+    <string name="ob3_s2_body">The app gives you an address like 192.168.x.x:1080.</string>
     <string name="ob3_s3_title">Enter it on the other device</string>
     <string name="ob3_s3_body">Put it in the other device\'s proxy settings. The Help page shows how for each platform.</string>
     <string name="ob3_footer">Once set, that device shares this phone\'s connection — VPN included.</string>
@@ -233,8 +231,6 @@
     <string name="faq_a1">No. Think of it as “device A goes online on behalf of device B”. Just start it here and enter the address on the other device.</string>
     <string name="faq_q2">Is it safe? Will it steal my data?</string>
     <string name="faq_a2">It doesn\'t go online, upload, or collect anything, and the code is public. It only bridges devices on your own Wi-Fi.</string>
-    <string name="faq_q3">hxmyproxy.local vs the numeric address?</string>
-    <string name="faq_a3">Both work. .local is easier to remember; the numeric address is the fallback — if a device can\'t resolve .local (Windows or some routers), use the numbers, which always work.</string>
     <string name="faq_q4">HTTP, SOCKS5 or PAC?</string>
     <string name="faq_a4">If unsure, use HTTP — most universal. SOCKS5 for broader support. PAC is for advanced auto-routing; beginners can ignore it.</string>
     <string name="faq_q5">Will other devices really use my phone\'s VPN?</string>
@@ -243,7 +239,7 @@
     <string name="faq_a6">Off by default for convenience. On public or office Wi-Fi, enable a username/password in Settings so only people you tell can connect.</string>
     <string name="help_c_title">Connect each device</string>
     <string name="plat_win_title">Windows</string>
-    <string name="plat_win_body">Settings → Network &amp; Internet → Proxy → Manual setup; enter the address (hxmyproxy.local or the numbers) and port, save.</string>
+    <string name="plat_win_body">Settings → Network &amp; Internet → Proxy → Manual setup; enter the address and port shown on the home screen, save.</string>
     <string name="plat_mac_title">Mac</string>
     <string name="plat_mac_body">System Settings → Network → your Wi-Fi → Details → Proxies; tick “Web Proxy (HTTP)” (or SOCKS), enter address and port.</string>
     <string name="plat_ios_title">iPhone / iPad</string>
@@ -253,7 +249,7 @@
     <string name="plat_browser_title">Browser only</string>
     <string name="plat_browser_body">To route only the browser: use a proxy extension, or enable PAC and use “Scan to set up” to get a PAC URL for the “use setup script” field.</string>
     <string name="help_d_title">Can\'t connect? Troubleshooting</string>
-    <string name="help_d_body">1) Make sure both devices are on the same Wi-Fi (most common cause). 2) If hxmyproxy.local fails, use the numeric address. 3) Double-check address, port and type. 4) Check the sharing notification is still active — if dismissed, sharing stopped. 5) Asked for a password? Authentication is on — check Settings. 6) Everything dropped? The phone\'s VPN may be down; with default protection, sharing stops automatically. 7) Still stuck? Open the Diagnostics page to see which step failed.</string>
+    <string name="help_d_body">1) Make sure both devices are on the same Wi-Fi (most common cause). 2) Double-check address, port and type. 3) Check the sharing notification is still active — if dismissed, sharing stopped. 4) Asked for a password? Authentication is on — check Settings. 5) Everything dropped? The phone\'s VPN may be down; with default protection, sharing stops automatically. 6) Still stuck? Open the Diagnostics page to see which step failed.</string>
     <string name="help_e_title">About · Privacy · Open source</string>
     <string name="help_e_body">hxmy proxy is an open-source, free, ad-free local tool. No data collection, no phone-home, no account. All your connections stay on your local Wi-Fi — we can\'t see or store them.</string>
 </resources>
