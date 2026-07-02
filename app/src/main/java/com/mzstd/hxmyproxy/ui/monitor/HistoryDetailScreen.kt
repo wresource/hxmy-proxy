@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
@@ -42,7 +44,14 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                 Text(stringResource(R.string.monitor_no_history), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 16.dp, end = 16.dp,
+                    bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
+                        .asPaddingValues().calculateBottomPadding(),
+                ),
+            ) {
                 items(ui.history, key = { "${it.entry.protocol}|${it.entry.ip}|${it.entry.port}" }) { v ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {

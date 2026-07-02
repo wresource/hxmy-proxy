@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ElevatedCard
@@ -43,6 +46,8 @@ fun HelpScreen(onBack: () -> Unit) {
             Section(R.string.help_c_title) { PlatformList() }
             Section(R.string.help_d_title) { Para(R.string.help_d_body) }
             Section(R.string.help_e_title) { Para(R.string.help_e_body) }
+            // 底部手势条穿透：内容能完整滚出手势条区,不留死白。
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }

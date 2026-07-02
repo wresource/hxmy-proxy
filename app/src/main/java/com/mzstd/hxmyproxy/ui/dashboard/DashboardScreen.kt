@@ -10,14 +10,19 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -80,10 +86,13 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { ProxyForegroundService.start(context) }
 
-    Column(Modifier.fillMaxSize()) {
+    // 悬浮按钮布局：滚动内容全屏（底部预留按钮高度+手势条），按钮悬浮其上、背后是
+    // 「透明→surface」柔和渐变——内容从按钮下穿过时逐渐淡出，不再被不透明底硬生生截断。
+    val surface = MaterialTheme.colorScheme.surface
+    Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -93,17 +102,30 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
             PortBindErrorCard(ui)
             if (share.running) StatRow(ui)
             InterfacesCard(ui, viewModel)
-            Spacer(Modifier.height(4.dp))
+            // 预留悬浮按钮区 + 手势条：最后一张卡能完整滚出、不被按钮遮挡。
+            Spacer(Modifier.height(76.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-        // 主按钮固定底部（滚动区之外），单手拇指可达、永不被内容推走。
-        StartStopButton(ui, onStart = {
-            val perms = buildList {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-                if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
-            }
-            if (perms.isEmpty()) ProxyForegroundService.start(context)
-            else permLauncher.launch(perms.toTypedArray())
-        })
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        0f to surface.copy(alpha = 0f),
+                        0.55f to surface,
+                    ),
+                ),
+        ) {
+            StartStopButton(ui, onStart = {
+                val perms = buildList {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                    if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
+                }
+                if (perms.isEmpty()) ProxyForegroundService.start(context)
+                else permLauncher.launch(perms.toTypedArray())
+            })
+        }
     }
 }
 
@@ -394,6 +416,7 @@ private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
         onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .height(56.dp),
         shape = RoundedCornerShape(corner),

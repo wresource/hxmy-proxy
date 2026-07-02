@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -158,23 +161,15 @@ fun SettingsScreen(
 
         TextButton(onClick = onOpenHelp) { Text(stringResource(R.string.help_open)) }
         TextButton(onClick = onReplayOnboarding) { Text(stringResource(R.string.replay_onboarding)) }
+        // 底部手势条穿透：无底栏时(横屏 rail)本 Spacer=手势条高;有底栏时 inset 已被消费=0。
+        androidx.compose.foundation.layout.Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }
 
-/** 分组圆角容器：surfaceContainerLow 底 + 组标题，组内 8dp 节奏（三页统一的分组卡语言）。 */
+/** 分组圆角容器（委托公共 [com.mzstd.hxmyproxy.ui.components.GroupCard]，与监控页共用）。 */
 @Composable
-private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.large)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        content()
-    }
-}
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) =
+    com.mzstd.hxmyproxy.ui.components.GroupCard(title, content = content)
 
 @Composable
 private fun CustomLimits(limits: ConnectionLimits, viewModel: MainViewModel) {

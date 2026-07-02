@@ -3,10 +3,13 @@ package com.mzstd.hxmyproxy.ui.rules
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -55,8 +58,13 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
         title = stringResource(R.string.ruleset_manager_title),
         onBack = onBack,
     ) { padding ->
+    // 底部手势条高度进 contentPadding(而非容器 padding):内容可滚动**穿透**手势条区,
+    // 滚到底时最后一项停在手势条上方——消除底部不透明死留白(edge-to-edge 规范)。
+    val bottomInset = androidx.compose.foundation.layout.WindowInsets.navigationBars
+        .asPaddingValues().calculateBottomPadding()
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = bottomInset + 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // —— 我的规则集 ——

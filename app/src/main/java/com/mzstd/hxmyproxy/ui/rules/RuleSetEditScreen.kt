@@ -6,8 +6,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -107,6 +111,8 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 }
             }
         }
+        // 底部手势条穿透：内容能完整滚出手势条区,不留死白。
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
     }
 

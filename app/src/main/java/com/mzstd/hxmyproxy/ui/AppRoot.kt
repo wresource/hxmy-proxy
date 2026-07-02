@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -71,7 +73,10 @@ fun AppRoot(viewModel: MainViewModel) {
         // 系统栏/刘海由 Scaffold 处理；IME 交给各内容页自己的 imePadding（在 verticalScroll 外层）：
         // 这样键盘弹出时滚动视口收缩、自动把聚焦的输入框滚到键盘上方。
         // （若这里 safeDrawing 含 IME，innerPadding 会 consume 掉 IME，页内 imePadding 就失效。）
-        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
+        // 底部 navigationBars（手势条）也排除：否则无底栏时（横屏 rail / 详情页）它变成一条
+        // 不透明死留白横贯屏底；改由各页滚动容器以 contentPadding/尾部 Spacer 让内容**穿透**手势条区。
+        // 竖屏底栏模式不受影响——NavigationBar 组件自带手势条 insets 处理。
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime).exclude(WindowInsets.navigationBars),
     ) { padding ->
         // padding 只施于内容侧：让 NavigationRail 占满全高、由其自身 insets 绘制到屏幕边缘（edge-to-edge）。
         Row(Modifier.fillMaxSize()) {
@@ -164,6 +169,8 @@ private fun BottomNavBar(navController: NavController, destinations: List<Dest>)
 private fun SideNavRail(navController: NavController, destinations: List<Dest>) {
     NavigationRail {
         val current = navController.currentRoute()
+        // 上下弹性空隙：四个导航项垂直居中（默认从顶部排列,横屏/展开态挤在上面很突兀）。
+        Spacer(Modifier.weight(1f))
         destinations.forEach { dest ->
             NavigationRailItem(
                 modifier = Modifier.testTag("nav_${dest.route}"),
@@ -173,5 +180,6 @@ private fun SideNavRail(navController: NavController, destinations: List<Dest>) 
                 label = { Text(stringResource(dest.label)) },
             )
         }
+        Spacer(Modifier.weight(1f))
     }
 }

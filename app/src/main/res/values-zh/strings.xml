@@ -123,6 +123,10 @@
     <string name="proto_pac_sub">自动配置文件，浏览器/系统按规则自动走代理</string>
     <string name="block_private_sub">阻止客户端借代理访问你手机所在内网的其他设备</string>
     <string name="settings_privacy">隐私与安全</string>
+    <string name="monitor_realtime">实时速率</string>
+    <string name="monitor_down">下行</string>
+    <string name="monitor_up">上行</string>
+    <string name="monitor_more">更多</string>
     <string name="stat_conns">连接</string>
     <string name="stat_traffic">累计</string>
     <string name="stat_signal">信号</string>

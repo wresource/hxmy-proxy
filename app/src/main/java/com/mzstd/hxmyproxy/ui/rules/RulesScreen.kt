@@ -3,6 +3,9 @@ package com.mzstd.hxmyproxy.ui.rules
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -166,6 +169,9 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                 GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
             }
         }
+
+        // 底部手势条穿透：无底栏时(横屏 rail)本 Spacer=手势条高,内容能完整滚出;有底栏时 inset 已被消费=0。
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
 
         if (showHistory) {
             HistoryAddDialog(

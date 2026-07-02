@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,7 +48,8 @@ fun DetailScaffold(
                 actions = actions,
             )
         },
-        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
+        // 底部手势条 inset 不进 padding（会成死留白），由页内列表 contentPadding/尾部 Spacer 穿透。
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime).exclude(WindowInsets.navigationBars),
         content = content,
     )
 }

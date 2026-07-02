@@ -3,7 +3,9 @@ package com.mzstd.hxmyproxy.ui.monitor
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,7 +62,14 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                 Text(stringResource(R.string.monitor_no_logs), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 12.dp, end = 12.dp,
+                    bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
+                        .asPaddingValues().calculateBottomPadding(),
+                ),
+            ) {
                 items(logs) { line ->
                     Text(
                         line,

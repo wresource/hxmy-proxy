@@ -123,6 +123,10 @@
     <string name="proto_pac_sub">Auto-config file; browsers/system route traffic by rules</string>
     <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
     <string name="settings_privacy">Privacy &amp; security</string>
+    <string name="monitor_realtime">Live speed</string>
+    <string name="monitor_down">Download</string>
+    <string name="monitor_up">Upload</string>
+    <string name="monitor_more">More</string>
     <string name="stat_conns">Connections</string>
     <string name="stat_traffic">Total</string>
     <string name="stat_signal">Signal</string>
