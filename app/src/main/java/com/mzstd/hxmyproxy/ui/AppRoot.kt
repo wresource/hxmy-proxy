@@ -138,17 +138,33 @@ fun AppRoot(viewModel: MainViewModel) {
                             ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
                         }
                     },
+                    // pop 也要判断 tab：switchTo 用 popUpTo(主页),tab 切换时旧 tab 是被「弹出」的,
+                    // 走 popExit——若无条件滑动,旧页会向右「反方向弹一下」(用户实测)。tab 参与的
+                    // pop 一律 fade through,只有层级返回(详情→父页)才 shared axis 滑动。
                     popEnterTransition = {
-                        slideIntoContainer(
-                            AnimatedContentTransitionScope.SlideDirection.End,
-                            tween(300, easing = EmphasizedDecel),
-                        ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                        val from = tabIdx(initialState.destination.route)
+                        val to = tabIdx(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            fadeIn(tween(210, delayMillis = 90, easing = EmphasizedDecel)) +
+                                scaleIn(tween(210, delayMillis = 90, easing = EmphasizedDecel), initialScale = 0.92f)
+                        } else {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.End,
+                                tween(300, easing = EmphasizedDecel),
+                            ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                        }
                     },
                     popExitTransition = {
-                        slideOutOfContainer(
-                            AnimatedContentTransitionScope.SlideDirection.End,
-                            tween(300, easing = EmphasizedDecel),
-                        ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
+                        val from = tabIdx(initialState.destination.route)
+                        val to = tabIdx(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            fadeOut(tween(90, easing = EmphasizedAccel))
+                        } else {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.End,
+                                tween(300, easing = EmphasizedDecel),
+                            ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
+                        }
                     },
                 ) {
                     composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel, padding) }

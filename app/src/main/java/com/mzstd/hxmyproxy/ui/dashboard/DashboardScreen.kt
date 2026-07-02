@@ -101,8 +101,16 @@ fun DashboardScreen(
     val landscape = conf.screenWidthDp > conf.screenHeightDp
 
     if (landscape) {
-        // 横屏：主按钮固定右侧垂直居中（底部固定太占纵向空间）,内容列在左、右侧凑出按钮区。
+        // 横屏：竖向长条主按钮贴在导航 rail 右侧、内容列左侧——填满高度不留空,
+        // 且不在屏幕边缘/内容滚动区,避免误触(用户设计)。
         Row(Modifier.fillMaxSize().consumeWindowInsets(contentPadding)) {
+            VerticalStartStopButton(
+                ui, onStart,
+                Modifier
+                    .padding(contentPadding)
+                    .padding(start = 4.dp, top = 12.dp, bottom = 12.dp)
+                    .fillMaxHeight(),
+            )
             Column(
                 // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
                 modifier = Modifier
@@ -117,12 +125,6 @@ fun DashboardScreen(
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
                 InterfacesCard(ui, viewModel)
-            }
-            Box(
-                Modifier.width(224.dp).fillMaxHeight().padding(contentPadding).padding(end = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                StartStopButton(ui, onStart)
             }
         }
     } else {
@@ -492,6 +494,40 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 横屏竖向主按钮：窄长条填满高度、文字竖排（每字一行），贴导航 rail 右侧不占内容区、
+ * 不在滚动区内避免误触。颜色状态与水平版一致（蓝=开始 ↔ 浅红=停止,弹簧过渡）。
+ */
+@Composable
+private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val running = ui.share.running
+    val container by animateColorAsState(
+        targetValue = if (running) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
+        label = "vBtnColor",
+    )
+    val content by animateColorAsState(
+        targetValue = if (running) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimary,
+        label = "vBtnContent",
+    )
+    Button(
+        onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
+        modifier = modifier.width(64.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            stringResource(if (running) R.string.stop_sharing else R.string.start_sharing).forEach { ch ->
+                Text(ch.toString(), style = MaterialTheme.typography.titleMedium)
             }
         }
     }
