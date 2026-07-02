@@ -13,6 +13,7 @@ import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
+import com.mzstd.hxmyproxy.core.model.ThemeMode
 import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
@@ -74,6 +75,7 @@ class SettingsRepository @Inject constructor(
         val LIM_BUFFER = intPreferencesKey("lim_buffer")
         val LIM_IDLE = intPreferencesKey("lim_idle")
         val LANGUAGE = stringPreferencesKey("language")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
         val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
@@ -109,6 +111,7 @@ class SettingsRepository @Inject constructor(
             preset = this[PRESET]?.let { runCatching { PerformancePreset.valueOf(it) }.getOrNull() } ?: d.preset,
             limits = limits,
             language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
+            themeMode = this[THEME_MODE]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.themeMode,
             ruleEngineEnabled = this[RULE_ENABLED] ?: d.ruleEngineEnabled,
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectEnabled = this[USER_DIRECT_ENABLED] ?: d.userDirectEnabled,
@@ -138,6 +141,7 @@ class SettingsRepository @Inject constructor(
         prefs[LIM_BUFFER] = limits.relayBufferBytes
         prefs[LIM_IDLE] = limits.idleTimeoutSeconds
         prefs[LANGUAGE] = language.name
+        prefs[THEME_MODE] = themeMode.name
         prefs[RULE_ENABLED] = ruleEngineEnabled
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT_ENABLED] = userDirectEnabled

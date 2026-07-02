@@ -125,6 +125,10 @@
     <!-- Settings -->
     <string name="settings_language">Language</string>
     <string name="lang_system">System default</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="theme_system">Follow system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">Performance preset</string>

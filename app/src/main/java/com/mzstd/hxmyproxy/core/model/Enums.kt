@@ -18,3 +18,6 @@ enum class InterfaceStatus { UP, DOWN }
  * VPN 断开时的策略。默认 [BLOCK]（fail-closed，避免用户误以为还在走 VPN）。
  */
 enum class VpnDownStrategy { CONTINUE, BLOCK, WARN }
+
+/** 外观（深浅色）。默认 [SYSTEM] 跟随系统。 */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }

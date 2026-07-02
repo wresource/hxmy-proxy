@@ -8,8 +8,17 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+
+/**
+ * 当前主题是否深色——**app 内手动切换外观后的唯一可信来源**。
+ * 派生色(StatusColors 等)必须读它而非 isSystemInDarkTheme()：用户手动选「浅色」而系统在深色时,
+ * isSystemInDarkTheme() 仍是 true,会让状态色停在深色变体、与主题脱节。
+ */
+val LocalDarkTheme = staticCompositionLocalOf { false }
 
 /**
  * 「Candy Azure × 糖果粉」完整 M3 scheme（色值见 [Color.kt]，官方算法生成 + AA 验证）。
@@ -108,10 +117,12 @@ fun HxmyProxyTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = Shapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = Shapes,
+            content = content,
+        )
+    }
 }

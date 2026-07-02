@@ -104,6 +104,8 @@ class MainViewModel @Inject constructor(
 
     fun setLanguage(language: AppLanguage) = update { it.copy(language = language) }
 
+    fun setThemeMode(mode: com.mzstd.hxmyproxy.core.model.ThemeMode) = update { it.copy(themeMode = mode) }
+
     fun setPreset(preset: PerformancePreset) = update {
         it.copy(preset = preset, limits = if (preset == PerformancePreset.CUSTOM) it.limits else preset.toLimits())
     }

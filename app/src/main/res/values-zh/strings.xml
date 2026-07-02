@@ -125,6 +125,10 @@
     <!-- 设置 -->
     <string name="settings_language">语言</string>
     <string name="lang_system">跟随系统</string>
+    <string name="settings_appearance">外观</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">性能预设</string>

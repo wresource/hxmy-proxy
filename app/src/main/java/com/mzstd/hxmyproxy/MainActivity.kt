@@ -1,13 +1,18 @@
 package com.mzstd.hxmyproxy
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mzstd.hxmyproxy.core.model.ThemeMode
 import com.mzstd.hxmyproxy.ui.AppRoot
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.locale.ProvideAppLocale
@@ -34,8 +39,24 @@ class MainActivity : ComponentActivity() {
             val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
             // 首屏关键数据就绪（onboarding 标志由 null 变为 true/false）→ 放行启动屏。
             if (showOnboarding != null) contentReady = true
+            // 外观三选项：跟随系统/浅色/深色。app 内切换只触发 recompose（不重建 Activity）。
+            val darkTheme = when (ui.settings.themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            // 系统栏图标深浅跟随 app 内主题（enableEdgeToEdge 默认只跟系统 uiMode）：
+            // 手动选深色而系统在浅色时，若不重设，状态栏图标会保持深色压在深背景上看不见。
+            DisposableEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { darkTheme },
+                    navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { darkTheme },
+                )
+                window.isNavigationBarContrastEnforced = false
+                onDispose {}
+            }
             ProvideAppLocale(ui.settings.language) {
-                HxmyProxyTheme {
+                HxmyProxyTheme(darkTheme = darkTheme) {
                     when (showOnboarding) {
                         true -> OnboardingScreen(onFinish = viewModel::completeOnboarding)
                         false -> AppRoot(viewModel)

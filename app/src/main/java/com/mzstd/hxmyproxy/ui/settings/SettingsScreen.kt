@@ -41,6 +41,7 @@ import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.core.model.ThemeMode
 import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.ui.MainUiState
@@ -50,6 +51,12 @@ private fun AppLanguage.labelRes() = when (this) {
     AppLanguage.SYSTEM -> R.string.lang_system
     AppLanguage.ENGLISH -> R.string.lang_english
     AppLanguage.CHINESE -> R.string.lang_chinese
+}
+
+private fun ThemeMode.labelRes() = when (this) {
+    ThemeMode.SYSTEM -> R.string.theme_system
+    ThemeMode.LIGHT -> R.string.theme_light
+    ThemeMode.DARK -> R.string.theme_dark
 }
 
 private fun PerformancePreset.labelRes() = when (this) {
@@ -83,6 +90,10 @@ fun SettingsScreen(
     ) {
         SectionTitle(stringResource(R.string.settings_language))
         ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage)
+
+        HorizontalDivider()
+        SectionTitle(stringResource(R.string.settings_appearance))
+        ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
 
         HorizontalDivider()
         SectionTitle(stringResource(R.string.settings_preset))
