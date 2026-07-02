@@ -1,10 +1,11 @@
 package com.mzstd.hxmyproxy.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -54,6 +55,12 @@ import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 // 大屏断点（Material：compact < 600dp 用底栏，medium/expanded 用侧边 nav rail）。
 private const val EXPANDED_WIDTH_DP = 600
 
+// M3 motion token 实值（MotionTokens.kt）：入场用 EmphasizedDecelerate、出场用 EmphasizedAccelerate。
+private val EmphasizedDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+private val EmphasizedAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
+private fun tabIdx(route: String?) = NavTab.entries.indexOfFirst { it.route == route }
+
 @Composable
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
@@ -97,21 +104,53 @@ fun AppRoot(viewModel: MainViewModel) {
                 Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
                 contentAlignment = Alignment.TopCenter,
             ) {
+                // shared axis X 规范位移 30dp（MaterialSharedAxis 默认 slide distance）。
+                val slidePx = with(androidx.compose.ui.platform.LocalDensity.current) { 30.dp.roundToPx() }
                 NavHost(
                     navController = navController,
                     startDestination = NavTab.DASHBOARD.route,
-                    modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
-                    // 全局统一转场：淡入+轻微上滑,220ms——盖住目标页首帧渲染/数据加载,
-                    // 消除「历史 IP/日志点进去像掉帧」的生硬切换(之前无动画,页面瞬间替换)。
+                    // 单列内容上限 840dp（M3 布局指南 pane 上限）：Fold 展开/横屏(~800dp)内容全宽,
+                    // 消除「视觉边界与滑动边界差很多」的两侧空带;真正的大平板才触发限宽。
+                    modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
+                    // 官方双轨转场（M2/M3 规范 + Pixel 系统设置实践）：
+                    // tab↔tab = fade through（快速淡出→淡入+92% 缩放,顶级目的地刻意不建立方向关系）;
+                    // tab→详情 = shared axis X（前进新页从右滑入 30dp,返回反向——层级方向感）。
                     enterTransition = {
-                        fadeIn(animationSpec = tween(220)) +
-                            slideInVertically(animationSpec = tween(220)) { it / 24 }
+                        val from = tabIdx(initialState.destination.route)
+                        val to = tabIdx(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            fadeIn(tween(210, delayMillis = 90, easing = EmphasizedDecel)) +
+                                scaleIn(tween(210, delayMillis = 90, easing = EmphasizedDecel), initialScale = 0.92f)
+                        } else {
+                            slideIntoContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Start,
+                                tween(300, easing = EmphasizedDecel),
+                            ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                        }
                     },
-                    exitTransition = { fadeOut(animationSpec = tween(150)) },
-                    popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+                    exitTransition = {
+                        val from = tabIdx(initialState.destination.route)
+                        val to = tabIdx(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            fadeOut(tween(90, easing = EmphasizedAccel))
+                        } else {
+                            slideOutOfContainer(
+                                AnimatedContentTransitionScope.SlideDirection.Start,
+                                tween(300, easing = EmphasizedDecel),
+                            ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
+                        }
+                    },
+                    popEnterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.End,
+                            tween(300, easing = EmphasizedDecel),
+                        ) { slidePx } + fadeIn(tween(200, delayMillis = 100, easing = EmphasizedDecel))
+                    },
                     popExitTransition = {
-                        fadeOut(animationSpec = tween(150)) +
-                            slideOutVertically(animationSpec = tween(150)) { it / 24 }
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.End,
+                            tween(300, easing = EmphasizedDecel),
+                        ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
                     },
                 ) {
                     composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel) }

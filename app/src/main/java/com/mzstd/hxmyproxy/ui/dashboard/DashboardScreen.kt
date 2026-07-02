@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -86,45 +88,75 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { ProxyForegroundService.start(context) }
 
-    // 悬浮按钮布局：滚动内容全屏（底部预留按钮高度+手势条），按钮悬浮其上、背后是
-    // 「透明→surface」柔和渐变——内容从按钮下穿过时逐渐淡出，不再被不透明底硬生生截断。
-    val surface = MaterialTheme.colorScheme.surface
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            HeroStatus(ui)
-            EntryCard(ui)
-            PortBindErrorCard(ui)
-            if (share.running) StatRow(ui)
-            InterfacesCard(ui, viewModel)
-            // 预留悬浮按钮区 + 手势条：最后一张卡能完整滚出、不被按钮遮挡。
-            Spacer(Modifier.height(76.dp))
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    val onStart = {
+        val perms = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+            if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
         }
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to surface.copy(alpha = 0f),
-                        0.55f to surface,
+        if (perms.isEmpty()) ProxyForegroundService.start(context)
+        else permLauncher.launch(perms.toTypedArray())
+    }
+    val conf = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscape = conf.screenWidthDp > conf.screenHeightDp
+
+    if (landscape) {
+        // 横屏：主按钮固定右侧垂直居中（底部固定太占纵向空间）,内容列在左、右侧凑出按钮区。
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                HeroStatus(ui)
+                EntryCard(ui)
+                PortBindErrorCard(ui)
+                if (share.running) StatRow(ui)
+                InterfacesCard(ui, viewModel)
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            }
+            Box(
+                Modifier.width(224.dp).fillMaxHeight().padding(end = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                StartStopButton(ui, onStart)
+            }
+        }
+    } else {
+        // 竖屏：悬浮按钮布局——滚动内容全屏（底部预留按钮高度+手势条），按钮悬浮其上、
+        // 背后「透明→surface」柔和渐变,内容从按钮下穿过时逐渐淡出。
+        val surface = MaterialTheme.colorScheme.surface
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                HeroStatus(ui)
+                EntryCard(ui)
+                PortBindErrorCard(ui)
+                if (share.running) StatRow(ui)
+                InterfacesCard(ui, viewModel)
+                // 预留悬浮按钮区 + 手势条：最后一张卡能完整滚出、不被按钮遮挡。
+                Spacer(Modifier.height(76.dp))
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            }
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to surface.copy(alpha = 0f),
+                            0.55f to surface,
+                        ),
                     ),
-                ),
-        ) {
-            StartStopButton(ui, onStart = {
-                val perms = buildList {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-                    if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
-                }
-                if (perms.isEmpty()) ProxyForegroundService.start(context)
-                else permLauncher.launch(perms.toTypedArray())
-            })
+            ) {
+                StartStopButton(ui, onStart)
+            }
         }
     }
 }
@@ -258,19 +290,66 @@ private fun EntryCard(ui: MainUiState) {
     if (showQr) {
         val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
         val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val conf = androidx.compose.ui.platform.LocalConfiguration.current
+        val landscape = conf.screenWidthDp > conf.screenHeightDp
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { showQr = false },
             sheetState = sheetState,
         ) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
-                if (!ui.settings.pacEnabled || setupUrl == null) {
+            if (!ui.settings.pacEnabled || setupUrl == null) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
+                }
+            } else if (landscape) {
+                // 横屏：左文右码并排——竖排在横屏高度里放不下,二维码会被底边截断(用户实测「失效」)。
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                ) {
+                    Column(
+                        Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            stringResource(R.string.qr_sheet_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(setupUrl, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(setupUrl))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            }) { Text(stringResource(R.string.copy)) }
+                        }
+                        Text(
+                            stringResource(R.string.qr_dismiss_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Surface(shape = MaterialTheme.shapes.large, color = androidx.compose.ui.graphics.Color.White) {
+                        Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = 180) }
+                    }
+                }
+            } else {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
                     Text(
                         stringResource(R.string.qr_sheet_hint),
                         style = MaterialTheme.typography.bodyMedium,
