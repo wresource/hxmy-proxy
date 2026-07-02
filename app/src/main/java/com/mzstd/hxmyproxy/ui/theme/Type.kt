@@ -8,9 +8,40 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 字阶：标题更重、更有存在感（Expressive 方向），正文保持易读。
- * 只调权重/字号，不引第三方字体（保持轻量）。
+ * 只调权重/字号，不引第三方字体（保持轻量；系统默认 = Roboto + 中文 Noto Sans SC，
+ * 中英混排 fallback 与字重匹配由系统保证）。
+ *
+ * display 阶给 hero 大数字/大状态用：Bold + `tnum`（等宽数字）——监控/速率这类每秒刷新的
+ * 数字宽度恒定，不会随内容抖动。
  */
 val Typography = Typography(
+    displayLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 52.sp,
+        lineHeight = 60.sp,
+        fontFeatureSettings = "tnum",
+    ),
+    displayMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 42.sp,
+        lineHeight = 50.sp,
+        fontFeatureSettings = "tnum",
+    ),
+    displaySmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
+        lineHeight = 42.sp,
+        fontFeatureSettings = "tnum",
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+    ),
     headlineSmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
