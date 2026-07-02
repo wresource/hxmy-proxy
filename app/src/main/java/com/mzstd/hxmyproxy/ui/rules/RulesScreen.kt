@@ -3,10 +3,8 @@ package com.mzstd.hxmyproxy.ui.rules
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -59,16 +57,24 @@ import com.mzstd.hxmyproxy.ui.MainViewModel
  * 3. 广告拦截：每个表一个开关 + 用户白名单覆盖（OISD small 默认关）。
  */
 @Composable
-fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit) {
+fun RulesScreen(
+    ui: MainUiState,
+    viewModel: MainViewModel,
+    onManage: () -> Unit,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
+) {
     val s = ui.settings
     val history by viewModel.domainHistory.collectAsStateWithLifecycle()
     var showHistory by remember { mutableStateOf(false) }
     var listExpanded by remember { mutableStateOf(false) }
     Column(
+        // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
             .fillMaxSize()
+            .consumeWindowInsets(contentPadding)
             .imePadding()
             .verticalScroll(rememberScrollState())
+            .padding(contentPadding)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -169,9 +175,6 @@ fun RulesScreen(ui: MainUiState, viewModel: MainViewModel, onManage: () -> Unit)
                 GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
             }
         }
-
-        // 底部手势条穿透：无底栏时(横屏 rail)本 Spacer=手势条高,内容能完整滚出;有底栏时 inset 已被消费=0。
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
 
         if (showHistory) {
             HistoryAddDialog(

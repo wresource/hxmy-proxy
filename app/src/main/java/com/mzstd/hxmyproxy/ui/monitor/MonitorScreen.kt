@@ -8,11 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -250,6 +250,7 @@ fun MonitorScreen(
     ui: MainUiState,
     onOpenHistory: () -> Unit,
     onOpenLogs: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val vm: MonitorViewModel = hiltViewModel()
     val latency by vm.latency.collectAsStateWithLifecycle()
@@ -290,10 +291,16 @@ fun MonitorScreen(
         )
     }
 
-    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // 沉浸式:系统栏 inset 进 contentPadding(首屏不被遮,滚动时内容穿入状态栏/手势条后方)。
+    val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomInset + 16.dp),
+        modifier = Modifier.fillMaxSize().consumeWindowInsets(contentPadding),
+        contentPadding = PaddingValues(
+            start = 16.dp + contentPadding.calculateStartPadding(ld),
+            end = 16.dp + contentPadding.calculateEndPadding(ld),
+            top = 16.dp + contentPadding.calculateTopPadding(),
+            bottom = 16.dp + contentPadding.calculateBottomPadding(),
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // —— 实时速率（运行时）：两个大数字并排 ——

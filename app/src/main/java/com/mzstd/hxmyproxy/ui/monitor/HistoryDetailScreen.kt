@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
@@ -50,12 +50,15 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
             val grouped = ui.history.groupBy { it.entry.ip }.map { (ip, list) ->
                 Triple(ip, list.maxOf { it.entry.lastUsedMillis }, list.any { it.available })
             }.sortedByDescending { it.second }
+            // 沉浸式:DetailScaffold 的 padding(TopAppBar+手势条)进 contentPadding,内容可滚入系统栏后方。
+            val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
             LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp,
-                    bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
-                        .asPaddingValues().calculateBottomPadding(),
+                    start = 16.dp + padding.calculateStartPadding(ld),
+                    end = 16.dp + padding.calculateEndPadding(ld),
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding(),
                 ),
             ) {
                 items(grouped, key = { it.first }) { (ip, lastUsed, available) ->

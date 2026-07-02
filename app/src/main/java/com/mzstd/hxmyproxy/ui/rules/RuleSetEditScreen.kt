@@ -82,7 +82,8 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
 
     com.mzstd.hxmyproxy.ui.components.DetailScaffold(title = title, onBack = onBack) { padding ->
     Column(
-        Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.ruleset_edit_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -111,8 +112,6 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 }
             }
         }
-        // 底部手势条穿透：内容能完整滚出手势条区,不留死白。
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
     }
 

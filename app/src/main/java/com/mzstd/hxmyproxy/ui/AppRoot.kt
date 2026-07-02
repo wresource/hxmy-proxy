@@ -88,20 +88,18 @@ fun AppRoot(viewModel: MainViewModel) {
 
     Scaffold(
         bottomBar = { if (!wide && topLevel) BottomNavBar(navController, destinations) },
-        // 系统栏/刘海由 Scaffold 处理；IME 交给各内容页自己的 imePadding（在 verticalScroll 外层）：
-        // 这样键盘弹出时滚动视口收缩、自动把聚焦的输入框滚到键盘上方。
-        // （若这里 safeDrawing 含 IME，innerPadding 会 consume 掉 IME，页内 imePadding 就失效。）
-        // 底部 navigationBars（手势条）也排除：否则无底栏时（横屏 rail / 详情页）它变成一条
-        // 不透明死留白横贯屏底；改由各页滚动容器以 contentPadding/尾部 Spacer 让内容**穿透**手势条区。
-        // 竖屏底栏模式不受影响——NavigationBar 组件自带手势条 insets 处理。
-        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime).exclude(WindowInsets.navigationBars),
+        // 沉浸式（官方 edge-to-edge 完整形态）：inset **不在这里变成硬 padding**——
+        // padding 原样传给各 tab 页作滚动容器的 contentPadding：首屏不被状态栏/底栏遮挡,
+        // 滚动时内容穿入状态栏/手势条**后方**（内容与系统栏融合,而非被切断）。
+        // IME 仍排除,交给页内 imePadding。详情页不接收 padding——DetailScaffold 自带
+        // TopAppBar insets,外层不再消费后其背景自动延伸进状态栏（顶栏融合）。
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
     ) { padding ->
-        // padding 只施于内容侧：让 NavigationRail 占满全高、由其自身 insets 绘制到屏幕边缘（edge-to-edge）。
         Row(Modifier.fillMaxSize()) {
             if (wide && topLevel) SideNavRail(navController, destinations)
-            // 大屏（平板/折叠屏）把内容限宽并居中，避免行宽过长；手机（<640dp）无影响。
+            // 大屏（平板/折叠屏）把内容限宽并居中，避免行宽过长；手机无影响。
             Box(
-                Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize(),
+                Modifier.fillMaxSize(),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 // shared axis X 规范位移 30dp（MaterialSharedAxis 默认 slide distance）。
@@ -153,15 +151,16 @@ fun AppRoot(viewModel: MainViewModel) {
                         ) { slidePx } + fadeOut(tween(100, easing = EmphasizedAccel))
                     },
                 ) {
-                    composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel) }
+                    composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel, padding) }
                     composable(NavTab.RULES.route) {
-                        RulesScreen(ui, viewModel, onManage = { navController.navigate("ruleset_manager") })
+                        RulesScreen(ui, viewModel, onManage = { navController.navigate("ruleset_manager") }, contentPadding = padding)
                     }
                     composable(NavTab.MONITOR.route) {
                         MonitorScreen(
                             ui,
                             onOpenHistory = { navController.navigate("history_detail") },
                             onOpenLogs = { navController.navigate("logs_detail") },
+                            contentPadding = padding,
                         )
                     }
                     composable("history_detail") {
@@ -175,6 +174,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             ui, viewModel,
                             onOpenHelp = { navController.navigate("help") },
                             onReplayOnboarding = viewModel::replayOnboarding,
+                            contentPadding = padding,
                         )
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }

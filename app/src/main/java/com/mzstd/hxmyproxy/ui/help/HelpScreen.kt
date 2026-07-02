@@ -38,7 +38,8 @@ import com.mzstd.hxmyproxy.ui.components.DetailScaffold
 fun HelpScreen(onBack: () -> Unit) {
     DetailScaffold(title = stringResource(R.string.help_title), onBack = onBack) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Section(R.string.help_a_title, startOpen = true) { Para(R.string.help_a_body) }
@@ -47,8 +48,6 @@ fun HelpScreen(onBack: () -> Unit) {
             Section(R.string.help_d_title) { Para(R.string.help_d_body) }
             Section(R.string.help_f_title) { Para(R.string.help_f_body) }
             Section(R.string.help_e_title) { Para(R.string.help_e_body) }
-            // 底部手势条穿透：内容能完整滚出手势条区,不留死白。
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }

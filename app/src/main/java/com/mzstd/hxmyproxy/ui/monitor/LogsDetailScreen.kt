@@ -3,9 +3,9 @@ package com.mzstd.hxmyproxy.ui.monitor
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,12 +62,15 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                 Text(stringResource(R.string.monitor_no_logs), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
+            // 沉浸式:DetailScaffold 的 padding(TopAppBar+手势条)进 contentPadding,内容可滚入系统栏后方。
+            val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
             LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 12.dp, end = 12.dp,
-                    bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
-                        .asPaddingValues().calculateBottomPadding(),
+                    start = 12.dp + padding.calculateStartPadding(ld),
+                    end = 12.dp + padding.calculateEndPadding(ld),
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding(),
                 ),
             ) {
                 items(logs) { line ->

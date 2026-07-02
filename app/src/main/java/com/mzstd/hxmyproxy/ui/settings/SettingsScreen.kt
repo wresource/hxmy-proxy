@@ -10,12 +10,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -87,13 +85,17 @@ fun SettingsScreen(
     viewModel: MainViewModel,
     onOpenHelp: () -> Unit = {},
     onReplayOnboarding: () -> Unit = {},
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
 ) {
     val s = ui.settings
     Column(
+        // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
             .fillMaxSize()
+            .consumeWindowInsets(contentPadding)
             .imePadding()
             .verticalScroll(rememberScrollState())
+            .padding(contentPadding)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -180,8 +182,6 @@ fun SettingsScreen(
             com.mzstd.hxmyproxy.ui.components.NavRow(stringResource(R.string.help_open), onOpenHelp)
             com.mzstd.hxmyproxy.ui.components.NavRow(stringResource(R.string.replay_onboarding), onReplayOnboarding)
         }
-        // 底部手势条穿透：无底栏时(横屏 rail)本 Spacer=手势条高;有底栏时 inset 已被消费=0。
-        androidx.compose.foundation.layout.Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }
 

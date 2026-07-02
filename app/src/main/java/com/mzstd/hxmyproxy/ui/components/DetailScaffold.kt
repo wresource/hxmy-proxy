@@ -48,8 +48,9 @@ fun DetailScaffold(
                 actions = actions,
             )
         },
-        // 底部手势条 inset 不进 padding（会成死留白），由页内列表 contentPadding/尾部 Spacer 穿透。
-        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime).exclude(WindowInsets.navigationBars),
+        // 沉浸式：外层不再消费 inset 后,TopAppBar 自动查到 statusBars,其背景延伸进状态栏（顶栏融合）;
+        // padding(含 TopAppBar 高 + 手势条)交给页内列表 contentPadding,内容可滚入系统栏后方。
+        contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
         content = content,
     )
 }

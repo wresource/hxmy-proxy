@@ -14,17 +14,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,7 +77,11 @@ private fun InterfaceType.labelRes(): Int = when (this) {
  * 运行=错误容器色、圆角收紧；切换以弹簧动效过渡（Expressive 方向）。
  */
 @Composable
-fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
+fun DashboardScreen(
+    ui: MainUiState,
+    viewModel: com.mzstd.hxmyproxy.ui.MainViewModel,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
+) {
     val context = LocalContext.current
     val share = ui.share
 
@@ -101,11 +102,13 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
 
     if (landscape) {
         // 横屏：主按钮固定右侧垂直居中（底部固定太占纵向空间）,内容列在左、右侧凑出按钮区。
-        Row(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().consumeWindowInsets(contentPadding)) {
             Column(
+                // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
+                    .padding(contentPadding)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -114,24 +117,25 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
                 InterfacesCard(ui, viewModel)
-                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
             Box(
-                Modifier.width(224.dp).fillMaxHeight().padding(end = 8.dp),
+                Modifier.width(224.dp).fillMaxHeight().padding(contentPadding).padding(end = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 StartStopButton(ui, onStart)
             }
         }
     } else {
-        // 竖屏：悬浮按钮布局——滚动内容全屏（底部预留按钮高度+手势条），按钮悬浮其上、
+        // 竖屏：悬浮按钮布局——滚动内容全屏（底部预留按钮高度），按钮悬浮其上、
         // 背后「透明→surface」柔和渐变,内容从按钮下穿过时逐渐淡出。
         val surface = MaterialTheme.colorScheme.surface
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().consumeWindowInsets(contentPadding)) {
             Column(
+                // 沉浸式:inset padding 放 verticalScroll 之后,内容滚动时穿入状态栏后方。
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
+                    .padding(contentPadding)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -140,14 +144,14 @@ fun DashboardScreen(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewM
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
                 InterfacesCard(ui, viewModel)
-                // 预留悬浮按钮区 + 手势条：最后一张卡能完整滚出、不被按钮遮挡。
+                // 预留悬浮按钮区：最后一张卡能完整滚出、不被按钮遮挡。
                 Spacer(Modifier.height(76.dp))
-                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .padding(bottom = contentPadding.calculateBottomPadding())
                     .background(
                         Brush.verticalGradient(
                             0f to surface.copy(alpha = 0f),
@@ -514,7 +518,6 @@ private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
         onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .height(56.dp),
         shape = MaterialTheme.shapes.large,
