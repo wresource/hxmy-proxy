@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
@@ -49,7 +50,9 @@ fun DetailScaffold(
     val toolbar = 56.dp
     val surface = MaterialTheme.colorScheme.surface
 
-    Box(Modifier.fillMaxSize()) {
+    // 根容器**不透明** surface 背景：详情页整屏是实底,push/pop 转场时完全盖住下层,
+    // 不再透出上一页(此前漏背景 → 转场残影)。
+    Box(Modifier.fillMaxSize().background(surface)) {
         // 内容：top 留出状态栏 + 工具栏高（首屏不被挡），滚动时穿入其后方（各页 contentPadding/滚动后置 padding）。
         content(PaddingValues(top = statusTop + toolbar, bottom = navBottom))
 
@@ -68,17 +71,16 @@ fun DetailScaffold(
                 ),
         )
 
-        // 固定工具栏（透明底，浮在渐变上）：返回 + 标题 + actions。
-        Row(
+        // 固定工具栏（透明底，浮在渐变上）：返回(左) · 标题(居中) · actions(右)。
+        // 标题绝对居中(全 app 详情页统一)，两侧留出按钮宽度，超长省略。
+        Box(
             Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
                 .padding(top = statusTop)
-                .height(toolbar)
-                .padding(start = 4.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .height(toolbar),
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
                 Icon(
                     painterResource(R.drawable.ic_arrow_back),
                     contentDescription = stringResource(R.string.back),
@@ -89,9 +91,17 @@ fun DetailScaffold(
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(start = 4.dp),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = 56.dp),
             )
-            actions()
+            Row(
+                Modifier.align(Alignment.CenterEnd).padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = actions,
+            )
         }
     }
 }
