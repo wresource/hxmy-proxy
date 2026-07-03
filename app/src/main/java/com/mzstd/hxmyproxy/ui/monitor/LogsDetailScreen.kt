@@ -116,7 +116,7 @@ private fun LogEntryRow(entry: LogEntry) {
         Modifier
             .fillMaxWidth()
             .then(if (canExpand) Modifier.clickable { expanded = !expanded } else Modifier)
-            .padding(vertical = 10.dp),
+            .padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         // 元信息行：等级色点 + 时间戳 + tag。
@@ -160,7 +160,7 @@ private fun LogEntryRow(entry: LogEntry) {
 /** 等级配色：E=错误红、W=警告橙、I=中性。 */
 @Composable
 private fun levelColor(level: String): Color = when (level) {
-    "E" -> MaterialTheme.colorScheme.error
+    "E" -> com.mzstd.hxmyproxy.ui.theme.StatusColors.bad()
     "W" -> com.mzstd.hxmyproxy.ui.theme.StatusColors.warn()
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

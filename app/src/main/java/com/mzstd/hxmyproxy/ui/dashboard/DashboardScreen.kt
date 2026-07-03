@@ -35,7 +35,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,7 +58,10 @@ import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
+import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
+import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
 import com.mzstd.hxmyproxy.ui.components.QrImage
+import com.mzstd.hxmyproxy.ui.components.cardContainerColor
 import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
@@ -120,7 +122,7 @@ fun DashboardScreen(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
                     .padding(contentPadding)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 HeroStatus(ui)
@@ -141,7 +143,7 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(contentPadding)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 HeroStatus(ui)
@@ -226,8 +228,12 @@ private fun EntryCard(ui: MainUiState) {
     val primaryEntry = share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.HTTP }
         ?: share.recommendedEntries.firstOrNull()
 
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.entry_config), style = MaterialTheme.typography.titleMedium)
             if (primaryEntry == null) {
                 // 两种空态分开引导：没选接口 → 提示选接口；选了但没开始 → 提示开始共享（原来混为一谈误导用户）。
@@ -270,20 +276,12 @@ private fun EntryCard(ui: MainUiState) {
                     Text(
                         stringResource(R.string.pac_needs_backend),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = StatusColors.warn(),
                     )
                 }
                 // 仅当有被折叠隐藏的入口才显示展开按钮（避免已全显时出现无效「展开」）。
                 if (allEntries.size > collapsedEntries.size) {
-                    TextButton(
-                        onClick = { entriesExpanded = !entriesExpanded },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            if (entriesExpanded) stringResource(R.string.monitor_collapse)
-                            else stringResource(R.string.monitor_expand, allEntries.size),
-                        )
-                    }
+                    ExpandCollapseButton(entriesExpanded, allEntries.size) { entriesExpanded = !entriesExpanded }
                 }
                 OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                     Text(stringResource(R.string.qr_setup))
@@ -435,7 +433,7 @@ private fun StatRow(ui: MainUiState) {
 private fun StatCell(modifier: Modifier, value: String, label: String) {
     Column(
         modifier
-            .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium)
+            .background(cardContainerColor(), MaterialTheme.shapes.medium)
             .padding(vertical = 14.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -451,8 +449,12 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
     val share = ui.share
     var interfacesExpanded by remember { mutableStateOf(false) }
     val interfaces = share.interfaces
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)
             if (interfaces.isEmpty()) {
                 // 走蜂窝上网时没有局域网可共享,引导用户开个人热点;否则给通用「无接口」提示。
@@ -466,34 +468,15 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
             } else {
                 val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
                 shownIfaces.forEach { iface ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "${stringResource(iface.type.labelRes())} · ${iface.name}",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Text(
-                                iface.cidr,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = iface.id in ui.settings.selectedInterfaceIds,
-                            onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
-                        )
-                    }
+                    LabeledSwitchRow(
+                        title = "${stringResource(iface.type.labelRes())} · ${iface.name}",
+                        subtitle = iface.cidr,
+                        checked = iface.id in ui.settings.selectedInterfaceIds,
+                        onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
+                    )
                 }
                 if (interfaces.size > 2) {
-                    TextButton(
-                        onClick = { interfacesExpanded = !interfacesExpanded },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            if (interfacesExpanded) stringResource(R.string.monitor_collapse)
-                            else stringResource(R.string.monitor_expand, interfaces.size),
-                        )
-                    }
+                    ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
                 }
             }
         }

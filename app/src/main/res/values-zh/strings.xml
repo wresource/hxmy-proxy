@@ -237,17 +237,17 @@
 
     <!-- 设置 -->
     <string name="settings_language">语言</string>
-    <string name="lang_system">跟随系统</string>
+    <string name="lang_system">System</string>
     <string name="settings_appearance">外观</string>
-    <string name="theme_system">跟随系统</string>
+    <string name="theme_system">System</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">性能预设</string>
-    <string name="preset_battery">省电</string>
-    <string name="preset_balanced">均衡</string>
-    <string name="preset_high">高吞吐</string>
+    <string name="preset_battery">low</string>
+    <string name="preset_balanced">medium</string>
+    <string name="preset_high">high</string>
     <string name="preset_custom">自定义</string>
     <string name="settings_protocols">协议</string>
     <string name="proto_http">HTTP / HTTPS CONNECT</string>

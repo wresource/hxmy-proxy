@@ -73,7 +73,7 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                             if (!available) {
                                 Text(
                                     stringResource(R.string.history_unavailable),
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = com.mzstd.hxmyproxy.ui.theme.StatusColors.bad(),
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }

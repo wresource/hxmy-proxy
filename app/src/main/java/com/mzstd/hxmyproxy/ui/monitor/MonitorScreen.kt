@@ -1,9 +1,7 @@
 package com.mzstd.hxmyproxy.ui.monitor
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,6 +39,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
+import com.mzstd.hxmyproxy.ui.components.AvatarCircle
+import com.mzstd.hxmyproxy.ui.components.CardGrid
+import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
 import com.mzstd.hxmyproxy.ui.components.GroupCard
 import com.mzstd.hxmyproxy.ui.components.NavRow
 import com.mzstd.hxmyproxy.ui.theme.AvatarBgDark
@@ -139,10 +139,7 @@ private fun GridCell(
         modifier.padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            Modifier.size(40.dp).clip(CircleShape).background(iconBg),
-            contentAlignment = Alignment.Center,
-        ) {
+        AvatarCircle(40.dp, iconBg) {
             Text(iconText, style = MaterialTheme.typography.titleMedium, color = iconColor)
         }
         Spacer(Modifier.size(4.dp))
@@ -165,35 +162,7 @@ private fun GridCell(
     }
 }
 
-/**
- * 卡内网格：「每行 [columns] 个」渲染 [items]，折叠态最多 [collapsedRows] 排，
- * 超出给「展开全部/收起」。普通 Composable（在 GroupCard 内用，数据量 ≤ 数十项无性能压力）。
- */
-@Composable
-private fun <T> CardGrid(
-    items: List<T>,
-    collapsedRows: Int,
-    columns: Int = 4,
-    cell: @Composable (Modifier, T) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val cap = collapsedRows * columns
-    val shown = if (expanded) items else items.take(cap)
-    shown.chunked(columns).forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-            row.forEach { item -> cell(Modifier.weight(1f), item) }
-            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }  // 末行补齐对齐
-        }
-    }
-    if (items.size > cap) {
-        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                if (expanded) stringResource(R.string.monitor_collapse)
-                else stringResource(R.string.monitor_expand, items.size),
-            )
-        }
-    }
-}
+// CardGrid 已提取到 components/SharedUi.kt（监控页与规则页共用）。
 
 /** 数据列表行：小圆点/头像 + 主文本(等宽可选) + 右侧值。客户端/域名等「同质可扫读」内容用。 */
 @Composable
@@ -206,11 +175,8 @@ private fun DataRow(
     value: String,
     mono: Boolean = false,
 ) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(32.dp).clip(CircleShape).background(dotBg),
-            contentAlignment = Alignment.Center,
-        ) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        AvatarCircle(32.dp, dotBg) {
             Text(dotText, style = MaterialTheme.typography.labelLarge, color = dotFg)
         }
         Spacer(Modifier.size(12.dp))
@@ -448,12 +414,7 @@ fun MonitorScreen(
                         )
                     }
                     if (ui.share.clients.size > 4) {
-                        TextButton(onClick = { clientsExpanded = !clientsExpanded }, modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                if (clientsExpanded) stringResource(R.string.monitor_collapse)
-                                else stringResource(R.string.monitor_expand, ui.share.clients.size),
-                            )
-                        }
+                        ExpandCollapseButton(clientsExpanded, ui.share.clients.size) { clientsExpanded = !clientsExpanded }
                     }
                 }
             }
@@ -487,12 +448,7 @@ fun MonitorScreen(
                         )
                     }
                     if (sorted.size > 5) {
-                        TextButton(onClick = { domainsExpanded = !domainsExpanded }, modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                if (domainsExpanded) stringResource(R.string.monitor_collapse)
-                                else stringResource(R.string.monitor_expand, sorted.size),
-                            )
-                        }
+                        ExpandCollapseButton(domainsExpanded, sorted.size) { domainsExpanded = !domainsExpanded }
                     }
                 }
             }
@@ -512,7 +468,7 @@ fun MonitorScreen(
 @Composable
 private fun SpeedCell(modifier: Modifier, value: String, label: String) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

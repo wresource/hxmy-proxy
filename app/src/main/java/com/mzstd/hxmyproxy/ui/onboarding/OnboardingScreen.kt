@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.ui.components.cardContainerColor
 import kotlinx.coroutines.launch
 
 /**
@@ -118,8 +120,12 @@ private fun Body(res: Int) {
 
 @Composable
 private fun InfoCard(titleRes: Int, bodyRes: Int) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(bodyRes), style = MaterialTheme.typography.bodyMedium)
         }

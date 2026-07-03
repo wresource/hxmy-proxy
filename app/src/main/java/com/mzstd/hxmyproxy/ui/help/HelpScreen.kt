@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
+import com.mzstd.hxmyproxy.ui.components.cardContainerColor
 
 /**
  * 帮助页：可折叠分组（这是什么 / 常见问题 / 各端怎么连 / 故障排查 / 关于）。
@@ -40,7 +42,7 @@ fun HelpScreen(onBack: () -> Unit) {
         Column(
             // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Section(R.string.help_a_title, startOpen = true) { Para(R.string.help_a_body) }
             Section(R.string.help_b_title) { FaqList() }
@@ -55,7 +57,11 @@ fun HelpScreen(onBack: () -> Unit) {
 @Composable
 private fun Section(titleRes: Int, startOpen: Boolean = false, content: @Composable () -> Unit) {
     var open by remember { mutableStateOf(startOpen) }
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
         Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

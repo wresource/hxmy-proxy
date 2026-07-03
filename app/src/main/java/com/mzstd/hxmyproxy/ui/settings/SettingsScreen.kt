@@ -19,12 +19,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +54,8 @@ import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
-import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
+import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
+import com.mzstd.hxmyproxy.ui.components.stdFilterChipColors
 
 private fun AppLanguage.labelRes() = when (this) {
     AppLanguage.SYSTEM -> R.string.lang_system
@@ -218,23 +217,10 @@ private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
 }
 
+// 委托给统一的 components.LabeledSwitchRow（与规则组/接口开关同款）；保留本地签名让各调用点不变。
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, subtitle: String? = null) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(label)
-            // 副标题说明：一行讲清这项是干嘛的（审计:原来只有一行字,新手看不懂每项含义）。
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
-}
+private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, subtitle: String? = null) =
+    LabeledSwitchRow(title = label, subtitle = subtitle, checked = checked, onCheckedChange = onChange)
 
 /**
  * 选项 chips 一行。[evenWidth]=true 时**等宽平分整行**（Row + weight，label 居中）——用于选项少且
@@ -249,12 +235,8 @@ private fun <T> ChipRow(
     onSelect: (T) -> Unit,
     evenWidth: Boolean = false,
 ) {
-    // 选中态复用「按钮/滑块」那套亮蓝(强调色全 app 一套):浅色=浅蓝底深字、深色=亮蓝底深字。
-    val cs = MaterialTheme.colorScheme
-    val chipColors = FilterChipDefaults.filterChipColors(
-        selectedContainerColor = if (LocalDarkTheme.current) cs.primary else cs.primaryContainer,
-        selectedLabelColor = if (LocalDarkTheme.current) cs.onPrimary else cs.onPrimaryContainer,
-    )
+    // 选中态复用全 app 统一的 chip 选中色（浅色浅蓝底深字 / 深色亮蓝底深字）。
+    val chipColors = stdFilterChipColors()
     if (evenWidth) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { option ->
@@ -514,7 +496,7 @@ private fun NavTabCell(
         // 徽标：红−/绿+，含符号（不只靠颜色）。悬于外层右上角（上移 6dp 进预留区），完整显示不被裁。
         if (badge != null) {
             val (bg, sym) = when (badge) {
-                NavBadge.REMOVE -> MaterialTheme.colorScheme.error to "−"
+                NavBadge.REMOVE -> com.mzstd.hxmyproxy.ui.theme.StatusColors.bad() to "−"
                 NavBadge.ADD -> com.mzstd.hxmyproxy.ui.theme.StatusColors.good() to "+"
             }
             Box(

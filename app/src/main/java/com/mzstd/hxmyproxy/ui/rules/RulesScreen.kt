@@ -32,12 +32,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.heightIn
@@ -49,6 +45,11 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.AvatarCircle
+import com.mzstd.hxmyproxy.ui.components.CardGrid
+import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
+import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
+import com.mzstd.hxmyproxy.ui.components.cardContainerColor
 
 /**
  * 规则页:三模块（澄清 C 的分级开关）。
@@ -125,19 +126,14 @@ fun RulesScreen(
             val shownRules = if (listExpanded) rules else rules.take(2)
             shownRules.forEach { domain ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(domain, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(domain, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                     OutlinedButton(onClick = { viewModel.removeUserDirectRule(domain) }, shape = MaterialTheme.shapes.large) {
                         Text(stringResource(R.string.rules_remove))
                     }
                 }
             }
             if (rules.size > 2) {
-                TextButton(onClick = { listExpanded = !listExpanded }, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (listExpanded) stringResource(R.string.monitor_collapse)
-                        else stringResource(R.string.monitor_expand, rules.size),
-                    )
-                }
+                ExpandCollapseButton(listExpanded, rules.size) { listExpanded = !listExpanded }
             }
         }
 
@@ -166,12 +162,7 @@ fun RulesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            descs.chunked(4).forEach { row ->
-                Row(Modifier.fillMaxWidth()) {
-                    row.forEach { d -> RuleSetGridCell(Modifier.weight(1f), d) }
-                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
+            CardGrid(items = descs, collapsedRows = 2) { m, d -> RuleSetGridCell(m, d) }
             OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
                 Text(stringResource(R.string.rules_manage))
             }
@@ -180,7 +171,12 @@ fun RulesScreen(
         // —— ③ 广告拦截（每表开关 + 用户白名单覆盖）——
         SectionCard(stringResource(R.string.rules_module_ads)) {
             RuleCatalog.adGroups.forEach { group ->
-                GroupSwitchRow(group, s.enabledRuleGroups, viewModel)
+                LabeledSwitchRow(
+                    title = stringResource(group.titleRes),
+                    subtitle = stringResource(group.sourceRes),
+                    checked = group.id in s.enabledRuleGroups,
+                    onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
+                )
             }
         }
 
@@ -194,28 +190,7 @@ fun RulesScreen(
     }
 }
 
-/** 一个规则组的开关行：名称 + 来源/License + Switch。 */
-@Composable
-private fun GroupSwitchRow(
-    group: com.mzstd.hxmyproxy.core.rules.RuleGroup,
-    enabled: Set<String>,
-    viewModel: MainViewModel,
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
-            Text(
-                stringResource(group.sourceRes),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(
-            checked = group.id in enabled,
-            onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) },
-        )
-    }
-}
+// GroupSwitchRow 已收敛到 components.LabeledSwitchRow（与设置项/接口开关同款）。
 
 /** 规则集网格单元描述（非 composable，避免在 map 里调 composable）。 */
 private class RuleCellDesc(
@@ -240,10 +215,9 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
         modifier.clickable { d.onToggle() }.padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            Modifier.size(44.dp).clip(CircleShape)
-                .background(if (d.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
+        AvatarCircle(
+            40.dp,
+            if (d.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
         ) {
             Icon(
                 painterResource(d.iconRes),
@@ -259,10 +233,15 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
 
 @Composable
 private fun SectionCard(title: String, trailing: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    // 与监控/设置/首页统一：cardContainerColor（浅色 Low 不发灰 / 深色 High 靠明度对比浮出，不描边）。
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 trailing()
             }
             content()

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +46,8 @@ import com.mzstd.hxmyproxy.core.rules.RuleGroup
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.cardContainerColor
+import com.mzstd.hxmyproxy.ui.components.stdFilterChipColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -68,7 +71,7 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
             top = padding.calculateTopPadding(),
             bottom = padding.calculateBottomPadding() + 16.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // —— 我的规则集 ——
         item {
@@ -120,8 +123,12 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
 
 @Composable
 private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel, onEdit: (String, String) -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(set.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -145,8 +152,12 @@ private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel, onEdit: 
 private fun BuiltinGroupCard(group: RuleGroup, enabled: Boolean, viewModel: MainViewModel, onEdit: (String, String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
@@ -198,8 +209,9 @@ private fun NewRuleSetDialog(onCreate: (String, RuleAction) -> Unit, onDismiss: 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(stringResource(R.string.ruleset_name)) })
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, label = { Text(stringResource(R.string.ruleset_action_direct)) })
-                    FilterChip(selected = action == RuleAction.REJECT, onClick = { action = RuleAction.REJECT }, label = { Text(stringResource(R.string.ruleset_action_reject)) })
+                    val chipColors = stdFilterChipColors()
+                    FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, colors = chipColors, label = { Text(stringResource(R.string.ruleset_action_direct)) })
+                    FilterChip(selected = action == RuleAction.REJECT, onClick = { action = RuleAction.REJECT }, colors = chipColors, label = { Text(stringResource(R.string.ruleset_action_reject)) })
                 }
             }
         },
