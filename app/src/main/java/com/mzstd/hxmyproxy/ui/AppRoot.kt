@@ -120,10 +120,10 @@ fun AppRoot(viewModel: MainViewModel) {
                     modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
                     // 双轨转场：
                     // tab↔tab = fade through（官方规范,顶级目的地不建立方向关系）;
-                    // tab→详情 = 整屏 push/pop（系统 Activity 转场同款）：新页**不透明**从右整屏滑入
-                    //   盖住旧页,旧页左移 1/4 视差;返回反向。全程无透明度动画——之前的
-                    //   「30dp 微滑+渐变」在整页场景会出现旧页已淡完、新页未显形的空白闪帧(用户实测糟糕)。
-                    //   AnimatedContent 默认把 target 绘制在上层:push=详情盖入,pop=父页盖回,对称无穿帮。
+                    // tab→详情 = 官方 Material 共享轴（Shared Axis X）：两页**全屏联动**滑动——
+                    //   进入时旧页整屏滑出左侧、新页整屏从右滑入(始终贴合无缝隙、旧页**完全离场不残留**);
+                    //   返回反向:当前页整屏滑出右侧、上一页从左滑回。无 1/4 视差(视差会让旧页留 3/4 在屏上=残影),
+                    //   无透明度动画(避免空白闪帧)。全屏 seekable 滑动即预测性返回跟手预览的标准形态。
                     enterTransition = {
                         val from = tabIdx(initialState.destination.route)
                         val to = tabIdx(targetState.destination.route)
@@ -146,7 +146,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             slideOutOfContainer(
                                 AnimatedContentTransitionScope.SlideDirection.Start,
                                 tween(350, easing = EmphasizedDecel),
-                            ) { it / 4 }
+                            )
                         }
                     },
                     // pop 也判断 tab：switchTo 用 popUpTo(主页),tab 切换时旧 tab 走 popExit,
@@ -161,7 +161,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             slideIntoContainer(
                                 AnimatedContentTransitionScope.SlideDirection.End,
                                 tween(350, easing = EmphasizedDecel),
-                            ) { it / 4 }
+                            )
                         }
                     },
                     popExitTransition = {
