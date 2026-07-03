@@ -1,11 +1,11 @@
 package com.mzstd.hxmyproxy.ui
 
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -118,12 +118,13 @@ fun AppRoot(viewModel: MainViewModel) {
                     // 单列内容上限 840dp（M3 布局指南 pane 上限）：Fold 展开/横屏(~800dp)内容全宽,
                     // 消除「视觉边界与滑动边界差很多」的两侧空带;真正的大平板才触发限宽。
                     modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
-                    // 双轨转场：
-                    // tab↔tab = fade through（官方规范,顶级目的地不建立方向关系）;
-                    // tab→详情 = 官方 Material 共享轴（Shared Axis X）：两页**全屏联动**滑动——
-                    //   进入时旧页整屏滑出左侧、新页整屏从右滑入(始终贴合无缝隙、旧页**完全离场不残留**);
-                    //   返回反向:当前页整屏滑出右侧、上一页从左滑回。无 1/4 视差(视差会让旧页留 3/4 在屏上=残影),
-                    //   无透明度动画(避免空白闪帧)。全屏 seekable 滑动即预测性返回跟手预览的标准形态。
+                    // 双轨转场——**只用 fade/scale,不用 slideIntoContainer**：
+                    //   实测(1.5.6 诊断版)证明:此前的容器相对 slideIntoContainer/slideOutOfContainer 会**杀掉预测性
+                    //   返回的跟手预览**(详情页返回只走 slide 分支,去掉全部转场后预览恢复 → slide 即元凶)。官方
+                    //   predictive-back 示例正是 `scaleOut(0.9f)`——scale/fade 才是被 seek 的安全形态。故:
+                    // • tab↔tab = Material **Fade Through**(顶级目的地无方向关系):出场快淡出、入场淡入+微放大。
+                    // • tab↔详情 = Material **Shared Axis Z**(父子层级=前后景缩放):进入子页放大淡入、父页微放大淡出;
+                    //   返回反向——子页缩小淡出(这段即预测性返回跟手预览)、父页从略大缩回。全程 scale+fade,跟手可 seek。
                     enterTransition = {
                         val from = tabIdx(initialState.destination.route)
                         val to = tabIdx(targetState.destination.route)
@@ -131,10 +132,8 @@ fun AppRoot(viewModel: MainViewModel) {
                             fadeIn(tween(210, delayMillis = 90, easing = EmphasizedDecel)) +
                                 scaleIn(tween(210, delayMillis = 90, easing = EmphasizedDecel), initialScale = 0.92f)
                         } else {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Start,
-                                tween(350, easing = EmphasizedDecel),
-                            )
+                            fadeIn(tween(300, easing = EmphasizedDecel)) +
+                                scaleIn(tween(300, easing = EmphasizedDecel), initialScale = 0.80f)
                         }
                     },
                     exitTransition = {
@@ -143,14 +142,10 @@ fun AppRoot(viewModel: MainViewModel) {
                         if (from >= 0 && to >= 0) {
                             fadeOut(tween(90, easing = EmphasizedAccel))
                         } else {
-                            slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Start,
-                                tween(350, easing = EmphasizedDecel),
-                            )
+                            fadeOut(tween(90, easing = EmphasizedAccel)) +
+                                scaleOut(tween(300, easing = EmphasizedDecel), targetScale = 1.10f)
                         }
                     },
-                    // pop 也判断 tab：switchTo 用 popUpTo(主页),tab 切换时旧 tab 走 popExit,
-                    // 必须与 enter/exit 对称否则「反方向弹一下」。
                     popEnterTransition = {
                         val from = tabIdx(initialState.destination.route)
                         val to = tabIdx(targetState.destination.route)
@@ -158,10 +153,8 @@ fun AppRoot(viewModel: MainViewModel) {
                             fadeIn(tween(210, delayMillis = 90, easing = EmphasizedDecel)) +
                                 scaleIn(tween(210, delayMillis = 90, easing = EmphasizedDecel), initialScale = 0.92f)
                         } else {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.End,
-                                tween(350, easing = EmphasizedDecel),
-                            )
+                            fadeIn(tween(300, easing = EmphasizedDecel)) +
+                                scaleIn(tween(300, easing = EmphasizedDecel), initialScale = 1.10f)
                         }
                     },
                     popExitTransition = {
@@ -170,10 +163,9 @@ fun AppRoot(viewModel: MainViewModel) {
                         if (from >= 0 && to >= 0) {
                             fadeOut(tween(90, easing = EmphasizedAccel))
                         } else {
-                            slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.End,
-                                tween(350, easing = EmphasizedDecel),
-                            )
+                            // 详情页退出——预测性返回跟手预览的主体：子页缩小淡出露出父页。
+                            fadeOut(tween(300, easing = EmphasizedAccel)) +
+                                scaleOut(tween(300, easing = EmphasizedAccel), targetScale = 0.80f)
                         }
                     },
                 ) {

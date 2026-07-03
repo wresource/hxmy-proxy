@@ -44,6 +44,11 @@ import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.GroupCard
 import com.mzstd.hxmyproxy.ui.components.NavRow
+import com.mzstd.hxmyproxy.ui.theme.AvatarBgDark
+import com.mzstd.hxmyproxy.ui.theme.AvatarBgLight
+import com.mzstd.hxmyproxy.ui.theme.AvatarFgDark
+import com.mzstd.hxmyproxy.ui.theme.AvatarFgLight
+import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
 @Composable
@@ -60,17 +65,13 @@ private fun latencyColor(millis: Long?): Color = when {
  */
 @Composable
 private fun avatarPair(name: String): Pair<Color, Color> {
-    val cs = MaterialTheme.colorScheme
-    val palette = listOf(
-        cs.primaryContainer to cs.onPrimaryContainer,
-        cs.secondaryContainer to cs.onSecondaryContainer,
-        cs.tertiaryContainer to cs.onTertiaryContainer,
-        cs.primary to cs.onPrimary,
-        cs.secondary to cs.onSecondary,
-        cs.tertiary to cs.onTertiary,
-    )
+    // 用柔和粉彩头像色板（去掉主题高饱和实色——深色下会一片艳粉/玫红扎眼）。深浅各一套。
+    val dark = LocalDarkTheme.current
+    val bg = if (dark) AvatarBgDark else AvatarBgLight
+    val fg = if (dark) AvatarFgDark else AvatarFgLight
     // hashCode 可能为 Int.MIN_VALUE（abs 溢出），用 mod 折回非负。
-    return palette[((name.hashCode() % palette.size) + palette.size) % palette.size]
+    val i = ((name.hashCode() % bg.size) + bg.size) % bg.size
+    return bg[i] to fg[i]
 }
 
 /** 协议配色：HTTP=蓝 primary（主协议）、SOCKS5=蓝灰 secondary、PAC=粉 tertiary（点睛）。 */
@@ -404,16 +405,21 @@ fun MonitorScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                // 测量中保持默认顺序(逐格点亮不跳位)；测完一次性按延迟升序排(最快在前)。
                 CardGrid(
-                    items = latency.sortedBy { it.millis ?: Long.MAX_VALUE },
+                    items = if (measuring) latency else latency.sortedBy { it.millis ?: Long.MAX_VALUE },
                     collapsedRows = 2,
                 ) { mod, r ->
                     val (bg, fg) = avatarPair(r.service.name)
+                    // 三态：有值=数字+好坏色；测量中且无值=「测量中」中性色(首屏不闪红)；测完仍无值=「超时」红。
+                    val (valueText, valueColor) = when {
+                        r.millis != null -> "${r.millis} ms" to latencyColor(r.millis)
+                        measuring -> stringResource(R.string.latency_measuring) to MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> stringResource(R.string.latency_timeout) to StatusColors.bad()
+                    }
                     GridCell(
                         mod, (r.service.name.firstOrNull()?.uppercaseChar() ?: '?').toString(), bg, fg,
-                        r.service.name,
-                        if (r.millis == null) stringResource(R.string.latency_timeout) else "${r.millis} ms",
-                        latencyColor(r.millis),
+                        r.service.name, valueText, valueColor,
                     )
                 }
             }

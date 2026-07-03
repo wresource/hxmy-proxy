@@ -21,6 +21,7 @@
     <string name="signal_label">Wi-Fi signal:</string>
     <string name="monitor_latency">Service latency</string>
     <string name="latency_timeout">Timeout</string>
+    <string name="latency_measuring">Testing…</string>
     <string name="refresh">Refresh</string>
     <string name="monitor_novpn_hint">No VPN detected — latency may not reflect the shared egress</string>
     <string name="monitor_no_history">(No history yet)</string>

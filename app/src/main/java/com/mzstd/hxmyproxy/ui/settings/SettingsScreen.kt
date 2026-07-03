@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +40,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -53,6 +56,7 @@ import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 
 private fun AppLanguage.labelRes() = when (this) {
     AppLanguage.SYSTEM -> R.string.lang_system
@@ -107,13 +111,13 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage)
+            ChipRow(AppLanguage.entries, s.language, { stringResource(it.labelRes()) }, viewModel::setLanguage, evenWidth = true)
             Text(
                 stringResource(R.string.settings_appearance),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
+            ChipRow(ThemeMode.entries, s.themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode, evenWidth = true)
         }
 
         SettingsGroup(stringResource(R.string.settings_preset)) {
@@ -232,15 +236,55 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
     }
 }
 
+/**
+ * 选项 chips 一行。[evenWidth]=true 时**等宽平分整行**（Row + weight，label 居中）——用于选项少且
+ * 定长的语言/外观(各 3 选),消除「chip 随文字长短不齐」的观感；false 用 FlowRow 自适应换行（选项多/长
+ * 如性能预设 4 选,等宽会挤,交回自适应）。
+ */
 @Composable
-private fun <T> ChipRow(options: Iterable<T>, selected: T, label: @Composable (T) -> String, onSelect: (T) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEach { option ->
-            FilterChip(
-                selected = option == selected,
-                onClick = { onSelect(option) },
-                label = { Text(label(option)) },
-            )
+private fun <T> ChipRow(
+    options: Iterable<T>,
+    selected: T,
+    label: @Composable (T) -> String,
+    onSelect: (T) -> Unit,
+    evenWidth: Boolean = false,
+) {
+    // 选中态复用「按钮/滑块」那套亮蓝(强调色全 app 一套):浅色=浅蓝底深字、深色=亮蓝底深字。
+    val cs = MaterialTheme.colorScheme
+    val chipColors = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = if (LocalDarkTheme.current) cs.primary else cs.primaryContainer,
+        selectedLabelColor = if (LocalDarkTheme.current) cs.onPrimary else cs.onPrimaryContainer,
+    )
+    if (evenWidth) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(
+                    modifier = Modifier.weight(1f),
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    colors = chipColors,
+                    label = {
+                        Text(
+                            label(option),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                )
+            }
+        }
+    } else {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    colors = chipColors,
+                    label = { Text(label(option)) },
+                )
+            }
         }
     }
 }

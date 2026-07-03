@@ -13,16 +13,18 @@ import androidx.compose.ui.graphics.Color
  * - 层级用 surfaceContainer 色阶 + 留白表达，少用阴影。
  */
 
-// ---- Primary（蓝，保真 palette：hue/chroma 取自 seed #3A7DFF）----
-// light 主蓝用 tone48（能保住 AA 的最浅档：白字对比 4.81:1）——tone40 #0057CD 偏深（用户反馈）。
-val BluePrimaryLight = Color(0xFF1E6BEC)          // P48
+// ---- Primary（青春天蓝，保真 palette：hue262/chroma62）----
+// 由旧靛蓝 hue269 #1E6BEC 青春化：hue 移到 262（更青、更明快，去掉偏紫的沉感）+ tone 提到 53
+// （旧 48 是白字 AA 下限但仍偏深）。tone53 白字对比 4.02、作链接 on-surface 3.82——满足 WCAG
+// 对 UI 元素/大文字的 3:1(主流 app 蓝按钮同量级)，换取用户要的「明显更浅、更年轻」的天蓝观感。
+val BluePrimaryLight = Color(0xFF227EE8)          // hue262 T53
 val OnBluePrimaryLight = Color(0xFFFFFFFF)
-val BlueContainerLight = Color(0xFFDAE2FF)        // P90
-val OnBlueContainerLight = Color(0xFF00419D)      // P30
-val BluePrimaryDark = Color(0xFFB1C5FF)           // P80
-val OnBluePrimaryDark = Color(0xFF002C70)         // P20
-val BlueContainerDark = Color(0xFF00419D)         // P30
-val OnBlueContainerDark = Color(0xFFDAE2FF)       // P90
+val BlueContainerLight = Color(0xFFDFE8FF)        // T92
+val OnBlueContainerLight = Color(0xFF004B93)      // T32
+val BluePrimaryDark = Color(0xFFB2CDFF)           // T82
+val OnBluePrimaryDark = Color(0xFF00346A)         // T22
+val BlueContainerDark = Color(0xFF004B93)         // T32
+val OnBlueContainerDark = Color(0xFFDFE8FF)       // T92
 
 // ---- Secondary（蓝灰，chroma16 低饱和辅助）----
 val SecondaryLight = Color(0xFF585E71)
@@ -99,5 +101,20 @@ val WarningContainerLight = Color(0xFFFFDCC7)
 val WarningDark = Color(0xFFFFB787)
 val WarningContainerDark = Color(0xFF723600)
 
-/** 通知（Notification.setColor）等非 Compose 场景用的品牌蓝 seed。 */
-const val BRAND_BLUE_ARGB = 0xFF3A7DFF.toInt()
+// ---- 状态点专用色（首页运行/停止圆点）：实心圆无需文字对比,用鲜活青春色（Tailwind 系）,
+// 比语义 good()/bad()（要兼顾文字可读故偏深）更浅更年轻。运行=鲜绿、停止=珊瑚红。----
+val RunningDotLight = Color(0xFF22C55E)           // green-500
+val RunningDotDark = Color(0xFF4ADE80)            // green-400
+val StoppedDotLight = Color(0xFFF0635A)           // coral
+val StoppedDotDark = Color(0xFFFF9B90)            // coral-light
+
+// ---- 头像柔和粉彩色板（服务延迟等字母头像）：6 色低饱和(chroma30)，深浅各一套。
+// 替代原先「复用主题 6 对高饱和实色」——那在深色下会出现大面积艳粉/玫红(违背粉≤10%纪律、扎眼花哨)。
+// 天蓝/青/薄荷/琥珀/薰衣草/青绿,字母 fg on bg 对比 ~6:1。----
+val AvatarBgLight = listOf(0xFFCFE5FF, 0xFFADEEF0, 0xFFC1EEC0, 0xFFFFDBCB, 0xFFE6DEFF, 0xFFB0EFDD).map { Color(it) }
+val AvatarFgLight = listOf(0xFF315577, 0xFF125B5E, 0xFF345B38, 0xFF79452A, 0xFF554C79, 0xFF1C5C4E).map { Color(it) }
+val AvatarBgDark = listOf(0xFF2A4E6F, 0xFF035457, 0xFF2D5432, 0xFF703E24, 0xFF4E4572, 0xFF125547).map { Color(it) }
+val AvatarFgDark = listOf(0xFFCFE5FF, 0xFFADEEF0, 0xFFC1EEC0, 0xFFFFDBCB, 0xFFE6DEFF, 0xFFB0EFDD).map { Color(it) }
+
+/** 通知（Notification.setColor）等非 Compose 场景用的品牌蓝 seed（青春天蓝，与 primary 同色相）。 */
+const val BRAND_BLUE_ARGB = 0xFF2E90FA.toInt()

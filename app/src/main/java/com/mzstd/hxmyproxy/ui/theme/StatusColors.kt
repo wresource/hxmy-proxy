@@ -20,6 +20,13 @@ object StatusColors {
     @Composable
     fun bad(): Color = MaterialTheme.colorScheme.error
 
+    /** 首页运行/停止圆点专用青春色（实心圆,无需文字对比,比 good/bad 更浅鲜活）。 */
+    @Composable
+    fun runningDot(): Color = if (LocalDarkTheme.current) RunningDotDark else RunningDotLight
+
+    @Composable
+    fun stoppedDot(): Color = if (LocalDarkTheme.current) StoppedDotDark else StoppedDotLight
+
     /** 状态容器色（做徽标/格子的浅底）。 */
     @Composable
     fun goodContainer(): Color = if (LocalDarkTheme.current) SuccessContainerDark else SuccessContainerLight

@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -59,6 +60,8 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.components.QrImage
+import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
+import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
 /** 接口类型 → 本地化标签（随 InterfacesScreen 删除从该页迁来）。 */
 private fun InterfaceType.labelRes(): Int = when (this) {
@@ -177,14 +180,12 @@ private fun HeroStatus(ui: MainUiState) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (share.running) {
-                // 运行指示点：粉色 tertiary 点睛（全页唯一的粉，≤10% 纪律）。
-                Surface(
-                    Modifier.size(12.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.tertiary,
-                ) {}
-            }
+            // 状态点：运行=鲜绿、停止=珊瑚红（通用语义 + 青春色）。始终显示、16dp 更醒目,一眼判断状态。
+            Surface(
+                Modifier.size(16.dp),
+                shape = CircleShape,
+                color = if (share.running) StatusColors.runningDot() else StatusColors.stoppedDot(),
+            ) {}
             Text(
                 stringResource(if (share.running) R.string.status_running else R.string.status_stopped),
                 style = MaterialTheme.typography.displaySmall,
@@ -507,14 +508,9 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
 private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val running = ui.share.running
-    val container by animateColorAsState(
-        targetValue = if (running) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
-        label = "vBtnColor",
-    )
-    val content by animateColorAsState(
-        targetValue = if (running) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimary,
-        label = "vBtnContent",
-    )
+    val (bg, fg) = startStopColors(running)
+    val container by animateColorAsState(targetValue = bg, label = "vBtnColor")
+    val content by animateColorAsState(targetValue = fg, label = "vBtnContent")
     Button(
         onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
         modifier = modifier.width(64.dp),
@@ -541,15 +537,11 @@ private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifi
 private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
     val context = LocalContext.current
     val running = ui.share.running
-    // 圆角两态统一 16dp(用户选定,全局一致);状态只用颜色的弹簧过渡表达(蓝=开始 ↔ 浅红=停止)。
-    val container by animateColorAsState(
-        targetValue = if (running) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primary,
-        label = "btnColor",
-    )
-    val content by animateColorAsState(
-        targetValue = if (running) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimary,
-        label = "btnContent",
-    )
+    // 两态都是「亮/浅底 + 深字」青春 tonal（对比 7:1）：开始=蓝、停止=红。
+    // 浅色用 container(浅蓝/浅红底);深色用亮实色 primary/error(亮蓝/亮红底)——深色下 container 会变闷深块,故切亮实色。
+    val (bg, fg) = startStopColors(running)
+    val container by animateColorAsState(targetValue = bg, label = "btnColor")
+    val content by animateColorAsState(targetValue = fg, label = "btnContent")
     Button(
         onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
         modifier = Modifier
@@ -563,5 +555,21 @@ private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
             stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
             style = MaterialTheme.typography.titleMedium,
         )
+    }
+}
+
+/**
+ * 启停按钮配色：两态都「亮/浅底 + 深字」。浅色用 container（浅蓝/浅红底），
+ * 深色用亮实色 primary/error（亮蓝/亮红底）——深色下 container 是 tone30 深块,发闷发脏,故切亮实色。
+ */
+@Composable
+private fun startStopColors(running: Boolean): Pair<Color, Color> {
+    val dark = LocalDarkTheme.current
+    val cs = MaterialTheme.colorScheme
+    return when {
+        running && dark -> cs.error to cs.onError
+        running -> cs.errorContainer to cs.onErrorContainer
+        dark -> cs.primary to cs.onPrimary
+        else -> cs.primaryContainer to cs.onPrimaryContainer
     }
 }

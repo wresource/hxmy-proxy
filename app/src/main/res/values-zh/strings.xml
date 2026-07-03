@@ -21,6 +21,7 @@
     <string name="signal_label">Wi-Fi 信号：</string>
     <string name="monitor_latency">服务延迟</string>
     <string name="latency_timeout">超时</string>
+    <string name="latency_measuring">测量中…</string>
     <string name="refresh">刷新</string>
     <string name="monitor_novpn_hint">未检测到 VPN，延迟不代表分享出口的质量</string>
     <string name="monitor_no_history">（暂无历史）</string>
