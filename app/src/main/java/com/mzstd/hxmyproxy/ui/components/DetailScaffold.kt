@@ -13,7 +13,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.mzstd.hxmyproxy.R
@@ -33,7 +36,12 @@ fun DetailScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    // B(头部随滚动折叠)：enterAlways = 上滑内容时 TopAppBar 跟手收起、下滑时立即跟手落回。
+    // 顶栏收起后其背景(含状态栏区)一并让位,长列表页(64 组规则集管理/历史 IP)多得一屏可视高度。
+    // 动的是 app 顶栏、系统状态栏原地不动 → 无 inset reflow / 无闪烁(官方推荐的「滚动腾空间」)。
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text(title) },
@@ -46,6 +54,7 @@ fun DetailScaffold(
                     }
                 },
                 actions = actions,
+                scrollBehavior = scrollBehavior,
             )
         },
         // 沉浸式：外层不再消费 inset 后,TopAppBar 自动查到 statusBars,其背景延伸进状态栏（顶栏融合）;

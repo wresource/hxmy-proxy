@@ -6,19 +6,24 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
@@ -30,7 +35,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -96,6 +104,7 @@ fun AppRoot(viewModel: MainViewModel) {
         // TopAppBar insets,外层不再消费后其背景自动延伸进状态栏（顶栏融合）。
         contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
     ) { padding ->
+      Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
             if (wide && topLevel) SideNavRail(navController, destinations)
             // 大屏（平板/折叠屏）把内容限宽并居中，避免行宽过长；手机无影响。
@@ -213,7 +222,36 @@ fun AppRoot(viewModel: MainViewModel) {
                 }
             }
         }
+        // A(状态栏渐变保护)：仅顶层 tab 页(无 TopAppBar)——内容上滑穿入状态栏后方时,顶部
+        // 铺一层「背景色→透明」的薄渐变,时间/电量/信号图标始终有底色托着、清晰不糊(用户报告的
+        // 「遮挡」根因)。详情页不叠加——其 DetailScaffold 的 TopAppBar 自带保护(官方:勿叠两层)。
+        if (topLevel) StatusBarProtection(Modifier.align(Alignment.TopCenter))
+      }
     }
+}
+
+/**
+ * 状态栏渐变保护（官方 edge-to-edge「system bar protection」标准做法）：一条与页面背景同色、
+ * 由不透明渐隐到透明的薄条,盖在状态栏高度区。内容滚到其后方时图标仍清晰;首屏(内容未滚入)时
+ * 与背景同色故隐形。不消费触摸。
+ */
+@Composable
+private fun StatusBarProtection(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.surface
+    val density = LocalDensity.current
+    val heightPx = WindowInsets.statusBars.getTop(density)
+    Spacer(
+        modifier
+            .fillMaxWidth()
+            .height(with(density) { (heightPx * 1.2f).toDp() })
+            .background(
+                Brush.verticalGradient(
+                    0f to color,
+                    0.7f to color.copy(alpha = 0.8f),
+                    1f to Color.Transparent,
+                ),
+            ),
+    )
 }
 
 /** 当前选中的目的地路由（顶层 tab 高亮）。 */
