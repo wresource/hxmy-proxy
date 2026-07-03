@@ -174,6 +174,9 @@
     <string name="rg_mihoyo">米哈游</string>
     <string name="rg_steam">Steam</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
+    <string name="log_count">共 %1$d 条</string>
+    <string name="log_show_more">展开</string>
+    <string name="log_show_less">收起</string>
     <string name="rules_remove">移除</string>
 
     <!-- 诊断 -->
