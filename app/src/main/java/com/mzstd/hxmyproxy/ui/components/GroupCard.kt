@@ -10,6 +10,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,6 +29,16 @@ import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 fun cardContainerColor(): Color =
     if (LocalDarkTheme.current) MaterialTheme.colorScheme.surfaceContainerHigh
     else MaterialTheme.colorScheme.surfaceContainerLow
+
+/**
+ * Switch 统一配色（全 app 开关一致）：选中=primary 亮轨（青春蓝，M3 默认）；
+ * 未选中去掉灰描边、轨道用浅容器色——比 M3 默认的「灰轨+灰圈」干净轻快。
+ */
+@Composable
+fun stdSwitchColors() = SwitchDefaults.colors(
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    uncheckedBorderColor = Color.Transparent,
+)
 
 /**
  * FilterChip 统一选中态配色（全 app 一致）：浅色 primaryContainer/onPrimaryContainer、

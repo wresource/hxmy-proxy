@@ -1,14 +1,19 @@
 package com.mzstd.hxmyproxy.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -103,6 +108,36 @@ fun LabeledSwitchRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, colors = stdSwitchColors())
+    }
+}
+
+/**
+ * 统计/状态小格的统一立体外壳：ElevatedCard + shapes.large + [cardContainerColor]，
+ * 与入口/接口/分组卡完全同规范。首页「共享|防护」「连接/信号/累计」等小格只允许用它，
+ * 不再各自画扁平 background——设计规范收口：所有格子与卡片同高度/圆角/底色。
+ */
+@Composable
+fun TileCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    spacing: Dp = 4.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = MaterialTheme.shapes.large
+    val colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor())
+    val inner: @Composable () -> Unit = {
+        Column(
+            Modifier.fillMaxSize().padding(vertical = 14.dp, horizontal = 12.dp),
+            horizontalAlignment = horizontalAlignment,
+            verticalArrangement = Arrangement.spacedBy(spacing),
+            content = content,
+        )
+    }
+    if (onClick != null) {
+        ElevatedCard(onClick = onClick, modifier = modifier, shape = shape, colors = colors) { inner() }
+    } else {
+        ElevatedCard(modifier = modifier, shape = shape, colors = colors) { inner() }
     }
 }

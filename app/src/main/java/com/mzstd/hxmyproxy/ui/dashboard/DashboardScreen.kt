@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,6 +86,7 @@ private fun InterfaceType.labelRes(): Int = when (this) {
 fun DashboardScreen(
     ui: MainUiState,
     viewModel: com.mzstd.hxmyproxy.ui.MainViewModel,
+    onOpenProtection: () -> Unit = {},
     contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
 ) {
     val context = LocalContext.current
@@ -125,7 +127,7 @@ fun DashboardScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                HeroStatus(ui)
+                HeroDuo(ui, onOpenProtection)
                 EntryCard(ui)
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
@@ -146,7 +148,7 @@ fun DashboardScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                HeroStatus(ui)
+                HeroDuo(ui, onOpenProtection)
                 EntryCard(ui)
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
@@ -172,46 +174,50 @@ fun DashboardScreen(
     }
 }
 
-/** Hero 状态区：大字状态 + 运行指示点（粉色点睛）+ 一行辅助信息。直接画在 surface 上，不套卡片。 */
+/**
+ * Hero 第一排：「共享 | 防护」双状态立体 tile（替代原大字标题——第一排即状态，用户设计）。
+ * 模式叙事/连接数/速率并入左（共享）tile 小字，不再独立成行（用户反馈）；右 tile 小字=「有没有 VPN 都生效」。
+ */
 @Composable
-private fun HeroStatus(ui: MainUiState) {
+private fun HeroDuo(ui: MainUiState, onOpenProtection: () -> Unit) {
     val share = ui.share
-    Column(
-        Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // 状态点：运行=鲜绿、停止=珊瑚红（通用语义 + 青春色）。始终显示、16dp 更醒目,一眼判断状态。
-            Surface(
-                Modifier.size(16.dp),
-                shape = CircleShape,
-                color = if (share.running) StatusColors.runningDot() else StatusColors.stoppedDot(),
-            ) {}
-            Text(
-                stringResource(if (share.running) R.string.status_running else R.string.status_stopped),
-                style = MaterialTheme.typography.displaySmall,
-            )
-        }
-        // 辅助行：VPN 状态 · 活跃连接
-        Text(
-            stringResource(if (share.vpn.detected) R.string.vpn_detected else R.string.vpn_not_detected) +
-                "  ·  " + stringResource(R.string.active_conns, share.activeConnections),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+    val adBlockOn = com.mzstd.hxmyproxy.core.rules.RuleCatalog.adGroups.any { it.id in ui.settings.enabledRuleGroups }
+    val shareSubs = buildList {
+        add(
+            if (share.vpn.detected) stringResource(R.string.mode_vpn_egress)
+            else stringResource(R.string.mode_gateway_plain),
         )
+        add(stringResource(R.string.active_conns, share.activeConnections))
         if (share.running) {
-            Text(
+            add(
                 stringResource(
                     R.string.rate_line,
                     com.mzstd.hxmyproxy.ui.formatRate(share.downloadRateBps),
                     com.mzstd.hxmyproxy.ui.formatRate(share.uploadRateBps),
                 ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(top = 4.dp).height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatusTile(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            on = share.running,
+            label = stringResource(R.string.status_share),
+            value = stringResource(if (share.running) R.string.status_running else R.string.status_stopped),
+            subs = shareSubs,
+        )
+        StatusTile(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            on = adBlockOn,
+            label = stringResource(R.string.protection_title),
+            value = if (adBlockOn) stringResource(R.string.protect_blocked, share.blockedTotal)
+            else stringResource(R.string.protect_off),
+            subs = listOf(stringResource(R.string.protect_works_always)),
+            onClick = onOpenProtection,
+        )
     }
 }
 
@@ -420,23 +426,25 @@ private fun PortBindErrorCard(ui: MainUiState) {
 @Composable
 private fun StatRow(ui: MainUiState) {
     val share = ui.share
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatCell(Modifier.weight(1f), "${share.activeConnections}", stringResource(R.string.stat_conns))
+    // height(IntrinsicSize.Min) + 每格 fillMaxHeight → 三格等高（取最高者）；label 换行也不再高低不齐。
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatCell(Modifier.weight(1f).fillMaxHeight(), "${share.activeConnections}", stringResource(R.string.stat_conns))
         if (share.signalLevel >= 0) {
-            StatCell(Modifier.weight(1f), "${share.signalDbm}", stringResource(R.string.stat_signal) + " dBm")
+            StatCell(Modifier.weight(1f).fillMaxHeight(), "${share.signalDbm}", stringResource(R.string.stat_signal) + " dBm")
         }
-        StatCell(Modifier.weight(1f), com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes), stringResource(R.string.stat_traffic))
+        StatCell(Modifier.weight(1f).fillMaxHeight(), com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes), stringResource(R.string.stat_traffic))
     }
 }
 
 @Composable
 private fun StatCell(modifier: Modifier, value: String, label: String) {
-    Column(
-        modifier
-            .background(cardContainerColor(), MaterialTheme.shapes.medium)
-            .padding(vertical = 14.dp, horizontal = 8.dp),
+    com.mzstd.hxmyproxy.ui.components.TileCard(
+        modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        spacing = 2.dp,
     ) {
         Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -479,6 +487,34 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
                     ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
                 }
             }
+        }
+    }
+}
+
+/** 状态 tile：点(红绿) + 标签 + 值。统一走 [com.mzstd.hxmyproxy.ui.components.TileCard] 立体外壳。 */
+@Composable
+private fun StatusTile(
+    modifier: Modifier,
+    on: Boolean,
+    label: String,
+    value: String,
+    subs: List<String> = emptyList(),
+    onClick: (() -> Unit)? = null,
+) {
+    com.mzstd.hxmyproxy.ui.components.TileCard(modifier, onClick = onClick, spacing = 6.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(Modifier.size(12.dp), shape = CircleShape, color = if (on) StatusColors.good() else StatusColors.stoppedDot()) {}
+            Text(label, style = MaterialTheme.typography.titleSmall)
+        }
+        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        subs.forEach {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
         }
     }
 }
