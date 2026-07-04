@@ -14,6 +14,13 @@
     <string name="status_stopped">已停止</string>
     <string name="vpn_detected">VPN：已检测到</string>
     <string name="vpn_not_detected">VPN：未检测到</string>
+    <!-- 首页副标题双态 + 防护卡（有没有 VPN 都有用） -->
+    <string name="mode_vpn_egress">VPN 已接入 · 共享出口</string>
+    <string name="mode_gateway_adblock_on">过滤网关 · 广告拦截已开</string>
+    <string name="mode_gateway_adblock_off">过滤网关 · 广告拦截未开</string>
+    <string name="protection_title">防护</string>
+    <string name="protection_adblock_sub">为网络里每台设备拦截广告与追踪</string>
+    <string name="protection_blocked_count">本次已拦截 %1$d 次</string>
     <string name="clients_count">客户端：%1$d</string>
     <string name="active_conns">活跃连接：%1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
@@ -23,7 +30,9 @@
     <string name="latency_timeout">超时</string>
     <string name="latency_measuring">测量中…</string>
     <string name="refresh">刷新</string>
-    <string name="monitor_novpn_hint">未检测到 VPN，延迟不代表分享出口的质量</string>
+    <string name="monitor_novpn_hint">经手机网络到各服务的延迟（未使用 VPN）。</string>
+    <string name="monitor_blocked">已拦截</string>
+    <string name="monitor_no_blocked">暂无拦截</string>
     <string name="monitor_no_history">（暂无历史）</string>
     <string name="error_logs">错误日志</string>
     <string name="monitor_no_logs">（暂无日志）</string>
@@ -77,7 +86,7 @@
     <string name="ruleset_builtin">内置规则集</string>
     <string name="ruleset_new">新建规则集</string>
     <string name="ruleset_name">名称</string>
-    <string name="ruleset_action_direct">直连(绕过 VPN)</string>
+    <string name="ruleset_action_direct">直连(手机网络)</string>
     <string name="ruleset_action_reject">拦截</string>
     <string name="ruleset_view_domains">查看域名</string>
     <string name="ruleset_domains_count">%1$d 个域名</string>
@@ -99,7 +108,7 @@
     <string name="rules_add_domain">域名(如 example.com)</string>
     <string name="rules_add_from_history">添加移除过的</string>
     <string name="rules_history_empty">还没有移除过的域名</string>
-    <string name="rules_user_direct_hint">这些域名会绕过共享的 VPN，从手机真实网络出口。流量仍经本代理转发，因此监控中仍会显示（标注为「直连」）。</string>
+    <string name="rules_user_direct_hint">这些域名从手机真实网络直接出口，而非走共享连接。流量仍经本代理转发，因此监控中仍会显示（标注为「直连」）。</string>
     <string name="route_direct">直连</string>
     <string name="rules_app_sets_hint">按 App/服务一键分流：打开即对该 App 的域名生效；点「管理」可编辑集合与域名。</string>
     <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
@@ -187,6 +196,48 @@
     <string name="diag_socks_port">SOCKS5 端口</string>
     <string name="diag_pac_port">PAC 端口</string>
     <string name="diag_vpn">VPN 出口</string>
+    <string name="diag_vpn_sharing">共享出口</string>
+    <string name="diag_vpn_gateway">过滤网关</string>
+    <!-- 防护 tab / 拦截明细 / per-host 三态覆盖 -->
+    <string name="nav_protection">防护</string>
+    <string name="status_share">共享</string>
+    <string name="status_on">已开启</string>
+    <string name="protect_off">未开启</string>
+    <string name="protect_blocked">已拦 %1$d 次</string>
+    <!-- 规则页语义重组：拦截/放行分区 + 快速拦截 + 格式提醒 -->
+    <string name="rules_group_reject">🛡️ 拦截</string>
+    <string name="rules_group_bypass">🌐 放行</string>
+    <string name="rules_reject_quick">快速拦截</string>
+    <string name="rules_reject_quick_hint">加入的域名/IP 会被拒绝连接（拦截）——有没有 VPN 都生效。</string>
+    <string name="rules_reject_sets">拦截规则集</string>
+    <string name="rules_format_hint">example.com（含子域）· 1.2.3.4 · 192.168.0.0/16</string>
+    <string name="override_adjust">调整</string>
+    <string name="rules_row_empty">暂无——点另一行集合右上角的 ⇄ 移入</string>
+    <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>
+    <string name="mode_gateway_plain">过滤网关模式</string>
+    <string name="protect_works_always">有没有 VPN 都生效</string>
+    <string name="rules_manage_all">管理全部（%1$d）</string>
+    <string name="rules_list_empty">还没有条目</string>
+    <string name="blocked_detail_title">拦截明细</string>
+    <string name="save">保存</string>
+    <string name="override_current">当前：%1$s</string>
+    <string name="override_clear">移除覆盖</string>
+    <string name="override_desc">覆盖此 host 的处理方式（最高优先级，压过所有规则）：</string>
+    <string name="override_proxy">走代理</string>
+    <string name="override_direct">直连</string>
+    <string name="override_reject">拦截</string>
+    <string name="protection_hero_sub">本次已拦截 · 有没有 VPN 都生效</string>
+    <string name="protection_view_blocked">查看拦截明细</string>
+    <string name="protection_top_blocked">拦得最多</string>
+    <string name="protection_how_title">防护如何工作</string>
+    <string name="protection_how_body">请求在代理层就被过滤，所以网络里每台设备的广告与追踪都会被拦掉——无需逐台设置，有没有 VPN 都能用。若某项被误拦，点它即可放行。</string>
+    <!-- 引导：双模式（有没有 VPN 都能用） -->
+    <string name="ob_dual_title">两种用法</string>
+    <string name="ob_dual_body">有没有 VPN 都能用——任选其一，随时切换。</string>
+    <string name="ob_dual_c1_title">🌐 开着 VPN——共享出口</string>
+    <string name="ob_dual_c1_body">网络里每台设备都经你的 VPN 上网，一份订阅覆盖电视、主机、笔记本。</string>
+    <string name="ob_dual_c2_title">🛡️ 不用 VPN——过滤网关</string>
+    <string name="ob_dual_c2_body">打开广告拦截，网络里每台设备的广告与追踪都在代理层被拦掉——像 Pi-hole，无需 VPN。</string>
     <string name="diag_ok">正常</string>
     <string name="diag_fail">异常</string>
     <string name="diag_disabled">未启用</string>

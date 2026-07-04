@@ -14,6 +14,13 @@
     <string name="status_stopped">Stopped</string>
     <string name="vpn_detected">VPN: detected</string>
     <string name="vpn_not_detected">VPN: not detected</string>
+    <!-- 首页副标题双态 + 防护卡（有没有 VPN 都有用） -->
+    <string name="mode_vpn_egress">VPN active · sharing egress</string>
+    <string name="mode_gateway_adblock_on">Filtering gateway · ad-block on</string>
+    <string name="mode_gateway_adblock_off">Filtering gateway · ad-block off</string>
+    <string name="protection_title">Protection</string>
+    <string name="protection_adblock_sub">Block ads &amp; trackers for every device on your network</string>
+    <string name="protection_blocked_count">Blocked %1$d requests this session</string>
     <string name="clients_count">Clients: %1$d</string>
     <string name="active_conns">Active connections: %1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
@@ -23,7 +30,7 @@
     <string name="latency_timeout">Timeout</string>
     <string name="latency_measuring">Testing…</string>
     <string name="refresh">Refresh</string>
-    <string name="monitor_novpn_hint">No VPN detected — latency may not reflect the shared egress</string>
+    <string name="monitor_novpn_hint">Latency to services measured via your phone\'s network (no VPN).</string>
     <string name="monitor_no_history">(No history yet)</string>
     <string name="error_logs">Error logs</string>
     <string name="monitor_no_logs">(No logs)</string>
@@ -33,6 +40,8 @@
     <string name="monitor_top_domains">Top domains</string>
     <string name="monitor_no_clients">No clients yet (devices using hxmy will show here)</string>
     <string name="monitor_no_domains">No traffic yet</string>
+    <string name="monitor_blocked">Blocked</string>
+    <string name="monitor_no_blocked">Nothing blocked yet</string>
     <string name="monitor_expand">Show all (%1$d)</string>
     <string name="monitor_collapse">Collapse</string>
     <string name="back">Back</string>
@@ -77,7 +86,7 @@
     <string name="ruleset_builtin">Built-in rule sets</string>
     <string name="ruleset_new">New rule set</string>
     <string name="ruleset_name">Name</string>
-    <string name="ruleset_action_direct">Direct (bypass VPN)</string>
+    <string name="ruleset_action_direct">Direct (phone network)</string>
     <string name="ruleset_action_reject">Block</string>
     <string name="ruleset_view_domains">View domains</string>
     <string name="ruleset_domains_count">%1$d domains</string>
@@ -99,7 +108,7 @@
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
     <string name="rules_add_from_history">Re-add removed</string>
     <string name="rules_history_empty">No removed domains yet</string>
-    <string name="rules_user_direct_hint">These domains bypass the shared VPN and exit via the phone\'s real network. Traffic still goes through this proxy, so they still appear in Monitor (tagged "Direct").</string>
+    <string name="rules_user_direct_hint">These domains exit via the phone\'s real network instead of the shared connection. Traffic still goes through this proxy, so they still appear in Monitor (tagged "Direct").</string>
     <string name="route_direct">Direct</string>
     <string name="rules_app_sets_hint">Toggle a set to route that app\'s domains in one tap. Tap Manage to edit sets and domains.</string>
     <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
@@ -187,6 +196,48 @@
     <string name="diag_socks_port">SOCKS5 port</string>
     <string name="diag_pac_port">PAC port</string>
     <string name="diag_vpn">VPN egress</string>
+    <string name="diag_vpn_sharing">Sharing egress</string>
+    <string name="diag_vpn_gateway">Filtering gateway</string>
+    <!-- 防护 tab / 拦截明细 / per-host 三态覆盖 -->
+    <string name="nav_protection">Protection</string>
+    <string name="status_share">Sharing</string>
+    <string name="status_on">On</string>
+    <string name="protect_off">Off</string>
+    <string name="protect_blocked">%1$d blocked</string>
+    <!-- 规则页语义重组：拦截/放行分区 + 快速拦截 + 格式提醒 -->
+    <string name="rules_group_reject">🛡️ Block</string>
+    <string name="rules_group_bypass">🌐 Allow</string>
+    <string name="rules_reject_quick">Quick block</string>
+    <string name="rules_reject_quick_hint">Hosts added here are blocked (connection refused) — works with or without a VPN.</string>
+    <string name="rules_reject_sets">Block rule sets</string>
+    <string name="rules_format_hint">example.com (incl. subdomains) · 1.2.3.4 · 192.168.0.0/16</string>
+    <string name="override_adjust">Adjust</string>
+    <string name="rules_row_empty">None yet — tap the ⇄ badge on a set in the other row to move it here.</string>
+    <string name="rules_swap_a11y">Switch %1$s between allow and block</string>
+    <string name="mode_gateway_plain">Filtering gateway</string>
+    <string name="protect_works_always">Works with or without a VPN</string>
+    <string name="rules_manage_all">Manage all (%1$d)</string>
+    <string name="rules_list_empty">No entries yet</string>
+    <string name="blocked_detail_title">Blocked list</string>
+    <string name="save">Save</string>
+    <string name="override_current">Currently: %1$s</string>
+    <string name="override_clear">Remove override</string>
+    <string name="override_desc">Override how this host is handled (highest priority, overrides all rules):</string>
+    <string name="override_proxy">Via proxy</string>
+    <string name="override_direct">Direct</string>
+    <string name="override_reject">Block</string>
+    <string name="protection_hero_sub">Blocked this session · works with or without a VPN</string>
+    <string name="protection_view_blocked">View blocked list</string>
+    <string name="protection_top_blocked">Most blocked</string>
+    <string name="protection_how_title">How protection works</string>
+    <string name="protection_how_body">Requests are filtered right at the proxy, so every device on your network gets ads &amp; trackers stripped — no per-device setup, and it works with or without a VPN. Tap any blocked host to allow it if it was caught by mistake.</string>
+    <!-- 引导：双模式（有没有 VPN 都能用） -->
+    <string name="ob_dual_title">Two ways to use it</string>
+    <string name="ob_dual_body">hxmy works with or without a VPN — pick either, and switch anytime.</string>
+    <string name="ob_dual_c1_title">🌐 With a VPN — shared egress</string>
+    <string name="ob_dual_c1_body">Every device on your network browses through your VPN. One subscription covers your TV, console and laptop.</string>
+    <string name="ob_dual_c2_title">🛡️ Without a VPN — filtering gateway</string>
+    <string name="ob_dual_c2_body">Turn on ad-block and every device gets ads &amp; trackers stripped right at the proxy — like a Pi-hole, no VPN needed.</string>
     <string name="diag_ok">OK</string>
     <string name="diag_fail">Problem</string>
     <string name="diag_disabled">Off</string>

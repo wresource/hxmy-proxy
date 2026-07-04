@@ -10,6 +10,7 @@ import com.mzstd.hxmyproxy.R
  */
 enum class NavTab(val route: String, val label: Int, val icon: Int, val fixed: Boolean) {
     DASHBOARD("dashboard", R.string.nav_dashboard, R.drawable.ic_nav_dashboard, true),
+    PROTECTION("protection", R.string.nav_protection, R.drawable.ic_nav_protection, false),
     MONITOR("monitor", R.string.nav_monitor, R.drawable.ic_nav_monitor, false),
     RULES("rules", R.string.nav_rules, R.drawable.ic_nav_rules, false),
     SETTINGS("settings", R.string.nav_settings, R.drawable.ic_nav_settings, true),
