@@ -34,15 +34,21 @@ class PacServer(
         val output = client.getOutputStream()
 
         val requestLine = readAsciiLine(input) ?: return
-        // 读请求头：丢弃其余，仅留 User-Agent（落地页按平台分发用）。
+        // 读请求头：丢弃其余，留 User-Agent（按平台分发）与 Accept-Language（落地页/描述文件双语）。
         var userAgent = ""
+        var acceptLanguage = ""
         while (true) {
             val l = readAsciiLine(input) ?: break
             if (l.isEmpty()) break
             if (l.length >= 11 && l.regionMatches(0, "User-Agent:", 0, 11, ignoreCase = true)) {
                 userAgent = l.substring(11).trim()
             }
+            if (l.length >= 16 && l.regionMatches(0, "Accept-Language:", 0, 16, ignoreCase = true)) {
+                acceptLanguage = l.substring(16).trim()
+            }
         }
+        // 语言跟扫码设备的浏览器走（可能是英文电脑），与手机 app 语言无关。
+        val zh = SetupPageGenerator.isZh(acceptLanguage)
 
         val parts = requestLine.split(' ')
         val method = parts.getOrNull(0) ?: ""
@@ -72,15 +78,15 @@ class PacServer(
                 )
             }
             "/", "/setup" -> {
-                if (base == null) { writeNoBase(output); return }
-                val html = SetupPageGenerator.html(base, userAgent, manualProxy = manualHttp != null)
+                if (base == null) { writeNoBase(output, zh); return }
+                val html = SetupPageGenerator.html(base, userAgent, manualProxy = manualHttp != null, zh = zh)
                     .toByteArray(Charsets.UTF_8)
                 writeResponse(output, 200, "OK", "text/html; charset=utf-8", html)
             }
             "/hxmy.mobileconfig" -> {
-                if (base == null) { writeNoBase(output); return }
+                if (base == null) { writeNoBase(output, zh); return }
                 val ssid = parseSsid(query)
-                val cfg = SetupPageGenerator.mobileconfig(base, ssid, manualHttp).toByteArray(Charsets.UTF_8)
+                val cfg = SetupPageGenerator.mobileconfig(base, ssid, manualHttp, zh = zh).toByteArray(Charsets.UTF_8)
                 writeResponse(
                     output, 200, "OK", "application/x-apple-aspen-config", cfg,
                     disposition = "attachment; filename=\"hxmy.mobileconfig\"",
@@ -102,8 +108,11 @@ class PacServer(
         return ""
     }
 
-    private fun writeNoBase(output: OutputStream) {
-        val msg = "请先在 hxmy proxy 里选择接口并启动共享。".toByteArray(Charsets.UTF_8)
+    private fun writeNoBase(output: OutputStream, zh: Boolean) {
+        val msg = (
+            if (zh) "请先在 hxmy proxy 里选择接口并启动共享。"
+            else "Please select an interface and start sharing in hxmy proxy first."
+            ).toByteArray(Charsets.UTF_8)
         writeResponse(output, 503, "Service Unavailable", "text/plain; charset=utf-8", msg)
     }
 

@@ -59,4 +59,23 @@ class SetupPageGeneratorTest {
         assertTrue(cfg.contains("ProxyPACURL"))
         assertTrue(!cfg.contains("<key>ProxyServer</key>"))
     }
+
+    @Test fun detectsLanguageFromAcceptLanguage() {
+        assertTrue(SetupPageGenerator.isZh("zh-CN,zh;q=0.9,en;q=0.8"))
+        assertTrue(SetupPageGenerator.isZh("zh-TW"))
+        assertTrue(!SetupPageGenerator.isZh("en-US,en;q=0.9"))
+        assertTrue(!SetupPageGenerator.isZh(""))
+    }
+
+    @Test fun htmlAndMobileconfigLocalized() {
+        // 英文请求方 → 全英文落地页/描述文件；默认(中文)保持既有行为。
+        val en = SetupPageGenerator.html("http://192.168.1.34:8899", "Windows NT 10.0", zh = false)
+        assertTrue("英文页不应含中文", en.none { it in '一'..'鿿' })
+        assertTrue(en.contains("lang=\"en\""))
+        assertTrue(en.contains("Windows PC"))
+        val zh = SetupPageGenerator.html("http://192.168.1.34:8899", "Windows NT 10.0")
+        assertTrue("中文页保持中文", zh.contains("Windows 电脑"))
+        val enCfg = SetupPageGenerator.mobileconfig("http://192.168.1.34:8899", "MyWiFi", null, zh = false)
+        assertTrue("英文描述文件不应含中文", enCfg.none { it in '一'..'鿿' })
+    }
 }
