@@ -138,7 +138,7 @@ private fun UserRuleSetCard(set: UserRuleSet, viewModel: MainViewModel, onEdit: 
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) })
+                Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) }, colors = com.mzstd.hxmyproxy.ui.components.stdSwitchColors())
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { onEdit("user", set.id) }) { Text(stringResource(R.string.ruleset_edit)) }
@@ -163,7 +163,7 @@ private fun BuiltinGroupCard(group: RuleGroup, enabled: Boolean, viewModel: Main
                     Text(stringResource(group.titleRes), style = MaterialTheme.typography.bodyLarge)
                     Text(stringResource(group.sourceRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = enabled, onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) })
+                Switch(checked = enabled, onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) }, colors = com.mzstd.hxmyproxy.ui.components.stdSwitchColors())
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { expanded = !expanded }) {
@@ -207,7 +207,7 @@ private fun NewRuleSetDialog(onCreate: (String, RuleAction) -> Unit, onDismiss: 
         title = { Text(stringResource(R.string.ruleset_new)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(stringResource(R.string.ruleset_name)) })
+                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(stringResource(R.string.ruleset_name)) }, shape = MaterialTheme.shapes.large)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val chipColors = stdFilterChipColors()
                     FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, colors = chipColors, label = { Text(stringResource(R.string.ruleset_action_direct)) })

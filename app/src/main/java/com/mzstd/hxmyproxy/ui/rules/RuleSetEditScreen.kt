@@ -96,6 +96,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 value = t, onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
                 label = { Text(stringResource(R.string.ruleset_domains_count, parseDomains(t).size)) },
+                shape = MaterialTheme.shapes.large,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
