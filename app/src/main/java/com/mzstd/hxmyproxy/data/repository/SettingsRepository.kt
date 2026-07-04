@@ -81,9 +81,12 @@ class SettingsRepository @Inject constructor(
         val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
         val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
+        val USER_REJECT = stringSetPreferencesKey("user_reject_rules")
+        val REJECTED_GROUPS = stringSetPreferencesKey("rejected_groups")
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
         val USER_RULE_SETS = stringPreferencesKey("user_rule_sets")
         val RULE_OVERRIDES = stringPreferencesKey("rule_set_overrides")
+        val HOST_OVERRIDES = stringPreferencesKey("host_overrides")
         val USER_DIRECT_ENABLED = booleanPreferencesKey("user_direct_enabled")
         val DOMAIN_HISTORY = stringSetPreferencesKey("domain_history")
     }
@@ -118,8 +121,11 @@ class SettingsRepository @Inject constructor(
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectEnabled = this[USER_DIRECT_ENABLED] ?: d.userDirectEnabled,
             userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
+            userRejectRules = this[USER_REJECT] ?: d.userRejectRules,
+            rejectedGroups = this[REJECTED_GROUPS] ?: d.rejectedGroups,
             userRuleSets = decodeRuleSets(this[USER_RULE_SETS]),
             ruleSetOverrides = decodeOverrides(this[RULE_OVERRIDES]),
+            hostOverrides = decodeHostOverrides(this[HOST_OVERRIDES]),
             ruleSubscriptionUrls = this[RULE_SUBS] ?: d.ruleSubscriptionUrls,
         )
     }
@@ -149,8 +155,11 @@ class SettingsRepository @Inject constructor(
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT_ENABLED] = userDirectEnabled
         prefs[USER_DIRECT] = userDirectRules
+        prefs[USER_REJECT] = userRejectRules
+        prefs[REJECTED_GROUPS] = rejectedGroups
         prefs[USER_RULE_SETS] = encodeRuleSets(userRuleSets)
         prefs[RULE_OVERRIDES] = encodeOverrides(ruleSetOverrides)
+        prefs[HOST_OVERRIDES] = encodeHostOverrides(hostOverrides)
         prefs[RULE_SUBS] = ruleSubscriptionUrls
     }
 
@@ -200,6 +209,24 @@ class SettingsRepository @Inject constructor(
                 val a = o.getJSONArray(k)
                 (0 until a.length()).map { a.getString(it) }
             }
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun encodeHostOverrides(m: Map<String, RuleAction>): String {
+        val o = org.json.JSONObject()
+        m.forEach { (k, v) -> o.put(k, v.name) }
+        return o.toString()
+    }
+
+    private fun decodeHostOverrides(json: String?): Map<String, RuleAction> {
+        if (json.isNullOrBlank()) return emptyMap()
+        return try {
+            val o = org.json.JSONObject(json)
+            o.keys().asSequence().mapNotNull { k ->
+                runCatching { RuleAction.valueOf(o.getString(k)) }.getOrNull()?.let { k to it }
+            }.toMap()
         } catch (e: Exception) {
             emptyMap()
         }

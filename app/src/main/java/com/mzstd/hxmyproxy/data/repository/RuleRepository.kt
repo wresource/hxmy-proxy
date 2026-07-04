@@ -3,7 +3,7 @@ package com.mzstd.hxmyproxy.data.repository
 import android.content.Context
 import android.util.Log
 import com.mzstd.hxmyproxy.core.model.ProxySettings
-import com.mzstd.hxmyproxy.core.rules.DomainSuffixSet
+import com.mzstd.hxmyproxy.core.rules.RuleMatcher
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
@@ -25,45 +25,60 @@ class RuleRepository @Inject constructor(
     private val ruleEngine: RuleEngine,
 ) {
     fun rebuild(settings: ProxySettings) {
-        val reject = DomainSuffixSet()
-        val direct = DomainSuffixSet()
-        val proxy = DomainSuffixSet()
+        val reject = RuleMatcher()
+        val direct = RuleMatcher()
+        val proxy = RuleMatcher()
         for (id in settings.enabledRuleGroups) {
             val group = RuleCatalog.byId(id) ?: continue
             val into = when (group.kind) {
                 RuleGroupKind.REJECT -> reject
-                RuleGroupKind.DIRECT -> direct
+                // 内置组默认直连；被用户移到规则页「拦截行」的组进 reject 表（两行式）。
+                RuleGroupKind.DIRECT -> if (id in settings.rejectedGroups) reject else direct
                 RuleGroupKind.PROXY -> proxy
             }
             val override = settings.ruleSetOverrides[id]
-            if (override != null) override.forEach { into.addSuffix(it) }
+            if (override != null) override.forEach { into.add(it) }
             else loadAsset(group.assetPath, into)
         }
-        val userDirect = DomainSuffixSet()
-        val userReject = DomainSuffixSet()
+        val userDirect = RuleMatcher()
+        val userReject = RuleMatcher()
         // 第一模块快速白名单 → 直连（受整体开关控制；关掉则整组临时失效）
-        if (settings.userDirectEnabled) settings.userDirectRules.forEach { userDirect.addSuffix(it) }
+        if (settings.userDirectEnabled) settings.userDirectRules.forEach { userDirect.add(it) }
+        // 快速拦截名单 → userReject（优先级次于白名单、高于内置广告）
+        settings.userRejectRules.forEach { userReject.add(it) }
         // 用户自建命名集（按动作进 direct/reject;优先级高于内置）
         settings.userRuleSets.filter { it.enabled }.forEach { set ->
             val into = if (set.action == RuleAction.REJECT) userReject else userDirect
-            set.domains.forEach { into.addSuffix(it) }
+            set.domains.forEach { into.add(it) }
+        }
+        // per-host 三态覆盖（最高优先级：误拦救济/手动指定）
+        val ovrDirect = RuleMatcher()
+        val ovrReject = RuleMatcher()
+        val ovrProxy = RuleMatcher()
+        settings.hostOverrides.forEach { (host, action) ->
+            when (action) {
+                RuleAction.DIRECT -> ovrDirect.add(host)
+                RuleAction.REJECT -> ovrReject.add(host)
+                RuleAction.PROXY -> ovrProxy.add(host)
+            }
         }
         ruleEngine.update(
             RuleEngine.Snapshot(
+                ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
                 userDirect = userDirect, userReject = userReject,
                 reject = reject, direct = direct, proxy = proxy,
             ),
         )
-        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size}")
+        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size} overrides=${settings.hostOverrides.size}")
     }
 
-    private fun loadAsset(path: String, into: DomainSuffixSet) {
+    private fun loadAsset(path: String, into: RuleMatcher) {
         try {
             context.assets.open(path).use { raw ->
                 val stream = if (path.endsWith(".gz")) GZIPInputStream(raw) else raw
                 stream.bufferedReader().forEachLine { line ->
                     val d = line.trim()
-                    if (d.isNotEmpty() && d[0] != '#') into.addSuffix(d)
+                    if (d.isNotEmpty() && d[0] != '#') into.add(d)
                 }
             }
         } catch (e: Exception) {

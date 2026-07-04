@@ -141,8 +141,29 @@ class MainViewModel @Inject constructor(
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
         val d = domain.trim().lowercase().removePrefix("*.")
-        // 必须含点：拒绝单段(如 "sb"/"com")整段 TLD 绕过 VPN，防误杀/误放行。
-        if (!d.contains('.')) it else it.copy(userDirectRules = it.userDirectRules + d)
+        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。
+        if (!d.contains('.') && !d.contains(':')) it else it.copy(userDirectRules = it.userDirectRules + d)
+    }
+
+    /** 添加快速拦截名单（域名/IP/CIDR/IPv6）；进 userReject 表，命中即拒绝连接。 */
+    fun addUserRejectRule(rule: String) = update {
+        val d = rule.trim().lowercase().removePrefix("*.")
+        if (!d.contains('.') && !d.contains(':')) it else it.copy(userRejectRules = it.userRejectRules + d)
+    }
+
+    /** 移除快速拦截名单。 */
+    fun removeUserRejectRule(rule: String) = update {
+        it.copy(userRejectRules = it.userRejectRules - rule)
+    }
+
+    /** 把内置 app/服务组在规则页「放行 ↔ 拦截」两行间移动（拦截行=该组域名进 reject 表）。 */
+    fun setGroupRejected(id: String, rejected: Boolean) = update {
+        it.copy(rejectedGroups = if (rejected) it.rejectedGroups + id else it.rejectedGroups - id)
+    }
+
+    /** 切换用户自建集的动作（放行 ↔ 拦截），规则页两行 ⇄ 徽标用。 */
+    fun setRuleSetAction(id: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction) = update {
+        it.copy(userRuleSets = it.userRuleSets.map { s -> if (s.id == id) s.copy(action = action) else s })
     }
 
     fun removeUserDirectRule(domain: String) {
@@ -196,6 +217,17 @@ class MainViewModel @Inject constructor(
     /** 恢复内置集为默认（删除覆盖）。 */
     fun clearGroupOverride(groupId: String) = update {
         it.copy(ruleSetOverrides = it.ruleSetOverrides - groupId)
+    }
+
+    /** 设置某 host 的三态覆盖（最高优先级：误拦救济/手动指定）；host 支持泛域名/IP/CIDR。 */
+    fun setHostOverride(host: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction) = update {
+        val h = host.trim().lowercase()
+        if (h.isEmpty()) it else it.copy(hostOverrides = it.hostOverrides + (h to action))
+    }
+
+    /** 移除某 host 的覆盖（回归默认规则链）。 */
+    fun clearHostOverride(host: String) = update {
+        it.copy(hostOverrides = it.hostOverrides - host.trim().lowercase())
     }
 
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }

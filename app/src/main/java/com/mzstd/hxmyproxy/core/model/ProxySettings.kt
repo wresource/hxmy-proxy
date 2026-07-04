@@ -36,10 +36,16 @@ data class ProxySettings(
     val userDirectEnabled: Boolean = true,
     /** 用户自定义直连白名单（域名后缀；优先级最高，防误杀）。规则页第一模块的快速白名单。 */
     val userDirectRules: Set<String> = emptySet(),
+    /** 用户自定义快速拦截名单（域名/IP/CIDR）；进 userReject 表，优先级次于白名单、高于内置。 */
+    val userRejectRules: Set<String> = emptySet(),
+    /** 被切成「拦截」动作的内置 app/服务组 id（规则页两行式：位于拦截行的内置组）。 */
+    val rejectedGroups: Set<String> = emptySet(),
     /** 用户自建命名规则集（规则集管理界面创建/编辑）。 */
     val userRuleSets: List<com.mzstd.hxmyproxy.core.rules.UserRuleSet> = emptyList(),
     /** 内置集的用户覆盖版（groupId → 域名列表）；有覆盖则装载用它、不读 assets。可「恢复默认」删除。 */
     val ruleSetOverrides: Map<String, List<String>> = emptyMap(),
+    /** per-host 三态覆盖（host → 动作）；最高优先级，误拦救济/手动指定。支持泛域名/IP/CIDR。 */
+    val hostOverrides: Map<String, com.mzstd.hxmyproxy.core.rules.RuleAction> = emptyMap(),
     /** 自定义规则订阅 URL。 */
     val ruleSubscriptionUrls: Set<String> = emptySet(),
 )

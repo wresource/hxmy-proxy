@@ -90,6 +90,7 @@ class Socks5ProxyServer(
         Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
+            tracker?.recordBlocked(ruleHost ?: "?")
             reply(output, 0x02); return
         }
         val bypass = action == RuleAction.DIRECT

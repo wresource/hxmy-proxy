@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy
 import com.mzstd.hxmyproxy.core.rules.DomainSuffixSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
+import com.mzstd.hxmyproxy.core.rules.RuleMatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -53,16 +54,26 @@ class RuleEngineTest {
         val e = RuleEngine()
         e.update(
             RuleEngine.Snapshot(
-                userDirect = DomainSuffixSet().apply { addSuffix("ads.allow.com") },  // 用户放行
-                reject = DomainSuffixSet().apply { addSuffix("ads.allow.com"); addSuffix("ad.net") },
-                direct = DomainSuffixSet().apply { addSuffix("cn.example") },
-                proxy = DomainSuffixSet().apply { addSuffix("google.com") },
+                ovrReject = RuleMatcher().apply { add("ovr.reject.com") },              // per-host 覆盖：最高优先
+                userDirect = RuleMatcher().apply { add("ads.allow.com"); add("ovr.reject.com") },  // 用户放行
+                reject = RuleMatcher().apply { add("ads.allow.com"); add("ad.net") },
+                direct = RuleMatcher().apply { add("cn.example") },
+                proxy = RuleMatcher().apply { add("google.com") },
             ),
         )
+        assertEquals(RuleAction.REJECT, e.decide("x.ovr.reject.com"))  // per-host 覆盖压过用户白名单（最高优先）
         assertEquals(RuleAction.DIRECT, e.decide("x.ads.allow.com"))  // 用户白名单覆盖广告
         assertEquals(RuleAction.REJECT, e.decide("track.ad.net"))    // 广告 REJECT
         assertEquals(RuleAction.DIRECT, e.decide("www.cn.example"))  // 直连大类
         assertEquals(RuleAction.PROXY, e.decide("mail.google.com"))  // 代理大类
         assertEquals(RuleAction.PROXY, e.decide("unknown.org"))      // 兜底代理
+    }
+
+    @Test fun matcherSupportsWildcardDomain() {
+        val m = RuleMatcher().apply { add("*.example.com"); add("bare.net") }
+        assertTrue(m.matches("a.example.com"))
+        assertTrue(m.matches("example.com"))   // *. 前缀去掉后后缀语义含自身
+        assertTrue(m.matches("bare.net"))
+        assertFalse(m.matches("other.org"))
     }
 }

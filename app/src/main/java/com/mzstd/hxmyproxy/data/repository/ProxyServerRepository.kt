@@ -214,6 +214,8 @@ class ProxyServerRepository @Inject constructor(
                         signalDbm = sig.dbm,
                         clients = snap.clients,
                         topDomains = snap.topDomains,
+                        blockedTotal = snap.blockedTotal,
+                        topBlockedDomains = snap.topBlocked,
                     )
                 }
             }

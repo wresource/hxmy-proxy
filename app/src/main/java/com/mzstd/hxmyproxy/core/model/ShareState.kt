@@ -30,6 +30,10 @@ data class ShareState(
     val clients: List<ClientSession> = emptyList(),
     /** 目标域名流量 Top-N（按上下行总字节降序）；隐私上只含 host + 协议 + 字节。 */
     val topDomains: List<DomainTraffic> = emptyList(),
+    /** 本次共享会话累计的拦截总次数（广告/拒绝规则命中）。 */
+    val blockedTotal: Long = 0,
+    /** 被拦截域名 Top-N（host + 命中次数）。 */
+    val topBlockedDomains: List<BlockedDomain> = emptyList(),
     val diagnostics: DiagnosticsSummary = DiagnosticsSummary(),
     /** 当前活跃连接数。 */
     val activeConnections: Int = 0,

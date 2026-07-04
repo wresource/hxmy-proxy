@@ -90,6 +90,7 @@ class HttpProxyServer(
         Log.i("hxmyproxy", "RULE CONNECT ${hp.first} -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(hp.first, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
+            tracker?.recordBlocked(hp.first)
             writeStatus(output, 403, "Blocked"); return
         }
         val bypass = action == RuleAction.DIRECT
@@ -156,6 +157,7 @@ class HttpProxyServer(
         Log.i("hxmyproxy", "RULE HTTP $host -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
+            tracker?.recordBlocked(host)
             writeStatus(output, 403, "Blocked"); return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")

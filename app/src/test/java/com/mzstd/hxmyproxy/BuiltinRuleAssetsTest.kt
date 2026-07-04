@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy
 
 import com.mzstd.hxmyproxy.core.rules.DomainSuffixSet
+import com.mzstd.hxmyproxy.core.rules.RuleMatcher
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import org.junit.Assert.assertEquals
@@ -77,11 +78,11 @@ class BuiltinRuleAssetsTest {
     /** 端到端：把内置直连组灌进 RuleEngine，decide() 对命中域名返回 DIRECT、其余兜底 PROXY。 */
     @Test
     fun ruleEngineDecidesDirectForBuiltinDirectGroups() {
-        val direct = DomainSuffixSet()
+        val direct = RuleMatcher()
         // 模拟 RuleRepository：把多个已启用直连组合并进 direct 集
         listOf("app-tencent.txt", "app-icbc.txt", "app-mihoyo.txt").forEach { f ->
             File(assetsDir, f).forEachLine { line ->
-                val d = line.trim(); if (d.isNotEmpty() && d[0] != '#') direct.addSuffix(d)
+                val d = line.trim(); if (d.isNotEmpty() && d[0] != '#') direct.add(d)
             }
         }
         val engine = RuleEngine()

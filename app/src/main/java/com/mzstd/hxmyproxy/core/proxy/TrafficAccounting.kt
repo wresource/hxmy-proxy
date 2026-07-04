@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import com.mzstd.hxmyproxy.core.model.BlockedDomain
 import com.mzstd.hxmyproxy.core.model.ClientSession
 import com.mzstd.hxmyproxy.core.model.DomainTraffic
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
@@ -29,6 +30,9 @@ class TrafficAccounting(
     private val perClient = ConcurrentHashMap<InetAddress, Acc>()
     // 按「域名 × 协议」聚合：键含协议，故同域名不同协议分桶 → 监控能体现"哪个域名走哪个协议"。
     private val perDomain = ConcurrentHashMap<DomainKey, Acc>()
+    // 拦截计数：命中 REJECT（广告/用户拒绝）的总次数与被拦域名 Top-N；会话内累计，reset 清零。
+    private val blocked = LongAdder()
+    private val perBlocked = ConcurrentHashMap<String, LongAdder>()
     // 上次快照各 IP 累计，用于在单线程 ticker 内做 1s 速率差分（仅 ticker 访问，无需同步）。
     private val lastClientBytes = HashMap<InetAddress, LongArray>()
 
@@ -74,6 +78,14 @@ class TrafficAccounting(
             clientAcc.conns.decrement()
             domainAcc?.conns?.decrement()
         }
+
+        /** 命中 REJECT（广告/拒绝规则）时调用一次：计入拦截总数与被拦域名 Top-N（域名表封顶 [maxDomains]）。 */
+        fun recordBlocked(host: String) {
+            blocked.increment()
+            val key = host.lowercase()
+            (perBlocked[key] ?: if (perBlocked.size >= maxDomains) null
+                else perBlocked.computeIfAbsent(key) { LongAdder() })?.increment()
+        }
     }
 
     /** 单线程 ticker 调用：产出客户端会话与域名 Top-N 快照（客户端含 1s 窗口速率差分）。 */
@@ -100,7 +112,10 @@ class TrafficAccounting(
         val domains = perDomain.values.map { a ->
             DomainTraffic(a.key, a.protocol ?: ProxyProtocol.HTTP, a.up.sum(), a.down.sum(), a.conns.sum().coerceAtLeast(0), a.lastSeen, a.direct)
         }.sortedByDescending { it.uploadBytes + it.downloadBytes }.take(topN)
-        return Snapshot(clients, domains)
+        // 被拦域名不按 topN 截断：完整返回（≤ maxDomains），供拦截明细页排查误封；首页/监控 UI 层各自 take。
+        val topBlocked = perBlocked.map { (h, c) -> BlockedDomain(h, c.sum()) }
+            .sortedByDescending { it.count }
+        return Snapshot(clients, domains, blocked.sum(), topBlocked)
     }
 
     /** 移除空闲超 [idleMs] 且无活跃连接的条目（"(其他)" 桶保留）。在 ticker 顺带调用。 */
@@ -113,10 +128,16 @@ class TrafficAccounting(
     /** 会话边界清零（start/stop 调用）。 */
     fun reset() {
         perClient.clear(); perDomain.clear()
+        blocked.reset(); perBlocked.clear()
         lastClientBytes.clear()
     }
 
-    class Snapshot(val clients: List<ClientSession>, val topDomains: List<DomainTraffic>)
+    class Snapshot(
+        val clients: List<ClientSession>,
+        val topDomains: List<DomainTraffic>,
+        val blockedTotal: Long = 0,
+        val topBlocked: List<BlockedDomain> = emptyList(),
+    )
 
     /** 域名聚合键：host + 协议，同域名不同协议分别成桶。 */
     private data class DomainKey(val host: String, val protocol: ProxyProtocol)
