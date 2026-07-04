@@ -75,8 +75,9 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 when (page) {
                     0 -> WelcomePage()
                     1 -> WhoForPage()
-                    2 -> ThreeStepsPage()
-                    3 -> WhyChoosePage()
+                    2 -> DualModePage()
+                    3 -> ThreeStepsPage()
+                    4 -> WhyChoosePage()
                     else -> PermissionPage(onAllow = ::requestPermsThenFinish, onLater = onFinish)
                 }
             }
@@ -147,6 +148,14 @@ private fun WhoForPage() {
 }
 
 @Composable
+private fun DualModePage() {
+    Title(R.string.ob_dual_title)
+    Body(R.string.ob_dual_body)
+    InfoCard(R.string.ob_dual_c1_title, R.string.ob_dual_c1_body)
+    InfoCard(R.string.ob_dual_c2_title, R.string.ob_dual_c2_body)
+}
+
+@Composable
 private fun ThreeStepsPage() {
     Title(R.string.ob3_title)
     StepRow("1", R.string.ob3_s1_title, R.string.ob3_s1_body)
@@ -194,4 +203,4 @@ private fun PermissionPage(onAllow: () -> Unit, onLater: () -> Unit) {
     TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ob5_later)) }
 }
 
-private const val PAGES = 5
+private const val PAGES = 6

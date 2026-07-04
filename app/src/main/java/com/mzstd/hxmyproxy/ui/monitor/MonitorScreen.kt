@@ -340,6 +340,15 @@ fun MonitorScreen(
                                 stringResource(if (item.up) R.string.diag_battery_unrestricted else R.string.diag_battery_restricted), c,
                             )
                         }
+                        item.label == R.string.diag_vpn -> {
+                            // VPN 出口是「环境事实」而非故障:有 VPN=共享出口(绿✓);没 VPN=过滤网关模式(中性「—」,不标红)。
+                            val c = if (item.up) StatusColors.good() else MaterialTheme.colorScheme.onSurfaceVariant
+                            GridCell(
+                                cellMod, if (item.up) "✓" else "—", c.copy(alpha = if (item.up) 0.18f else 0.14f), c,
+                                stringResource(item.label),
+                                stringResource(if (item.up) R.string.diag_vpn_sharing else R.string.diag_vpn_gateway), c,
+                            )
+                        }
                         else -> {
                             val c = if (item.up) StatusColors.good() else StatusColors.bad()
                             GridCell(
@@ -367,7 +376,7 @@ fun MonitorScreen(
                 if (!ui.share.vpn.detected) {
                     Text(
                         stringResource(R.string.monitor_novpn_hint),
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -449,6 +458,34 @@ fun MonitorScreen(
                     }
                     if (sorted.size > 5) {
                         ExpandCollapseButton(domainsExpanded, sorted.size) { domainsExpanded = !domainsExpanded }
+                    }
+                }
+            }
+        }
+
+        // —— 已拦截（广告/拒绝规则命中；会话内累计）——
+        item {
+            GroupCard(stringResource(R.string.monitor_blocked)) {
+                if (ui.share.blockedTotal <= 0L) {
+                    Text(
+                        stringResource(R.string.monitor_no_blocked),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.protection_blocked_count, ui.share.blockedTotal),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = StatusColors.good(),
+                    )
+                    ui.share.topBlockedDomains.take(8).forEach { b ->
+                        DataRow(
+                            dotBg = MaterialTheme.colorScheme.errorContainer,
+                            dotFg = MaterialTheme.colorScheme.onErrorContainer,
+                            dotText = (b.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
+                            title = b.host,
+                            value = "×${b.count}",
+                        )
                     }
                 }
             }

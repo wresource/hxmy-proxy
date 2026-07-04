@@ -55,6 +55,9 @@ import com.mzstd.hxmyproxy.ui.help.HelpScreen
 import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
+import com.mzstd.hxmyproxy.ui.protection.BlockedDetailScreen
+import com.mzstd.hxmyproxy.ui.protection.ProtectionScreen
+import com.mzstd.hxmyproxy.ui.rules.QuickRulesDetailScreen
 import com.mzstd.hxmyproxy.ui.rules.RuleSetEditScreen
 import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
 import com.mzstd.hxmyproxy.ui.rules.RulesScreen
@@ -169,9 +172,38 @@ fun AppRoot(viewModel: MainViewModel) {
                         }
                     },
                 ) {
-                    composable(NavTab.DASHBOARD.route) { DashboardScreen(ui, viewModel, padding) }
+                    composable(NavTab.DASHBOARD.route) {
+                        DashboardScreen(
+                            ui, viewModel,
+                            onOpenProtection = { navController.navigate(NavTab.PROTECTION.route) },
+                            contentPadding = padding,
+                        )
+                    }
+                    composable(NavTab.PROTECTION.route) {
+                        ProtectionScreen(
+                            ui, viewModel,
+                            onOpenBlockedDetail = { navController.navigate("blocked_detail") },
+                            contentPadding = padding,
+                        )
+                    }
+                    composable("blocked_detail") {
+                        BlockedDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
+                    }
                     composable(NavTab.RULES.route) {
-                        RulesScreen(ui, viewModel, onManage = { navController.navigate("ruleset_manager") }, contentPadding = padding)
+                        RulesScreen(
+                            ui,
+                            viewModel,
+                            onManage = { navController.navigate("ruleset_manager") },
+                            onOpenRejectDetail = { navController.navigate("quick_rules_reject") },
+                            onOpenDirectDetail = { navController.navigate("quick_rules_direct") },
+                            contentPadding = padding,
+                        )
+                    }
+                    composable("quick_rules_reject") {
+                        QuickRulesDetailScreen(reject = true, ui = ui, viewModel = viewModel, onBack = { navController.popBackStack() })
+                    }
+                    composable("quick_rules_direct") {
+                        QuickRulesDetailScreen(reject = false, ui = ui, viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(NavTab.MONITOR.route) {
                         MonitorScreen(

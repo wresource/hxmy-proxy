@@ -300,6 +300,7 @@ private fun PortField(
         onValueChange = { new -> text = new.filter(Char::isDigit).take(5) },
         label = { Text(label) },
         singleLine = true,
+        shape = MaterialTheme.shapes.large,
         isError = invalid || bindError,
         supportingText = {
             val msg = when {
@@ -348,6 +349,7 @@ private fun AuthCredentials(
         onValueChange = { username = it },
         label = { Text(stringResource(R.string.auth_username)) },
         singleLine = true,
+        shape = MaterialTheme.shapes.large,
         isError = username.isBlank(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         modifier = Modifier
@@ -359,6 +361,7 @@ private fun AuthCredentials(
         onValueChange = { password = it },
         label = { Text(stringResource(R.string.auth_password)) },
         singleLine = true,
+        shape = MaterialTheme.shapes.large,
         isError = password.isBlank(),
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -418,8 +421,8 @@ private fun NavBarEditor(hiddenTabs: Set<String>, onSetHidden: (String, Boolean)
                 modifier = Modifier.weight(1f),
             )
         }
-        // 少于 4 个时补空位，保持格宽稳定不跳动。
-        repeat(4 - visible.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+        // 少于总数时补空位，保持格宽稳定不跳动（按全部 tab 数，随 NavTab 增减自适应）。
+        repeat(com.mzstd.hxmyproxy.ui.NavTab.entries.size - visible.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
     }
 
     Text(
@@ -446,7 +449,7 @@ private fun NavBarEditor(hiddenTabs: Set<String>, onSetHidden: (String, Boolean)
                     modifier = Modifier.weight(1f),
                 )
             }
-            repeat(4 - hidden.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+            repeat(com.mzstd.hxmyproxy.ui.NavTab.entries.size - hidden.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
         }
     }
     Text(
