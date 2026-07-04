@@ -520,8 +520,9 @@ private fun StatusTile(
 }
 
 /**
- * 横屏竖向主按钮：窄长条填满高度、文字竖排（每字一行），贴导航 rail 右侧不占内容区、
- * 不在滚动区内避免误触。颜色状态与水平版一致（蓝=开始 ↔ 浅红=停止,弹簧过渡）。
+ * 横屏竖向主按钮：窄长条填满高度，贴导航 rail 右侧不占内容区、不在滚动区内避免误触。
+ * 内容用 ▶/■ 图标而非文字——逐字竖排只适合中文，英文 "Stop sharing" 逐字母竖排不可读
+ * （双语检查原则，用户决策改图标）。颜色状态与水平版一致（蓝=开始 ↔ 浅红=停止,弹簧过渡）。
  */
 @Composable
 private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifier: Modifier = Modifier) {
@@ -537,14 +538,11 @@ private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifi
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            stringResource(if (running) R.string.stop_sharing else R.string.start_sharing).forEach { ch ->
-                Text(ch.toString(), style = MaterialTheme.typography.titleMedium)
-            }
-        }
+        androidx.compose.material3.Icon(
+            androidx.compose.ui.res.painterResource(if (running) R.drawable.ic_stop else R.drawable.ic_play),
+            contentDescription = stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
+            modifier = Modifier.size(28.dp),
+        )
     }
 }
 

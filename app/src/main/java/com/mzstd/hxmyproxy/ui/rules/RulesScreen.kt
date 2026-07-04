@@ -249,8 +249,13 @@ private fun QuickRuleCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                OutlinedButton(onClick = { onRemove(rule) }, shape = MaterialTheme.shapes.large) {
-                    Text(stringResource(R.string.rules_remove))
+                // 删除用图标按钮：Remove/移除 文字宽度随语言变化导致一列参差（双语检查原则）。
+                androidx.compose.material3.IconButton(onClick = { onRemove(rule) }) {
+                    Icon(
+                        painterResource(R.drawable.ic_delete),
+                        contentDescription = stringResource(R.string.rules_remove),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

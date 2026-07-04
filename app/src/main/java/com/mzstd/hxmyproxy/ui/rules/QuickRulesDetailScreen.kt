@@ -111,8 +111,13 @@ fun QuickRulesDetailScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    OutlinedButton(onClick = { remove(rule) }, shape = MaterialTheme.shapes.large) {
-                        Text(stringResource(R.string.rules_remove))
+                    // 与 QuickRuleCard 同款：删除用图标按钮，跨语言等宽（双语检查原则）。
+                    androidx.compose.material3.IconButton(onClick = { remove(rule) }) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.ui.res.painterResource(R.drawable.ic_delete),
+                            contentDescription = stringResource(R.string.rules_remove),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
