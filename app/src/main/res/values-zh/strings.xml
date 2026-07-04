@@ -218,6 +218,7 @@
     <string name="protect_works_always">有没有 VPN 都生效</string>
     <string name="rules_manage_all">管理全部（%1$d）</string>
     <string name="rules_list_empty">还没有条目</string>
+    <string name="monitor_others">(其他)</string>
     <string name="blocked_detail_title">拦截明细</string>
     <string name="save">保存</string>
     <string name="override_current">当前：%1$s</string>

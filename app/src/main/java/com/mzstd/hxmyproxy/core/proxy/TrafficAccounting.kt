@@ -150,7 +150,8 @@ class TrafficAccounting(
         @Volatile var direct = false
     }
 
-    private companion object {
+    companion object {
+        /** 域名统计满员后的聚合兜底桶名（运行时常量键）；UI 显示时按语言本地化，勿直接展示。 */
         const val OTHERS = "(其他)"
     }
 }

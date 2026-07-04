@@ -218,6 +218,7 @@
     <string name="protect_works_always">Works with or without a VPN</string>
     <string name="rules_manage_all">Manage all (%1$d)</string>
     <string name="rules_list_empty">No entries yet</string>
+    <string name="monitor_others">(others)</string>
     <string name="blocked_detail_title">Blocked list</string>
     <string name="save">Save</string>
     <string name="override_current">Currently: %1$s</string>

@@ -443,11 +443,15 @@ fun MonitorScreen(
                     val shown = if (domainsExpanded) sorted else sorted.take(5)
                     shown.forEach { d ->
                         val (bg, fg) = protocolPair(d.protocol.name)
+                        // "(其他)" 聚合桶是运行时常量,显示时本地化(英文界面不冒中文,双语检查原则)。
+                        val hostLabel = if (d.host == com.mzstd.hxmyproxy.core.proxy.TrafficAccounting.OTHERS) {
+                            stringResource(R.string.monitor_others)
+                        } else d.host
                         DataRow(
                             dotBg = bg,
                             dotFg = fg,
-                            dotText = (d.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                            title = d.host,
+                            dotText = (hostLabel.firstOrNull()?.uppercaseChar() ?: '?').toString(),
+                            title = hostLabel,
                             // 「直连」标识:规则白名单命中的域名流量绕过 VPN 直连出口(仍经本代理转发,
                             // 故仍出现在监控)——有了标识,规则是否生效一眼可见。
                             subtitle = if (d.direct) {
