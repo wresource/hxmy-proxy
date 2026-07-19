@@ -30,21 +30,29 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 - 同一 Wi‑Fi / 手机热点 / USB 网络共享 / 以太网下，一台设备借另一台的网络通道。
 - 需要对部分流量分流（直连/拦截/走代理）与广告拦截的轻量网关。
 
-## 3. 功能模块（四屏）
+## 3. 功能模块（五屏）
 
 | 屏 | 内容 |
 |---|---|
-| **主页 Dashboard** | 大字运行状态（共享中/已停止 + 状态点）；入口配置卡（HTTP/PAC 地址 + 复制 + 扫码配置 QR）；可分享接口卡（每接口一个开关）；开始/停止共享按钮（竖屏悬浮、横屏竖排 rail）。 |
-| **监控 Monitor** | 诊断三态网格（本地网络权限/VPN 出口/通知/电池/HTTP/SOCKS5/PAC 端口）；服务延迟（12 个海外服务，逐格进度式测量，三态：测量中/超时/值）；客户端列表；目标域名 Top N（协议色圆点 + 直连标识）；历史/日志入口。 |
-| **规则 Rules** | ① IP/域名白名单（直连，绕过共享 VPN，监控标「直连」）；② App 与服务规则集（一键分流 + 管理页增删集/域名）；③ 广告拦截（每表开关 + 用户白名单覆盖）。内置 64 组 5437 域名。 |
-| **设置 Settings** | 语言（System/English/中文）、外观（System/浅色/深色）、性能预设（low/medium/high/自定义）+ 连接上限/缓冲/超时可调；端口、认证、诊断入口。 |
+| **主页 Dashboard** | 第一排「共享 \| 防护」双状态 tile（三态：已停止/未就绪/分享中，红/黄/绿）；入口配置卡（HTTP/PAC 地址 + 复制 + 扫码 QR）；**可分享接口卡（入口，每接口一开关）**；**出口网络卡（出口选择器：Auto / VPN / Wi-Fi / 蜂窝 / 以太网-USB，离线置灰、VPN 冲突警示）**；开始/停止按钮（竖屏悬浮、横屏竖排 rail）。 |
+| **防护 Protection** | 独立 tab：本会话拦截总数大字 + 广告拦截开关 + 拦截明细入口；**拦截明细页按命中次数降序**（排查误封）；点任一域名弹**三态救济弹窗**（走代理/直连/拦截，最高优先级覆盖）。有无 VPN 都生效。 |
+| **监控 Monitor** | 诊断三态网格（本地网络权限/VPN 出口/通知/电池/HTTP/SOCKS5/PAC 端口）；服务延迟测量；客户端列表；目标域名 Top N（协议色圆点 + 直连标识）；历史/错误日志入口。 |
+| **规则 Rules** | 语义重组为 **🛡️拦截(Reject) / 🌐放行(Bypass)** 两大模块：快速拦截（域名/IP/CIDR）、白名单直连、App/服务规则集两行式（一键在放行/拦截间移）。内置 64 组 5437 域名；per-host 三态覆盖。 |
+| **设置 Settings** | 语言、外观、性能预设 + 连接上限/缓冲/超时；端口、协议开关、**备用 DNS（DoH）开关**、认证、诊断。 |
 
 ## 4. 技术架构
 
 - **代理核心**：HTTP/HTTPS CONNECT + SOCKS5（可选认证、反 SSRF）+ PAC server。relay 已从阻塞多线程
   改为 **NIO 非阻塞**（2 selector 取代 128 线程，见 [proxy-relay-nonblocking-plan.md](./proxy-relay-nonblocking-plan.md)）。
-  出站不绑网 + fail-closed + 出口自检；IPv4 优先 / dnsCache / Happy Eyeballs / TCP_NODELAY。
-- **网络与准入**：监听底层网络 IP 变化、接口枚举/分类、VPN 检测与出口复用、`0.0.0.0` + 来源准入。
+  IPv4 优先 / dnsCache / Happy Eyeballs / TCP_NODELAY。
+- **规则引擎**：`RuleEngine.decide(host)` 短路优先级链——per-host 三态覆盖 > 用户白名单 > 快速拦截 >
+  内置广告 > app 直连组 > 默认 PROXY。支持泛域名 / IP 字面量 / **CIDR**（`InetAddresses` 前缀匹配，不查 DNS）。
+- **出口选择器**：`UnderlyingNetworkProvider` 多网络句柄提供者（WiFi/蜂窝/以太网/VPN 各 `registerNetworkCallback`），
+  PROXY 出站按用户选择 **per-socket 绑定**（`Network.socketFactory` / `bindSocket` / `getAllByName`，官方推荐）；
+  选物理出口时 `requestNetwork` 拉起保活。DIRECT 分流仍绑底层物理网络绕 VPN。
+- **DNS 三层防线**：系统解析双路互援（默认网络 ↔ 底层 WiFi，换 netId 绕负缓存）→ **DoH 备援**
+  （8.8.8.8 / 1.1.1.1，IP 直连 443）；上游失败按路径分类落 FileLog（可导出自证）。
+- **网络与准入**：接口枚举/分类、VPN 检测、`0.0.0.0` 监听 + **fail-closed 来源准入**（不选网段=全拒 + 收缩即时清扫在途）。
 - **服务与权限**：前台服务 `connectedDevice`；Android 10–17 权限（`ACCESS_LOCAL_NETWORK` day-one 硬门）；
   加密凭据存储（DataStore）。
 - **UI**：Jetpack Compose + Material 3；Candy Azure 蓝配色（明暗分色）；共享组件 `SharedUi.kt`
@@ -62,8 +70,12 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 - **1.0–1.1.x**：V1 基线（四屏、代理核心、mDNS→后移除）+ 打磨加固（日志降噪、端口重试、Splash、Baseline Profile）。
 - **1.2.x**：relay NIO 非阻塞；蜂窝/热点场景改进；换 Wi‑Fi 中断根因修复；PAC 展示链路 + 移除 mDNS。
 - **1.3.x**：UI 蓝粉→Candy Azure 配色重构。
-- **1.5.x**：内置规则 64 组；预测性返回根因修复 + 延迟逐格刷新 + 青春配色；
-  **UI 一致性打磨 + 抽 4 共享组件**（见 [v1.5-ui-consistency.md](./v1.5-ui-consistency.md)，当前 1.5.21）。
+- **1.5.x**：内置规则 64 组；预测性返回根因修复 + 延迟逐格刷新 + 青春配色；UI 一致性打磨 + 抽 4 共享组件。
+- **1.6–1.8.x**：规则系统 reject/bypass 双模块重构 + CIDR + per-host 三态覆盖；独立防护 tab（拦截明细 + 三态救济）；
+  首页双状态 tile + 三态；全面中英双语打磨（扫码页/横屏按钮/图标）；
+  **准入 fail-closed**（不选网段=全拒 + 在途清扫）；**DNS 三层防线 + DoH 备援**。
+- **1.9.0**：**出口网络选择器**（Auto/VPN/Wi-Fi/蜂窝/以太网-USB，代理出站可选走哪张网，per-socket 绑定）——
+  当前版本（versionCode 81，见 [multi-network 调研](./)）。
 
 ## 7. 文档索引
 
