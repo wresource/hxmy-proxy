@@ -147,7 +147,9 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     }
 
     private fun sweepIdle(now: Long) {
-        tunnels.toList().forEach { if (it.idleExpired(now)) it.close(this) }
+        // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
+        // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
+        tunnels.toList().forEach { if (it.idleExpired(now) || it.externallyClosed()) it.close(this) }
     }
 }
 
@@ -250,6 +252,9 @@ private class Tunnel(
     }
 
     fun idleExpired(now: Long): Boolean = idleMs > 0 && (now - lastActivity) > idleMs * 1_000_000L
+
+    /** 任一端已被外部关闭（准入收缩 evict 等）——隧道应拆，由 sweep 周期兜底调用。 */
+    fun externallyClosed(): Boolean = !cCtx.channel.isOpen || !uCtx.channel.isOpen
 
     private fun touch() { lastActivity = System.nanoTime() }
 

@@ -60,6 +60,9 @@ interface ProxyServer {
     fun start(scope: CoroutineScope, port: Int)
 
     fun stop()
+
+    /** 主动断开不再满足准入的在途连接（准入集合收缩时调用；监听与仍合法的连接不受影响）。 */
+    fun evictNotAdmitted(admit: (local: InetAddress, remote: InetAddress) -> Boolean) {}
 }
 
 /**
@@ -192,6 +195,22 @@ abstract class TcpProxyServerBase(
         inFlight.clear()
         _boundPort.value = null
         _bindError.value = null
+    }
+
+    override fun evictNotAdmitted(admit: (InetAddress, InetAddress) -> Boolean) {
+        // 判定口径与 accept 准入完全一致（local 地址）。已关闭的 channel 跳过（等 handle/reactor sweep 清理，
+        // 反复 close 只会刷日志）。NIO 隧道裸 close 不产生 selector 事件，reactor sweep 的
+        // externallyClosed 检测会在 ≤1 周期内拆干净并 resume 协程。
+        inFlight.toList().forEach { ch ->
+            if (!ch.isOpen) return@forEach
+            val sock = runCatching { ch.socket() }.getOrNull()
+            val local = (sock?.localSocketAddress as? InetSocketAddress)?.address
+            val remote = (sock?.remoteSocketAddress as? InetSocketAddress)?.address
+            if (local == null || remote == null || !admit(local, remote)) {
+                Log.i(TAG, "$protocol evict ${remote?.hostAddress ?: "?"} (准入集收缩)")
+                ch.closeQuietly()
+            }
+        }
     }
 
     /**

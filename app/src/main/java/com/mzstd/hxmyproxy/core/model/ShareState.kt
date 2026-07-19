@@ -27,6 +27,8 @@ data class ShareState(
     val localNetworkPermissionGranted: Boolean = false,
     val interfaces: List<ShareInterface> = emptyList(),
     val recommendedEntries: List<ProxyEntry> = emptyList(),
+    /** 准入允许集为空（未选任何网段/所选接口全消失）——即使运行中也拒绝所有新连接（fail-closed）。 */
+    val admissionEmpty: Boolean = true,
     val clients: List<ClientSession> = emptyList(),
     /** 目标域名流量 Top-N（按上下行总字节降序）；隐私上只含 host + 协议 + 字节。 */
     val topDomains: List<DomainTraffic> = emptyList(),
