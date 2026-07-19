@@ -80,7 +80,8 @@ class OutboundConnector(
 
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(host: String, port: Int, bypassVpn: Boolean = false): Socket {
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
         if (bypassVpn && network == null) {
             android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
         }
@@ -192,7 +193,8 @@ class OutboundConnector(
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(addr: InetAddress, port: Int, bypassVpn: Boolean = false): Socket {
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
         return connectAny(listOf(addr), port, network)
     }
 
@@ -203,7 +205,8 @@ class OutboundConnector(
      * 调用方应回退到阻塞 [connect] + 阻塞 relay。
      */
     suspend fun connectChannel(host: String, port: Int, bypassVpn: Boolean = false): SocketChannel {
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
         if (bypassVpn && network == null) {
             android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
         }
@@ -223,7 +226,8 @@ class OutboundConnector(
 
     /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
     suspend fun connectChannel(addr: InetAddress, port: Int, bypassVpn: Boolean = false): SocketChannel {
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
+        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
+        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
         return connectAnyChannel(listOf(addr), port, network)
     }
 

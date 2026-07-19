@@ -18,6 +18,14 @@ data class DiagnosticsSummary(
     val batteryOptimizationIgnored: Boolean = false,
 )
 
+/** 各出口 transport 当前在线状态（Dashboard 出口选择卡据此置灰不可用项）。 */
+data class EgressStatus(
+    val wifi: Boolean = false,
+    val cellular: Boolean = false,
+    val ethernet: Boolean = false,
+    val vpn: Boolean = false,
+)
+
 /**
  * 应用对外暴露的聚合状态（单一数据源在 Core，节流后以不可变快照流向 UI）。
  */
@@ -51,6 +59,8 @@ data class ShareState(
     val portBindErrors: Set<ProxyProtocol> = emptySet(),
     /** 疑似系统 VPN lockdown（「阻止无 VPN 连接」）拦了出口分流：底层网络连不通但 VPN 能连。 */
     val lockdownSuspected: Boolean = false,
+    /** 各出口网络在线状态（出口选择卡）。 */
+    val egressStatus: EgressStatus = EgressStatus(),
     /** 走蜂窝上网且没有可共享入口（没开热点）：提示用户「开启个人热点后才能共享」。 */
     val needsHotspotHint: Boolean = false,
 )

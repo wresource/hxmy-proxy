@@ -10,7 +10,7 @@ import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ShareState
-import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
@@ -236,7 +236,7 @@ class MainViewModel @Inject constructor(
     fun setCredentials(username: String, password: String) {
         viewModelScope.launch { credentialStore.update(username.trim(), password) }
     }
-    fun setVpnStrategy(s: VpnDownStrategy) = update { it.copy(vpnDownStrategy = s) }
+    fun setEgressChoice(c: EgressNetworkChoice) = update { it.copy(egressChoice = c) }
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
 
     fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }

@@ -50,7 +50,6 @@ import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ThemeMode
-import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
@@ -74,12 +73,6 @@ private fun PerformancePreset.labelRes() = when (this) {
     PerformancePreset.BALANCED -> R.string.preset_balanced
     PerformancePreset.HIGH_THROUGHPUT -> R.string.preset_high
     PerformancePreset.CUSTOM -> R.string.preset_custom
-}
-
-private fun VpnDownStrategy.labelRes() = when (this) {
-    VpnDownStrategy.CONTINUE -> R.string.vpn_continue
-    VpnDownStrategy.BLOCK -> R.string.vpn_block
-    VpnDownStrategy.WARN -> R.string.vpn_warn
 }
 
 @Composable
@@ -164,10 +157,6 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-        }
-
-        SettingsGroup(stringResource(R.string.settings_vpn_strategy)) {
-            ChipRow(VpnDownStrategy.entries, s.vpnDownStrategy, { stringResource(it.labelRes()) }, viewModel::setVpnStrategy)
         }
 
         SettingsGroup(stringResource(R.string.settings_privacy)) {

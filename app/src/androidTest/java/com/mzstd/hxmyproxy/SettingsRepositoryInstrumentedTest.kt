@@ -6,7 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
-import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
@@ -37,7 +37,7 @@ class SettingsRepositoryInstrumentedTest {
                     preset = PerformancePreset.HIGH_THROUGHPUT,
                     limits = PerformancePreset.HIGH_THROUGHPUT.toLimits(),
                     authEnabled = true,
-                    vpnDownStrategy = VpnDownStrategy.WARN,
+                    egressChoice = EgressNetworkChoice.WIFI,
                     blockPrivateLanEgress = true,
                     selectedInterfaceIds = setOf("wlan0/192.168.1.5", "ap0/192.168.43.1"),
                 )
@@ -49,7 +49,7 @@ class SettingsRepositoryInstrumentedTest {
             assertEquals(AppLanguage.CHINESE, s.language)
             assertEquals(PerformancePreset.HIGH_THROUGHPUT, s.preset)
             assertEquals(512, s.limits.maxGlobalConnections)
-            assertEquals(VpnDownStrategy.WARN, s.vpnDownStrategy)
+            assertEquals(EgressNetworkChoice.WIFI, s.egressChoice)
             assertTrue(s.authEnabled)
             assertTrue(s.blockPrivateLanEgress)
             assertTrue(s.selectedInterfaceIds.contains("wlan0/192.168.1.5"))

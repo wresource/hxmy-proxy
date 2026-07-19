@@ -15,9 +15,11 @@ enum class InterfaceType { WIFI, HOTSPOT, USB, BLUETOOTH, ETHERNET, UNKNOWN }
 enum class InterfaceStatus { UP, DOWN }
 
 /**
- * VPN 断开时的策略。默认 [BLOCK]（fail-closed，避免用户误以为还在走 VPN）。
+ * 出站出口网络选择。[AUTO]=跟随系统默认网络（系统 VPN 在即走 VPN，否则物理网络）；
+ * 其余把 PROXY 出站流量 per-socket 绑到对应 transport 的网络，实现「选哪张网出去」。
+ * ⚠️ 系统第三方 VPN 未 allowBypass / lockdown 时，绑物理网络会失败——UI 侧据在线状态提示。
  */
-enum class VpnDownStrategy { CONTINUE, BLOCK, WARN }
+enum class EgressNetworkChoice { AUTO, VPN, WIFI, CELLULAR, ETHERNET }
 
 /** 外观（深浅色）。默认 [SYSTEM] 跟随系统。 */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

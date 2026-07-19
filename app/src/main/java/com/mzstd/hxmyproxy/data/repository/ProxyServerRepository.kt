@@ -255,7 +255,7 @@ class ProxyServerRepository @Inject constructor(
         stopServers()
         mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
-        underlyingNetworkProvider.stop()
+        underlyingNetworkProvider.pause()   // 撤销出口保活但保留监听：停止态出口卡仍显示在线状态
         // 取消本会话全部协程（收集器/ticker）：杜绝停止后 settings 收集器又把监听重启起来。
         sessionScope?.cancel()
         sessionScope = null
@@ -373,11 +373,13 @@ class ProxyServerRepository @Inject constructor(
         val s = settingsRepository.settings.first()
         currentSettings = s
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
+        underlyingNetworkProvider.start()   // 停止态也监听（幂等，不拉起蜂窝）：出口卡显示各网络在线状态
         val perm = localNetworkPermissionManager.isGranted()
         val sig = signalProvider.current()
         _state.update {
             it.copy(
                 interfaces = interfaces,
+                egressStatus = underlyingNetworkProvider.status(),
                 localNetworkPermissionGranted = perm,
                 // 未运行时也写入各协议启用态,否则诊断 enabled 停留默认 true → 关闭的协议被误报红叉(审查发现)。
                 diagnostics = it.diagnostics.copy(
@@ -408,6 +410,7 @@ class ProxyServerRepository @Inject constructor(
         egressGuard.blockPrivateLan = s.blockPrivateLanEgress
         authenticator.enabled = s.authEnabled
         connector.backupDnsEnabled = s.backupDnsEnabled
+        underlyingNetworkProvider.setEgressChoice(s.egressChoice)
     }
 
     /**
@@ -479,6 +482,7 @@ class ProxyServerRepository @Inject constructor(
                 recommendedEntries = entries,
                 admissionEmpty = effective.isEmpty(),
                 needsHotspotHint = needsHotspotHint,
+                egressStatus = underlyingNetworkProvider.status(),
                 signalLevel = sig.level,
                 signalDbm = sig.dbm,
                 diagnostics = st.diagnostics.copy(

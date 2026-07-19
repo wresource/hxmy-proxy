@@ -14,7 +14,8 @@ data class ProxySettings(
     val socksPort: Int = 1080,
     val pacPort: Int = 8899,
     val selectedInterfaceIds: Set<String> = emptySet(),
-    val vpnDownStrategy: VpnDownStrategy = VpnDownStrategy.BLOCK,
+    /** 出站出口网络：AUTO 跟随系统默认（含 VPN）；否则把 PROXY 出站绑到选定 transport 的网络。 */
+    val egressChoice: EgressNetworkChoice = EgressNetworkChoice.AUTO,
     // mDNS 默认关:hxmyproxy.local 系统 API 无法注册(解析不到)、DNS-SD 普通用户用不到,已从 UI 移除、后端不发布。
     val mdnsEnabled: Boolean = false,
     /** 备用 DNS（DoH）：系统解析双路全败后经 8.8.8.8/1.1.1.1 的 DoH 端点兜底重试（IP 直连 443）。 */

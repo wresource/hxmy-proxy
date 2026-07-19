@@ -14,7 +14,7 @@ import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ThemeMode
-import com.mzstd.hxmyproxy.core.model.VpnDownStrategy
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -64,7 +64,7 @@ class SettingsRepository @Inject constructor(
         val SOCKS_PORT = intPreferencesKey("socks_port")
         val PAC_PORT = intPreferencesKey("pac_port")
         val SELECTED = stringSetPreferencesKey("selected_interface_ids")
-        val VPN_STRATEGY = stringPreferencesKey("vpn_down_strategy")
+        val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val MDNS = booleanPreferencesKey("mdns_enabled")
         val AUTH = booleanPreferencesKey("auth_enabled")
         val BLOCK_PRIVATE = booleanPreferencesKey("block_private_lan")
@@ -109,7 +109,7 @@ class SettingsRepository @Inject constructor(
             socksPort = this[SOCKS_PORT] ?: d.socksPort,
             pacPort = this[PAC_PORT] ?: d.pacPort,
             selectedInterfaceIds = this[SELECTED] ?: d.selectedInterfaceIds,
-            vpnDownStrategy = this[VPN_STRATEGY]?.let { runCatching { VpnDownStrategy.valueOf(it) }.getOrNull() } ?: d.vpnDownStrategy,
+            egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             mdnsEnabled = this[MDNS] ?: d.mdnsEnabled,
             backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
             authEnabled = this[AUTH] ?: d.authEnabled,
@@ -140,7 +140,7 @@ class SettingsRepository @Inject constructor(
         prefs[SOCKS_PORT] = socksPort
         prefs[PAC_PORT] = pacPort
         prefs[SELECTED] = selectedInterfaceIds
-        prefs[VPN_STRATEGY] = vpnDownStrategy.name
+        prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[MDNS] = mdnsEnabled
         prefs[BACKUP_DNS] = backupDnsEnabled
         prefs[AUTH] = authEnabled
