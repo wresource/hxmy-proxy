@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * （或当前尝试已失败）就并行起下一个，首个成功者胜出、其余立即中止。IPv4 优先（本网络 IPv6 常不可达）。
  * 相比"逐个回退"，双栈/多 anycast 站点（如 Cloudflare/Stripe）首地址慢或不可达时不再干等满超时，显著降低尾延迟。
  */
+private const val TAG = "hxmyproxy"
+
 class OutboundConnector(
     private val egressGuard: EgressGuard,
     // DNS 解析专用调度器：独立 daemon 池，与 relay/accept/connect 池隔离——
@@ -54,26 +56,67 @@ class OutboundConnector(
     /** 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。 */
     private val dnsCache = ConcurrentHashMap<String, CachedAddrs>()
 
+    /** 备用 DNS（DoH）开关；由设置层经 applyTunables 推入。 */
+    @Volatile var backupDnsEnabled: Boolean = true
+
+    /** 网络变化时由编排层调用：旧网络下解析的 IP 可能已不可达，清掉让 TTL 内的条目立即失效。 */
+    fun clearDnsCache() {
+        dnsCache.clear()
+    }
+
+    /**
+     * 上游失败日志节流：断网风暴时每个失败连接都落盘会把 512KB 日志冲掉，同 key（阶段:域名）
+     * [LOG_THROTTLE_MS] 内只记一条。map 超限整体清空（域名基数有限，粗暴够用）。
+     */
+    private val logThrottle = ConcurrentHashMap<String, Long>()
+    private fun throttledFileLog(key: String, msg: String) {
+        val now = System.currentTimeMillis()
+        val last = logThrottle[key]
+        if (last != null && now - last < LOG_THROTTLE_MS) return
+        if (logThrottle.size > LOG_THROTTLE_MAX_KEYS) logThrottle.clear()
+        logThrottle[key] = now
+        com.mzstd.hxmyproxy.core.log.FileLog.w(TAG, msg)
+    }
+
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(host: String, port: Int, bypassVpn: Boolean = false): Socket {
         val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
         if (bypassVpn && network == null) {
-            android.util.Log.w("hxmyproxy", "bypass requested for $host but no non-VPN network; using default egress")
+            android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
         }
-        return connectAny(orderAddresses(resolve(host, network)), port, network)
+        return try {
+            connectAny(orderAddresses(resolve(host, network)), port, network)
+        } catch (e: ProxyException) {
+            if (network == null) {
+                throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
+                throw e
+            }
+            // DIRECT 出口建连失败（stale 句柄/该网络故障）→ 降级默认网络重试一次：
+            // 「能上网」优先于「严格绕过 VPN」；降级必落盘，用户可从日志发现分流路径在坏。
+            throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — degrading to default network")
+            connectAny(orderAddresses(resolve(host, null)), port, null)
+        }
     }
 
     /**
      * 解析域名为全部地址；解析跑在独立 [dnsDispatcher]。
      * [network] 非空（出口分流）时在该网络上解析（避免 DNS 走 VPN），且不缓存（量小、避免与默认网络结果混淆）；
      * 为空时走默认网络解析 + 短 TTL 缓存。
+     * **双路互援**：一条路解析失败即换另一条路重试（换 netId 也天然绕开系统 2s 负缓存）——
+     * DIRECT 失败→默认网络；默认失败→底层 WiFi。失败与援通均节流落盘（诊断「究竟哪条 DNS 在坏」）。
      */
     private suspend fun resolve(host: String, network: Network?): List<InetAddress> {
         if (network != null) {
             return try {
                 withContext(dnsDispatcher) { network.getAllByName(host).toList() }
             } catch (e: UnknownHostException) {
-                throw ProxyException(ProxyError.DnsFailure)
+                throttledFileLog("dns-direct:$host", "DNS fail $host on underlying network (${e.message}); retry default")
+                try {
+                    withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
+                        .also { throttledFileLog("dns-direct-rescued:$host", "DNS rescued $host via default network") }
+                } catch (e2: UnknownHostException) {
+                    resolveLastResort(host, e2)
+                }
             }
         }
         val now = System.currentTimeMillis()
@@ -81,10 +124,70 @@ class OutboundConnector(
         val addrs = try {
             withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
         } catch (e: UnknownHostException) {
-            throw ProxyException(ProxyError.DnsFailure)
+            throttledFileLog("dns-default:$host", "DNS fail $host on default network (${e.message}); retry underlying")
+            val alt = underlyingNetworkProvider?.current()
+            val rescued = if (alt == null) null else try {
+                withContext(dnsDispatcher) { alt.getAllByName(host).toList() }
+                    .also { throttledFileLog("dns-default-rescued:$host", "DNS rescued $host via underlying network") }
+            } catch (e2: UnknownHostException) {
+                null
+            }
+            rescued ?: resolveLastResort(host, e)
         }
         dnsCache[host] = CachedAddrs(addrs, now)
         return addrs
+    }
+
+    /**
+     * 最后一搏：系统解析双路全败后走 DoH 备援（关着或也失败则抛 [ProxyError.DnsFailure]）。
+     * DoH 成功即「备用 DNS」救场——网络自身 DNS 坏而链路仍通的场景（用户实证痛点）。
+     */
+    private suspend fun resolveLastResort(host: String, cause: UnknownHostException): List<InetAddress> {
+        throttledFileLog("dns-both:$host", "DNS fail $host on system paths (${cause.message})")
+        if (backupDnsEnabled) {
+            val doh = withContext(dnsDispatcher) { dohResolve(host) }
+            if (doh.isNotEmpty()) {
+                throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup")
+                return doh
+            }
+            throttledFileLog("doh-fail:$host", "DoH backup also failed for $host")
+        }
+        throw ProxyException(ProxyError.DnsFailure)
+    }
+
+    /**
+     * DoH 兜底解析（JSON API、**IP 直连端点**免 bootstrap 自举）：依次试 Google/Cloudflare，A 记录优先、
+     * 空则查 AAAA。请求走系统默认网络（与代理出站同路径——出站能通则 DoH 基本能通，故障相关性一致；
+     * 若默认路径整体断链，DoH 与业务同死，不做无谓挣扎）。加密 443 出去，不与 Private DNS 的
+     * 「禁发明文 53」冲突。阻塞实现，调用方置于 [dnsDispatcher]。
+     */
+    private fun dohResolve(host: String): List<InetAddress> {
+        for ((base, accept) in DOH_ENDPOINTS) {
+            for (type in intArrayOf(1, 28)) {           // 1=A, 28=AAAA
+                try {
+                    val url = java.net.URL("$base?name=${java.net.URLEncoder.encode(host, "UTF-8")}&type=$type")
+                    val conn = url.openConnection() as javax.net.ssl.HttpsURLConnection
+                    conn.connectTimeout = DOH_TIMEOUT_MS
+                    conn.readTimeout = DOH_TIMEOUT_MS
+                    if (accept != null) conn.setRequestProperty("Accept", accept)
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    conn.disconnect()
+                    val answers = org.json.JSONObject(body).optJSONArray("Answer") ?: continue
+                    val out = ArrayList<InetAddress>()
+                    for (i in 0 until answers.length()) {
+                        val a = answers.getJSONObject(i)
+                        if (a.optInt("type") == type) {
+                            // 数字字面量不触发系统 DNS 查询，不会递归回失败路径。
+                            runCatching { out.add(InetAddress.getByName(a.getString("data"))) }
+                        }
+                    }
+                    if (out.isNotEmpty()) return out
+                } catch (_: Exception) {
+                    // 单端点/单类型失败换下一个；全败返回空由调用方抛 DnsFailure。
+                }
+            }
+        }
+        return emptyList()
     }
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
@@ -102,9 +205,20 @@ class OutboundConnector(
     suspend fun connectChannel(host: String, port: Int, bypassVpn: Boolean = false): SocketChannel {
         val network = if (bypassVpn) underlyingNetworkProvider?.current() else null
         if (bypassVpn && network == null) {
-            android.util.Log.w("hxmyproxy", "bypass requested for $host but no non-VPN network; using default egress")
+            android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
         }
-        return connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
+        return try {
+            connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
+        } catch (e: ProxyException) {
+            if (network == null) {
+                throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
+                throw e
+            }
+            // 同阻塞版 connect：DIRECT 失败降级默认网络（仅捕 ProxyException——IOException 须继续
+            // 冒泡让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑）。
+            throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — degrading to default network")
+            connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
+        }
     }
 
     /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
@@ -299,6 +413,16 @@ class OutboundConnector(
     companion object {
         /** DNS 缓存有效期；短到 VPN 切换/DNS 漂移很快自愈，长到覆盖一次页面加载的同域名复用。 */
         private const val DNS_TTL_MS = 30_000L
+        /** 上游失败日志同 key 节流窗口（断网风暴时防止冲掉 512KB 滚动日志）。 */
+        private const val LOG_THROTTLE_MS = 30_000L
+        private const val LOG_THROTTLE_MAX_KEYS = 512
+
+        /** DoH 端点（IP 直连免自举）：Google JSON API 与 Cloudflare（需 Accept 头）。 */
+        private val DOH_ENDPOINTS = listOf(
+            "https://8.8.8.8/resolve" to null,
+            "https://1.1.1.1/dns-query" to "application/dns-json",
+        )
+        private const val DOH_TIMEOUT_MS = 3_000
         private const val DNS_THREADS = 16
         /** 上游建连有界池线程数：connect 是短时阻塞操作，96 足以支撑首屏几十域名并发建连且硬限线程。 */
         private const val CONNECT_THREADS = 96

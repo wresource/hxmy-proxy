@@ -17,6 +17,8 @@ data class ProxySettings(
     val vpnDownStrategy: VpnDownStrategy = VpnDownStrategy.BLOCK,
     // mDNS 默认关:hxmyproxy.local 系统 API 无法注册(解析不到)、DNS-SD 普通用户用不到,已从 UI 移除、后端不发布。
     val mdnsEnabled: Boolean = false,
+    /** 备用 DNS（DoH）：系统解析双路全败后经 8.8.8.8/1.1.1.1 的 DoH 端点兜底重试（IP 直连 443）。 */
+    val backupDnsEnabled: Boolean = true,
     val authEnabled: Boolean = false,
     /** 反 SSRF：默认放行私网出口；置 true 则连私网也禁（loopback/链路本地始终禁）。 */
     val blockPrivateLanEgress: Boolean = false,

@@ -238,6 +238,8 @@ class MainViewModel @Inject constructor(
     }
     fun setVpnStrategy(s: VpnDownStrategy) = update { it.copy(vpnDownStrategy = s) }
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
+
+    fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }
     fun setBlockPrivateLan(v: Boolean) = update { it.copy(blockPrivateLanEgress = v) }
 
     private fun Int.coercePort(): Int = coerceIn(1024, 65535)

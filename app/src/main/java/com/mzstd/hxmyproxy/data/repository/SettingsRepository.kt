@@ -82,6 +82,7 @@ class SettingsRepository @Inject constructor(
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
         val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
         val USER_REJECT = stringSetPreferencesKey("user_reject_rules")
+        val BACKUP_DNS = booleanPreferencesKey("backup_dns_enabled")
         val REJECTED_GROUPS = stringSetPreferencesKey("rejected_groups")
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
         val USER_RULE_SETS = stringPreferencesKey("user_rule_sets")
@@ -110,6 +111,7 @@ class SettingsRepository @Inject constructor(
             selectedInterfaceIds = this[SELECTED] ?: d.selectedInterfaceIds,
             vpnDownStrategy = this[VPN_STRATEGY]?.let { runCatching { VpnDownStrategy.valueOf(it) }.getOrNull() } ?: d.vpnDownStrategy,
             mdnsEnabled = this[MDNS] ?: d.mdnsEnabled,
+            backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
             authEnabled = this[AUTH] ?: d.authEnabled,
             blockPrivateLanEgress = this[BLOCK_PRIVATE] ?: d.blockPrivateLanEgress,
             preset = this[PRESET]?.let { runCatching { PerformancePreset.valueOf(it) }.getOrNull() } ?: d.preset,
@@ -140,6 +142,7 @@ class SettingsRepository @Inject constructor(
         prefs[SELECTED] = selectedInterfaceIds
         prefs[VPN_STRATEGY] = vpnDownStrategy.name
         prefs[MDNS] = mdnsEnabled
+        prefs[BACKUP_DNS] = backupDnsEnabled
         prefs[AUTH] = authEnabled
         prefs[BLOCK_PRIVATE] = blockPrivateLanEgress
         prefs[PRESET] = preset.name

@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
+import com.mzstd.hxmyproxy.core.log.FileLog
 
 /**
  * 持有「非 VPN 底层网络（WiFi）」的引用，供 DIRECT 出口分流用：
@@ -23,6 +24,11 @@ class UnderlyingNetworkProvider(context: Context) {
     @Volatile
     private var network: Network? = null
 
+    /** 当前句柄是否通过系统连通性校验（NET_CAPABILITY_VALIDATED）。仅诊断参考——纯内网 WiFi 合法地无 VALIDATED。 */
+    @Volatile
+    var validated: Boolean = false
+        private set
+
     /** 当前可用的非 VPN 底层网络；无 WiFi / 未就绪时为 null。 */
     fun current(): Network? = network
 
@@ -33,8 +39,23 @@ class UnderlyingNetworkProvider(context: Context) {
         .build()
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(n: Network) { network = n }
-        override fun onLost(n: Network) { if (network == n) network = null }
+        // 句柄更替落盘（W 级入 FileLog）：诊断「stale 句柄拖垮 DIRECT」类故障的关键证据——
+        // 故障期若日志里 DIRECT 持续失败而句柄从未更替，即坐实旧句柄失效未刷新。
+        override fun onAvailable(n: Network) {
+            val old = network
+            network = n
+            if (old != n) FileLog.w("hxmyproxy", "underlying network -> $n (was $old)")
+        }
+        override fun onLost(n: Network) {
+            if (network == n) {
+                network = null
+                validated = false
+                FileLog.w("hxmyproxy", "underlying network lost: $n")
+            }
+        }
+        override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
+            if (n == network) validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
     }
 
     @Volatile

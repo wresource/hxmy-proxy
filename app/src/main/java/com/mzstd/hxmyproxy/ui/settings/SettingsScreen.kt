@@ -130,6 +130,7 @@ fun SettingsScreen(
             SwitchRow(stringResource(R.string.proto_http), s.httpEnabled, viewModel::setHttpEnabled, stringResource(R.string.proto_http_sub))
             SwitchRow(stringResource(R.string.proto_socks), s.socksEnabled, viewModel::setSocksEnabled, stringResource(R.string.proto_socks_sub))
             SwitchRow(stringResource(R.string.proto_pac), s.pacEnabled, viewModel::setPacEnabled, stringResource(R.string.proto_pac_sub))
+            SwitchRow(stringResource(R.string.backup_dns), s.backupDnsEnabled, viewModel::setBackupDnsEnabled, stringResource(R.string.backup_dns_sub))
         }
 
         SettingsGroup(stringResource(R.string.settings_ports)) {
