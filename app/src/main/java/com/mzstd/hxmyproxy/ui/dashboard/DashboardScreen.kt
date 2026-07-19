@@ -202,12 +202,31 @@ private fun HeroDuo(ui: MainUiState, onOpenProtection: () -> Unit) {
         Modifier.fillMaxWidth().padding(top = 4.dp).height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // 三态：已停止 / 未就绪（服务跑着但零接口·零协议·端口全没起——空转，谁也连不进）/ 正在分享。
+        // 「正在分享」是效果承诺而非进程状态——只有真的具备共享能力才配这四个字。
+        val noProto = !ui.settings.httpEnabled && !ui.settings.socksEnabled && !ui.settings.pacEnabled
+        val d = share.diagnostics
+        val anyPortUp = d.httpPortUp || d.socksPortUp || d.pacPortUp
+        val shareWarn = when {
+            !share.running -> null
+            share.admissionEmpty -> stringResource(R.string.warn_no_iface)
+            noProto -> stringResource(R.string.warn_no_proto)
+            !anyPortUp -> stringResource(R.string.warn_no_port_up)
+            else -> null
+        }
         StatusTile(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             on = share.running,
             label = stringResource(R.string.status_share),
-            value = stringResource(if (share.running) R.string.status_running else R.string.status_stopped),
+            value = stringResource(
+                when {
+                    !share.running -> R.string.status_stopped
+                    shareWarn != null -> R.string.status_idle
+                    else -> R.string.status_running
+                },
+            ),
             subs = shareSubs,
+            warnText = shareWarn,
         )
         StatusTile(
             modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -242,13 +261,17 @@ private fun EntryCard(ui: MainUiState) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.entry_config), style = MaterialTheme.typography.titleMedium)
             if (primaryEntry == null) {
-                // 两种空态分开引导：没选接口 → 提示选接口；选了但没开始 → 提示开始共享（原来混为一谈误导用户）。
+                // 三种空态分开引导：运行中无入口 → 明说拒绝一切并指路；没选接口 → 提示选接口；
+                // 选了但没开始 → 提示开始共享（原来「运行中」也显示"开始共享后可见"，自相矛盾）。
                 Text(
                     stringResource(
-                        if (ui.settings.selectedInterfaceIds.isEmpty()) R.string.no_entry
-                        else R.string.start_to_show_entries,
+                        when {
+                            share.running -> R.string.entry_none_running
+                            ui.settings.selectedInterfaceIds.isEmpty() -> R.string.no_entry
+                            else -> R.string.start_to_show_entries
+                        },
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (share.running) StatusColors.warn() else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 val allEntries = share.recommendedEntries
@@ -491,7 +514,7 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
     }
 }
 
-/** 状态 tile：点(红绿) + 标签 + 值。统一走 [com.mzstd.hxmyproxy.ui.components.TileCard] 立体外壳。 */
+/** 状态 tile：点(红绿/警示黄) + 标签 + 值 + 可选警示行。统一走 [com.mzstd.hxmyproxy.ui.components.TileCard] 立体外壳。 */
 @Composable
 private fun StatusTile(
     modifier: Modifier,
@@ -499,14 +522,30 @@ private fun StatusTile(
     label: String,
     value: String,
     subs: List<String> = emptyList(),
+    /** 非 null 时点变警示黄、该文案以警示色显示在值下方（如运行中但拒绝所有连接）。 */
+    warnText: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     com.mzstd.hxmyproxy.ui.components.TileCard(modifier, onClick = onClick, spacing = 6.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(Modifier.size(12.dp), shape = CircleShape, color = if (on) StatusColors.good() else StatusColors.stoppedDot()) {}
+            val dot = when {
+                warnText != null -> StatusColors.warn()
+                on -> StatusColors.good()
+                else -> StatusColors.stoppedDot()
+            }
+            Surface(Modifier.size(12.dp), shape = CircleShape, color = dot) {}
             Text(label, style = MaterialTheme.typography.titleSmall)
         }
         Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        if (warnText != null) {
+            Text(
+                warnText,
+                style = MaterialTheme.typography.bodySmall,
+                color = StatusColors.warn(),
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
         subs.forEach {
             Text(
                 it,

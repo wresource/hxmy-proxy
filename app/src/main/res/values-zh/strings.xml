@@ -211,6 +211,14 @@
     <string name="rules_reject_quick_hint">加入的域名/IP 会被拒绝连接（拦截）——有没有 VPN 都生效。</string>
     <string name="rules_reject_sets">拦截规则集</string>
     <string name="rules_format_hint">example.com（含子域）· 1.2.3.4 · 192.168.0.0/16</string>
+    <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
+    <string name="warn_no_iface">未选网段 · 拒绝所有连接</string>
+    <string name="warn_no_proto">未启用协议 · 无监听端口</string>
+    <string name="entry_none_running">运行中，但没有可用入口——请在下方选择网段，并在设置中启用至少一个协议。</string>
+    <string name="status_idle">未就绪</string>
+    <string name="warn_no_port_up">没有端口在监听</string>
+    <string name="backup_dns">备用 DNS（DoH）</string>
+    <string name="backup_dns_sub">系统解析失败时改走加密 DNS（8.8.8.8 / 1.1.1.1）重试——网络自身 DNS 故障时仍可解析</string>
     <string name="override_adjust">调整</string>
     <string name="rules_row_empty">暂无——点另一行集合右上角的 ⇄ 移入</string>
     <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>

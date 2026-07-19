@@ -155,7 +155,13 @@ class ProxyServerRepository @Inject constructor(
 
         connectivityObserver.start()
         underlyingNetworkProvider.start()
-        session.launch { connectivityObserver.networkChanges.collect { refresh() } }
+        session.launch {
+            connectivityObserver.networkChanges.collect {
+                // 换网后旧网络下解析的 IP 可能不可达：清自建 DNS 缓存，让新请求立刻走新网络解析。
+                connector.clearDnsCache()
+                refresh()
+            }
+        }
         // mDNS 注册是异步的（系统 Probing ~1s）：注册真正完成/失败后刷新诊断，
         // 避免 mdnsPublished 停在 publish 那一刻的「未发布」假象（真机日志证实服务其实注册成功）。
         session.launch { mdnsPublisher.registeredName.collect { refresh() } }
@@ -401,6 +407,7 @@ class ProxyServerRepository @Inject constructor(
         accounting.maxDomains = s.limits.maxTrackedDomains
         egressGuard.blockPrivateLan = s.blockPrivateLanEgress
         authenticator.enabled = s.authEnabled
+        connector.backupDnsEnabled = s.backupDnsEnabled
     }
 
     /**
@@ -430,6 +437,9 @@ class ProxyServerRepository @Inject constructor(
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
         val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
         accessController.update(effective.map { it.address }.toSet())
+        // 准入集收缩即时生效：清扫不再被允许的在途连接（关掉网段开关 → 该网段存量连接立刻断开，
+        // 而非苟到空闲超时）。判定复用 admit，与 accept 口径一致。
+        servers.forEach { it.evictNotAdmitted(accessController::admit) }
         publishMdns(s)
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
@@ -467,6 +477,7 @@ class ProxyServerRepository @Inject constructor(
                 localNetworkPermissionGranted = perm,
                 interfaces = interfaces,
                 recommendedEntries = entries,
+                admissionEmpty = effective.isEmpty(),
                 needsHotspotHint = needsHotspotHint,
                 signalLevel = sig.level,
                 signalDbm = sig.dbm,

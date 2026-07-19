@@ -211,6 +211,14 @@
     <string name="rules_reject_quick_hint">Hosts added here are blocked (connection refused) — works with or without a VPN.</string>
     <string name="rules_reject_sets">Block rule sets</string>
     <string name="rules_format_hint">example.com (incl. subdomains) · 1.2.3.4 · 192.168.0.0/16</string>
+    <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
+    <string name="warn_no_iface">No network selected — refusing all connections</string>
+    <string name="warn_no_proto">No protocol enabled — nothing is listening</string>
+    <string name="entry_none_running">Running, but no usable entry — select a network below and enable at least one protocol in Settings.</string>
+    <string name="status_idle">Not ready</string>
+    <string name="warn_no_port_up">No port is listening</string>
+    <string name="backup_dns">Backup DNS (DoH)</string>
+    <string name="backup_dns_sub">When system DNS fails, retry via encrypted DNS (8.8.8.8 / 1.1.1.1) — survives broken network DNS</string>
     <string name="override_adjust">Adjust</string>
     <string name="rules_row_empty">None yet — tap the ⇄ badge on a set in the other row to move it here.</string>
     <string name="rules_swap_a11y">Switch %1$s between allow and block</string>
