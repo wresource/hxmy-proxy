@@ -329,10 +329,17 @@
     <string name="auth_hide">Hide</string>
     <string name="auth_incomplete">Set a username and password — until then no client can authenticate.</string>
     <string name="auth_warning">Authentication is off. Devices on the same network may use your proxy. Use only on trusted networks.</string>
-    <string name="settings_vpn_strategy">When VPN is down</string>
-    <string name="vpn_continue">Continue</string>
-    <string name="vpn_block">Block</string>
-    <string name="vpn_warn">Warn but continue</string>
+    <!-- 出口网络选择器 -->
+    <string name="egress_title">Egress network</string>
+    <string name="egress_sub">Where proxied traffic goes out</string>
+    <string name="egress_auto">Auto</string>
+    <string name="egress_auto_desc">Follow system default (VPN if on)</string>
+    <string name="egress_vpn">VPN</string>
+    <string name="egress_wifi">Wi-Fi</string>
+    <string name="egress_cellular">Cellular</string>
+    <string name="egress_ethernet">Ethernet/USB</string>
+    <string name="egress_offline">offline</string>
+    <string name="egress_vpn_warn">A system VPN is active — binding a physical egress may fail (VPN lockdown/no bypass).</string>
     <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
     <string name="settings_limits">Connection limits</string>
     <string name="limit_global">Max connections</string>

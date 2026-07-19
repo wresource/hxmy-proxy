@@ -329,10 +329,17 @@
     <string name="auth_hide">隐藏</string>
     <string name="auth_incomplete">请设置用户名和密码，否则客户端无法通过认证。</string>
     <string name="auth_warning">未开启认证。同一网络内的设备可能连接你的代理，建议仅在可信网络下使用。</string>
-    <string name="settings_vpn_strategy">VPN 断开时</string>
-    <string name="vpn_continue">继续</string>
-    <string name="vpn_block">阻断</string>
-    <string name="vpn_warn">警告但继续</string>
+    <!-- 出口网络选择器 -->
+    <string name="egress_title">出口网络</string>
+    <string name="egress_sub">代理流量从哪张网出去</string>
+    <string name="egress_auto">自动</string>
+    <string name="egress_auto_desc">跟随系统默认（VPN 在即走 VPN）</string>
+    <string name="egress_vpn">VPN</string>
+    <string name="egress_wifi">Wi-Fi</string>
+    <string name="egress_cellular">移动数据</string>
+    <string name="egress_ethernet">以太网/USB</string>
+    <string name="egress_offline">离线</string>
+    <string name="egress_vpn_warn">系统 VPN 正开启——绑定物理出口可能失败（VPN lockdown/未允许绕过）。</string>
     <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
     <string name="settings_limits">连接上限</string>
     <string name="limit_global">最大连接数</string>

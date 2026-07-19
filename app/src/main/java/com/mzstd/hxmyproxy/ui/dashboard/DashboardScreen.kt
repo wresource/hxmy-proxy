@@ -58,6 +58,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
 import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
@@ -132,6 +133,7 @@ fun DashboardScreen(
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
                 InterfacesCard(ui, viewModel)
+                EgressCard(ui, viewModel)
             }
         }
     } else {
@@ -153,6 +155,7 @@ fun DashboardScreen(
                 PortBindErrorCard(ui)
                 if (share.running) StatRow(ui)
                 InterfacesCard(ui, viewModel)
+                EgressCard(ui, viewModel)
                 // 预留悬浮按钮区：最后一张卡能完整滚出、不被按钮遮挡。
                 Spacer(Modifier.height(76.dp))
             }
@@ -509,6 +512,68 @@ private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.Ma
                 if (interfaces.size > 2) {
                     ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
                 }
+            }
+        }
+    }
+}
+
+/** 出口网络选择卡（与入口 InterfacesCard 对称）：选代理出站走哪张网；离线物理网络置灰，VPN 冲突警示。 */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun EgressCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
+    val choice = ui.settings.egressChoice
+    val st = ui.share.egressStatus
+    val vpnActive = ui.share.vpn.detected
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.egress_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.egress_sub),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val opts = listOf(
+                Triple(EgressNetworkChoice.AUTO, R.string.egress_auto, true),
+                Triple(EgressNetworkChoice.VPN, R.string.egress_vpn, st.vpn),
+                Triple(EgressNetworkChoice.WIFI, R.string.egress_wifi, st.wifi),
+                Triple(EgressNetworkChoice.CELLULAR, R.string.egress_cellular, st.cellular),
+                Triple(EgressNetworkChoice.ETHERNET, R.string.egress_ethernet, st.ethernet),
+            )
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                opts.forEach { (c, labelRes, online) ->
+                    val isAuto = c == EgressNetworkChoice.AUTO
+                    // 离线的物理/ VPN 出口置灰不可选；已选中项即便离线仍可点（供切走）。
+                    androidx.compose.material3.FilterChip(
+                        selected = choice == c,
+                        onClick = { viewModel.setEgressChoice(c) },
+                        enabled = online || isAuto || c == choice,
+                        label = {
+                            Text(
+                                if (!online && !isAuto) "${stringResource(labelRes)} · ${stringResource(R.string.egress_offline)}"
+                                else stringResource(labelRes),
+                            )
+                        },
+                    )
+                }
+            }
+            if (choice == EgressNetworkChoice.AUTO) {
+                Text(
+                    stringResource(R.string.egress_auto_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val boundPhysical = choice == EgressNetworkChoice.WIFI || choice == EgressNetworkChoice.CELLULAR || choice == EgressNetworkChoice.ETHERNET
+            if (vpnActive && boundPhysical) {
+                Text(
+                    stringResource(R.string.egress_vpn_warn),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = StatusColors.warn(),
+                )
             }
         }
     }
