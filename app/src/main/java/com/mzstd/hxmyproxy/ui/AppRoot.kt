@@ -208,6 +208,7 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable(NavTab.MONITOR.route) {
                         MonitorScreen(
                             ui,
+                            viewModel,
                             onOpenHistory = { navController.navigate("history_detail") },
                             onOpenLogs = { navController.navigate("logs_detail") },
                             contentPadding = padding,

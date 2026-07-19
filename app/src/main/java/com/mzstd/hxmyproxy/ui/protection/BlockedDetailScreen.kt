@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.ui.protection
 
 import androidx.compose.foundation.clickable
+import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,39 +106,6 @@ fun BlockedDetailScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () ->
             onDismiss = { editHost = null },
         )
     }
-}
-
-/** 三态救济弹窗：把某 host 覆盖为「走代理 / 直连 / 拦截」（最高优先级，压过所有规则）。 */
-@Composable
-fun HostOverrideDialog(
-    host: String,
-    current: RuleAction?,
-    onSet: (RuleAction) -> Unit,
-    onClear: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var action by remember { mutableStateOf(current ?: RuleAction.PROXY) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onSet(action) }) { Text(stringResource(R.string.save)) } },
-        dismissButton = {
-            Row {
-                if (current != null) TextButton(onClick = onClear) { Text(stringResource(R.string.override_clear)) }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-            }
-        },
-        title = { Text(host, maxLines = 1) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.override_desc), style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = action == RuleAction.PROXY, onClick = { action = RuleAction.PROXY }, label = { Text(stringResource(R.string.override_proxy)) })
-                    FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, label = { Text(stringResource(R.string.override_direct)) })
-                    FilterChip(selected = action == RuleAction.REJECT, onClick = { action = RuleAction.REJECT }, label = { Text(stringResource(R.string.override_reject)) })
-                }
-            }
-        },
-    )
 }
 
 @Composable

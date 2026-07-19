@@ -40,6 +40,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.AvatarCircle
+import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
 import com.mzstd.hxmyproxy.ui.components.CardGrid
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
 import com.mzstd.hxmyproxy.ui.components.GroupCard
@@ -174,8 +175,14 @@ private fun DataRow(
     subtitle: String? = null,
     value: String,
     mono: Boolean = false,
+    onClick: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         AvatarCircle(32.dp, dotBg) {
             Text(dotText, style = MaterialTheme.typography.labelLarge, color = dotFg)
         }
@@ -202,6 +209,15 @@ private fun DataRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
+        if (onClick != null) {
+            Spacer(Modifier.size(8.dp))
+            androidx.compose.material3.Icon(
+                androidx.compose.ui.res.painterResource(R.drawable.ic_tune),
+                contentDescription = stringResource(R.string.override_adjust),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -215,6 +231,7 @@ private fun DataRow(
 @Composable
 fun MonitorScreen(
     ui: MainUiState,
+    viewModel: com.mzstd.hxmyproxy.ui.MainViewModel,
     onOpenHistory: () -> Unit,
     onOpenLogs: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
@@ -226,7 +243,19 @@ fun MonitorScreen(
     var clientsExpanded by remember { mutableStateOf(false) }
     var guideShown by remember { mutableStateOf<DiagGuide?>(null) }
     var showLocalNetInfo by remember { mutableStateOf(false) }
+    // 监控 Top domains 点击 → 三态救济弹窗（看到某 host 慢/想直连/想拦，两下改成 per-host 覆盖）。
+    var editHost by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+
+    editHost?.let { host ->
+        HostOverrideDialog(
+            host = host,
+            current = ui.settings.hostOverrides[host],
+            onSet = { action -> viewModel.setHostOverride(host, action); editHost = null },
+            onClear = { viewModel.clearHostOverride(host); editHost = null },
+            onDismiss = { editHost = null },
+        )
+    }
 
     // 本地网络权限版本说明(16- 设备上点「无需授权」格子)：讲清各版本差异,只有「知道了」。
     if (showLocalNetInfo) {
@@ -458,6 +487,9 @@ fun MonitorScreen(
                                 "${d.protocol.name} · ${stringResource(R.string.route_direct)}"
                             } else d.protocol.name,
                             value = fmtBytes(d.uploadBytes + d.downloadBytes),
+                            // "(其他)" 聚合桶不是真实 host,不可点;其余点击弹三态救济弹窗。
+                            onClick = if (d.host == com.mzstd.hxmyproxy.core.proxy.TrafficAccounting.OTHERS) null
+                            else ({ editHost = d.host }),
                         )
                     }
                     if (sorted.size > 5) {
