@@ -1,22 +1,40 @@
 package com.mzstd.hxmyproxy.ui.rules
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,41 +45,48 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.rules.IpCidrSet
+import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
+import com.mzstd.hxmyproxy.core.rules.RuleCategory
+import com.mzstd.hxmyproxy.core.rules.RuleGroup
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.AvatarCircle
+import com.mzstd.hxmyproxy.ui.components.BannerLevel
+import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardGrid
-import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
-import com.mzstd.hxmyproxy.ui.components.cardContainerColor
+import com.mzstd.hxmyproxy.ui.components.CardTier
+import com.mzstd.hxmyproxy.ui.components.CountBadge
+import com.mzstd.hxmyproxy.ui.components.IconDisc
+import com.mzstd.hxmyproxy.ui.components.PageHeader
+import com.mzstd.hxmyproxy.ui.components.StatLabel
+import com.mzstd.hxmyproxy.ui.components.StatusDot
+import com.mzstd.hxmyproxy.ui.components.WarnBanner
+import com.mzstd.hxmyproxy.ui.components.stdSwitchColors
+import com.mzstd.hxmyproxy.ui.theme.AvatarBgDark
+import com.mzstd.hxmyproxy.ui.theme.AvatarBgLight
+import com.mzstd.hxmyproxy.ui.theme.AvatarFgDark
+import com.mzstd.hxmyproxy.ui.theme.AvatarFgLight
+import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 
 /**
- * 规则页:三模块（澄清 C 的分级开关）。
- * 1. IP / 域名白名单：用户增删，整组走直连（出口分流绕过共享 VPN）。
- * 2. App / 服务规则集：每服务一个开关（即将上线）。
- * 3. 广告拦截：每个表一个开关 + 用户白名单覆盖（OISD small 默认关）。
+ * 规则页（Bento 重设计，规格=images/html/04-rules.html）：
+ * 页头（规则 + 分流·拦截与放行）→ 两大语义区（粉盾圈=拦截 / 蓝地球圈=放行，区头带条数徽章）
+ * → 快速拦截卡与白名单卡（胶囊输入行 + 类型徽章条目 + 「管理全部」行）
+ * → App 规则集卡（放行/拦截两行粉彩圆形网格 + ⇄ 移行徽标 + 管理入口）。
+ * 语义配色纪律：拦截=粉 tertiary、放行=蓝 primary（本页的两极视觉语言，粉在此为语义色非点睛）。
  */
 @Composable
 fun RulesScreen(
@@ -70,9 +95,11 @@ fun RulesScreen(
     onManage: () -> Unit,
     onOpenRejectDetail: () -> Unit = {},
     onOpenDirectDetail: () -> Unit = {},
-    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
+    contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val s = ui.settings
+    val rejectAcc = rejectAccent()
+    val allowAcc = allowAccent()
     Column(
         // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
@@ -84,197 +111,437 @@ fun RulesScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 页内大标题已删：底栏已标「规则」,页内再写「规则分流」冗余(用户反馈)。
+        // 页头：图标圆盘 + 大标题 + 右侧模式小注。
+        PageHeader(
+            title = stringResource(R.string.nav_rules),
+            icon = painterResource(R.drawable.ic_b_filter),
+            trailing = { StatLabel(stringResource(R.string.rules_mode_line)) },
+        )
+
+        // lockdown 红警示（条件显示）：VPN「无 VPN 时阻断」会掐死直连分流。
         if (ui.share.lockdownSuspected) {
-            ElevatedCard(
-                Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Text(
-                    stringResource(R.string.lockdown_warning),
-                    Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        }
-
-        // ========== 🛡️ 拦截 Reject（命中即拒绝连接，有没有 VPN 都生效）==========
-        SectionGroupHeader(stringResource(R.string.rules_group_reject), com.mzstd.hxmyproxy.ui.theme.StatusColors.bad())
-
-        // 快速拦截单域名/IP/CIDR（对称白名单）→ userReject 表。与放行卡同一模板（用户反馈:两卡必须一致）。
-        QuickRuleCard(
-            title = stringResource(R.string.rules_reject_quick),
-            hint = stringResource(R.string.rules_reject_quick_hint),
-            rules = s.userRejectRules.sorted(),
-            onAdd = { viewModel.addUserRejectRule(it) },
-            onRemove = { viewModel.removeUserRejectRule(it) },
-            onOpenDetail = onOpenRejectDetail,
-        )
-
-        // ========== 🌐 放行 Bypass（直连出口，绕过共享 VPN；仅 PAC 客户端生效）==========
-        SectionGroupHeader(stringResource(R.string.rules_group_bypass), MaterialTheme.colorScheme.primary)
-
-        // —— ① IP / 域名白名单（直连，出口分流绕过共享 VPN）——与拦截卡同模板，整体开关在标题行。
-        QuickRuleCard(
-            title = stringResource(R.string.rules_module_list),
-            hint = stringResource(R.string.rules_user_direct_hint),
-            rules = s.userDirectRules.sorted(),
-            trailing = {
-                Switch(checked = s.userDirectEnabled, onCheckedChange = { viewModel.toggleUserDirectEnabled(it) }, colors = com.mzstd.hxmyproxy.ui.components.stdSwitchColors())
-            },
-            onAdd = { viewModel.addUserDirectRule(it) },
-            onRemove = { viewModel.removeUserDirectRule(it) },
-            onOpenDetail = onOpenDirectDetail,
-        )
-
-        // —— ② App / 服务规则集 + 自建集（每集一个开关；管理入口可增删集/集内域名）——
-        SectionCard(stringResource(R.string.rules_module_apps)) {
-            Text(
-                // 专属提示：原来错误复用了白名单的 rules_user_direct_hint（审计发现的文案 bug）。
-                stringResource(R.string.rules_app_sets_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            WarnBanner(
+                stringResource(R.string.lockdown_warning),
+                level = BannerLevel.Error,
+                icon = painterResource(R.drawable.ic_b_alert),
             )
-            // 两行式（仿导航栏编辑器，用户设计）：上=🌐放行、下=🛡️拦截。chip 主体点=停用（从行消失），
-            // 右上 ⇄ 徽标=移到另一行（内置组切 rejectedGroups / 自建集切 action）。
-            // 64 个内置组平铺会爆——只显示**已启用**的组,全部组去「管理」按分类启用。
-            val ra = com.mzstd.hxmyproxy.core.rules.RuleAction.REJECT
-            val bypassDescs = RuleCatalog.appGroups.filter { it.id in s.enabledRuleGroups && it.id !in s.rejectedGroups }.map { g ->
-                RuleCellDesc(
-                    g.titleRes, null, groupIcon(g.id), true,
-                    onToggle = { viewModel.toggleRuleGroup(g.id, false) },
-                    onSwap = { viewModel.setGroupRejected(g.id, true) },
-                )
-            } + s.userRuleSets.filter { it.action != ra }.map { set ->
-                RuleCellDesc(
-                    null, set.name, R.drawable.ic_rule_label, set.enabled,
-                    onToggle = { viewModel.toggleRuleSet(set.id, !set.enabled) },
-                    onSwap = { viewModel.setRuleSetAction(set.id, ra) },
-                )
-            }
-            val rejectDescs = RuleCatalog.appGroups.filter { it.id in s.enabledRuleGroups && it.id in s.rejectedGroups }.map { g ->
-                RuleCellDesc(
-                    g.titleRes, null, groupIcon(g.id), true,
-                    onToggle = { viewModel.toggleRuleGroup(g.id, false) },
-                    onSwap = { viewModel.setGroupRejected(g.id, false) },
-                )
-            } + s.userRuleSets.filter { it.action == ra }.map { set ->
-                RuleCellDesc(
-                    null, set.name, R.drawable.ic_rule_label, set.enabled,
-                    onToggle = { viewModel.toggleRuleSet(set.id, !set.enabled) },
-                    onSwap = { viewModel.setRuleSetAction(set.id, com.mzstd.hxmyproxy.core.rules.RuleAction.DIRECT) },
-                )
-            }
-            SectionGroupHeader(stringResource(R.string.rules_group_bypass), MaterialTheme.colorScheme.primary)
-            if (bypassDescs.isEmpty()) {
-                Text(
-                    stringResource(R.string.rules_row_empty),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                CardGrid(items = bypassDescs, collapsedRows = 2) { m, d -> RuleSetGridCell(m, d) }
-            }
-            SectionGroupHeader(stringResource(R.string.rules_group_reject), com.mzstd.hxmyproxy.ui.theme.StatusColors.bad())
-            if (rejectDescs.isEmpty()) {
-                Text(
-                    stringResource(R.string.rules_row_empty),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                CardGrid(items = rejectDescs, collapsedRows = 2) { m, d -> RuleSetGridCell(m, d) }
-            }
-            OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
-                Text(stringResource(R.string.rules_manage))
-            }
         }
 
+        // ========== 拦截区（粉盾圈；命中即拒绝连接，有没有 VPN 都生效）==========
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            ZoneHeader(
+                iconRes = R.drawable.ic_b_shield_x,
+                accent = rejectAcc,
+                title = stringResource(R.string.rules_group_reject),
+                sub = stringResource(R.string.rules_reject_zone_sub),
+            ) {
+                CountBadge(
+                    stringResource(R.string.log_count, s.userRejectRules.size),
+                    fg = rejectAcc.onContainer,
+                    bg = rejectAcc.container,
+                )
+            }
+            // 快速拦截单域名/IP/CIDR（对称白名单）→ userReject 表。与放行卡同一模板（用户反馈:两卡必须一致）。
+            QuickRuleCard(
+                title = stringResource(R.string.rules_reject_quick),
+                hint = stringResource(R.string.rules_reject_quick_hint),
+                rules = s.userRejectRules.sorted(),
+                accent = rejectAcc,
+                onAdd = { viewModel.addUserRejectRule(it) },
+                onRemove = { viewModel.removeUserRejectRule(it) },
+                onOpenDetail = onOpenRejectDetail,
+            )
+        }
+
+        // ========== 放行区（蓝地球圈；直连出口，绕过共享 VPN）==========
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            ZoneHeader(
+                iconRes = R.drawable.ic_b_globe,
+                accent = allowAcc,
+                title = stringResource(R.string.rules_group_bypass),
+                sub = stringResource(R.string.rules_bypass_zone_sub),
+            ) {
+                CountBadge(
+                    stringResource(R.string.log_count, s.userDirectRules.size),
+                    fg = allowAcc.onContainer,
+                    bg = allowAcc.container,
+                )
+            }
+            // IP / 域名白名单（直连）——与拦截卡同模板，整体开关在标题行。
+            QuickRuleCard(
+                title = stringResource(R.string.rules_module_list),
+                hint = stringResource(R.string.rules_user_direct_hint),
+                rules = s.userDirectRules.sorted(),
+                accent = allowAcc,
+                trailing = {
+                    Switch(
+                        checked = s.userDirectEnabled,
+                        onCheckedChange = { viewModel.toggleUserDirectEnabled(it) },
+                        colors = stdSwitchColors(),
+                    )
+                },
+                onAdd = { viewModel.addUserDirectRule(it) },
+                onRemove = { viewModel.removeUserDirectRule(it) },
+                onOpenDetail = onOpenDirectDetail,
+            )
+        }
+
+        // ========== App 与服务规则集（灰格圈；每集一个开关，⇄ 在放行/拦截两行间移动）==========
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            // 已启用 = 内置组开着的 + 自建集开着的（两行网格里实际生效的数量）。
+            val enabledCount = RuleCatalog.appGroups.count { it.id in s.enabledRuleGroups } +
+                s.userRuleSets.count { it.enabled }
+            ZoneHeader(
+                iconRes = R.drawable.ic_b_grid,
+                accent = null,
+                title = stringResource(R.string.rules_module_apps),
+                sub = null,
+            ) {
+                CountBadge(
+                    stringResource(R.string.rules_enabled_count, enabledCount),
+                    fg = MaterialTheme.colorScheme.onSurfaceVariant,
+                    bg = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+            }
+            BentoCard(tier = CardTier.Default, contentPadding = 14.dp, spacing = 8.dp) {
+                Text(
+                    stringResource(R.string.rules_app_sets_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // 两行式（仿导航栏编辑器，用户设计）：上=放行、下=拦截。圆主体点=停用（从行消失），
+                // 右上 ⇄ 徽标=移到另一行（内置组切 rejectedGroups / 自建集切 action）。
+                // 64 个内置组平铺会爆——只显示**已启用**的组,全部组去「管理」按分类启用。
+                val ra = RuleAction.REJECT
+                val bypassDescs = RuleCatalog.appGroups.filter { it.id in s.enabledRuleGroups && it.id !in s.rejectedGroups }.map { g ->
+                    RuleCellDesc(
+                        g.titleRes, null, groupIcon(g), true,
+                        onToggle = { viewModel.toggleRuleGroup(g.id, false) },
+                        onSwap = { viewModel.setGroupRejected(g.id, true) },
+                    )
+                } + s.userRuleSets.filter { it.action != ra }.map { set ->
+                    RuleCellDesc(
+                        null, set.name, R.drawable.ic_rule_label, set.enabled,
+                        onToggle = { viewModel.toggleRuleSet(set.id, !set.enabled) },
+                        onSwap = { viewModel.setRuleSetAction(set.id, ra) },
+                    )
+                }
+                val rejectDescs = RuleCatalog.appGroups.filter { it.id in s.enabledRuleGroups && it.id in s.rejectedGroups }.map { g ->
+                    RuleCellDesc(
+                        g.titleRes, null, groupIcon(g), true,
+                        onToggle = { viewModel.toggleRuleGroup(g.id, false) },
+                        onSwap = { viewModel.setGroupRejected(g.id, false) },
+                    )
+                } + s.userRuleSets.filter { it.action == ra }.map { set ->
+                    RuleCellDesc(
+                        null, set.name, R.drawable.ic_rule_label, set.enabled,
+                        onToggle = { viewModel.toggleRuleSet(set.id, !set.enabled) },
+                        onSwap = { viewModel.setRuleSetAction(set.id, RuleAction.DIRECT) },
+                    )
+                }
+
+                // —— 放行行：蓝点行头 + 蓝 ring 网格 ——
+                GridRowLabel(allowAcc, stringResource(R.string.rules_group_bypass), bypassDescs.size)
+                if (bypassDescs.isEmpty()) {
+                    Text(
+                        stringResource(R.string.rules_row_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    CardGrid(items = bypassDescs.withIndex().toList(), collapsedRows = 2) { m, iv ->
+                        RuleSetGridCell(m, iv.value, ring = allowAcc.main, idx = iv.index)
+                    }
+                }
+
+                // —— 拦截行：粉点行头 + 粉 ring 网格 ——
+                GridRowLabel(rejectAcc, stringResource(R.string.rules_group_reject), rejectDescs.size)
+                if (rejectDescs.isEmpty()) {
+                    Text(
+                        stringResource(R.string.rules_row_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    CardGrid(items = rejectDescs.withIndex().toList(), collapsedRows = 2) { m, iv ->
+                        RuleSetGridCell(m, iv.value, ring = rejectAcc.main, idx = iv.index)
+                    }
+                }
+
+                // 管理入口 + 「自建 N」「内置 64 组」徽章。
+                OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
+                    Text(stringResource(R.string.rules_manage))
+                    Spacer(Modifier.size(8.dp))
+                    CountBadge(
+                        stringResource(R.string.ruleset_custom_count, s.userRuleSets.size),
+                        fg = MaterialTheme.colorScheme.onSurfaceVariant,
+                        bg = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    CountBadge(
+                        stringResource(R.string.ruleset_builtin_count, RuleCatalog.appGroups.size),
+                        fg = MaterialTheme.colorScheme.onSurfaceVariant,
+                        bg = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------- 语义配色（拦截=粉 / 放行=蓝，明暗跟主题 tertiary/primary 家族走） ----------
+
+/** 拦截/放行的语义配色组：main=描边/文字强调、onMain=填充按钮字色、container/onContainer=徽章浅底。 */
+internal class RuleAccent(val main: Color, val onMain: Color, val container: Color, val onContainer: Color)
+
+/** 拦截粉（tertiary 家族）。本页粉为「拦截」语义色，与 HTML 稿 --rej 系对应。 */
+@Composable
+internal fun rejectAccent() = RuleAccent(
+    MaterialTheme.colorScheme.tertiary,
+    MaterialTheme.colorScheme.onTertiary,
+    MaterialTheme.colorScheme.tertiaryContainer,
+    MaterialTheme.colorScheme.onTertiaryContainer,
+)
+
+/** 放行蓝（primary 家族），对应 HTML 稿 --alw 系。 */
+@Composable
+internal fun allowAccent() = RuleAccent(
+    MaterialTheme.colorScheme.primary,
+    MaterialTheme.colorScheme.onPrimary,
+    MaterialTheme.colorScheme.primaryContainer,
+    MaterialTheme.colorScheme.onPrimaryContainer,
+)
+
+/** 条目分隔发丝线（HTML .prow border-top）。 */
+@Composable
+internal fun ruleHairline(): Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+
+// ---------- 语义区头 / 卡模板 ----------
+
+/**
+ * 语义区区头（HTML .zone）：彩色小圆盘 + 标题 + 灰色副题 + 右端计数徽章。
+ * [accent]=null 为中性灰区（App 规则集）。
+ */
+@Composable
+private fun ZoneHeader(
+    iconRes: Int,
+    accent: RuleAccent?,
+    title: String,
+    sub: String?,
+    badge: @Composable () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        IconDisc(
+            painterResource(iconRes),
+            size = 26.dp,
+            bg = accent?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest,
+            tint = accent?.main ?: MaterialTheme.colorScheme.onSurfaceVariant,
+            iconSize = 15.dp,
+        )
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        if (sub != null) {
+            Text(
+                sub,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        badge()
     }
 }
 
 /**
- * 快速名单卡统一模板（拦截/放行同构，用户反馈:两卡必须一致、按钮与输入框对齐）：
- * 说明 → 输入行（无 supportingText，按钮与框真正居中对齐）→ 格式提示 → 前 2 条预览 → 「管理全部」入口。
- * 全量增删/从历史添加在 [QuickRulesDetailScreen]。
+ * 快速名单卡统一模板（拦截/放行同构，用户反馈:两卡必须一致）：
+ * 标题行（放行卡带总开关）→ 说明 → 胶囊输入行 → 等宽格式提示 → 前 2 条预览（类型徽章+等宽字+删除）
+ * → 「管理全部」行。全量增删/从历史添加在 [QuickRulesDetailScreen]。
  */
 @Composable
 private fun QuickRuleCard(
     title: String,
     hint: String,
     rules: List<String>,
+    accent: RuleAccent,
     trailing: (@Composable () -> Unit)? = null,
     onAdd: (String) -> Unit,
     onRemove: (String) -> Unit,
     onOpenDetail: () -> Unit,
 ) {
-    SectionCard(title, trailing = trailing ?: {}) {
+    // 视觉主角卡（HTML hero/flat 都落 Primary 档：浅色近白、深色 High 浮出）。
+    BentoCard(tier = CardTier.Primary, contentPadding = 14.dp, spacing = 8.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            if (trailing != null) trailing()
+        }
         Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        var input by remember { mutableStateOf("") }
-        // IntrinsicSize.Min + fillMaxHeight：按钮与输入框(56dp)等高，尺寸匹配（用户反馈:按钮明显比框小）。
+        RulePillInputRow(accent, onAdd)
+        RuleFormatHint()
+        rules.take(2).forEach { rule ->
+            HorizontalDivider(color = ruleHairline())
+            RuleEntryRow(rule, accent) { onRemove(rule) }
+        }
+        HorizontalDivider(color = ruleHairline())
+        // 「管理全部」行：语义色文字 + 计数徽章 + 右进入尖角。
         Row(
-            Modifier.height(IntrinsicSize.Min),
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .clickable(onClick = onOpenDetail)
+                .padding(vertical = 7.dp, horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                singleLine = true,
-                // placeholder 而非 label：label 上浮要在组件顶部预留 ~8dp，导致按钮 fillMaxHeight 后顶部突出;
-                // placeholder 版组件=可见框=56dp，按钮与框像素级同高对齐。
-                placeholder = { Text(stringResource(R.string.rules_add_domain)) },
-                // 输入框默认 extraSmall(8dp) 圆角与按钮 large(16dp) 打架——统一 16dp（全 app 弧度语言）。
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.weight(1f),
+            Text(
+                stringResource(R.string.rules_manage_all_plain),
+                style = MaterialTheme.typography.labelLarge,
+                color = accent.main,
             )
-            OutlinedButton(
-                onClick = { if (input.isNotBlank()) { onAdd(input); input = "" } },
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.fillMaxHeight(),
-            ) { Text(stringResource(R.string.rules_add)) }
+            CountBadge(rules.size.toString(), fg = accent.onContainer, bg = accent.container)
+            Spacer(Modifier.weight(1f))
+            Icon(
+                painterResource(R.drawable.ic_b_chevron_right),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(14.dp),
+            )
         }
-        Text(
-            stringResource(R.string.rules_format_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        rules.take(2).forEach { rule ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    rule,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                // 删除用图标按钮：Remove/移除 文字宽度随语言变化导致一列参差（双语检查原则）。
-                androidx.compose.material3.IconButton(onClick = { onRemove(rule) }) {
-                    Icon(
-                        painterResource(R.drawable.ic_delete),
-                        contentDescription = stringResource(R.string.rules_remove),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        com.mzstd.hxmyproxy.ui.components.NavRow(stringResource(R.string.rules_manage_all, rules.size), onOpenDetail)
     }
 }
 
-/** 规则分区大标题（🛡️ 拦截 / 🌐 放行），带语义色，把 reject/bypass 两大类在视觉上分开。 */
+// ---------- 胶囊输入行 / 条目行（规则页卡片与二级管理页共用） ----------
+
+/**
+ * 胶囊输入行（HTML .inrow）：全圆角 OutlinedTextField + 前置加号 + 右侧语义色填充「添加」按钮。
+ * 拦截卡粉钮/放行卡蓝钮；提交后清空输入。
+ */
 @Composable
-private fun SectionGroupHeader(text: String, color: androidx.compose.ui.graphics.Color) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        color = color,
-        modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
+    var input by remember { mutableStateOf("") }
+    val dark = LocalDarkTheme.current
+    // 浅灰填充底（HTML --field）：比卡面沉一档，胶囊轮廓在卡上立得住。
+    val field = if (dark) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainer
+    OutlinedTextField(
+        value = input,
+        onValueChange = { input = it },
+        singleLine = true,
+        // placeholder 而非 label：label 上浮的顶部预留会顶歪整行（既有结论，见 Compose UI 设计规范）。
+        placeholder = {
+            Text(stringResource(R.string.rules_add_domain), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        leadingIcon = {
+            Icon(
+                painterResource(R.drawable.ic_b_plus),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(16.dp),
+            )
+        },
+        trailingIcon = {
+            Button(
+                onClick = { if (input.isNotBlank()) { onAdd(input); input = "" } },
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = accent.main, contentColor = accent.onMain),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                modifier = Modifier.padding(end = 6.dp).height(36.dp),
+            ) { Text(stringResource(R.string.rules_add), style = MaterialTheme.typography.labelLarge) }
+        },
+        shape = RoundedCornerShape(50),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = field,
+            unfocusedContainerColor = field,
+            focusedBorderColor = accent.main,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 
-// GroupSwitchRow 已收敛到 components.LabeledSwitchRow（与设置项/接口开关同款）。
+/** 等宽格式提示（HTML .fmt）：example.com（含子域）· 1.2.3.4 · 192.168.0.0/16。 */
+@Composable
+internal fun RuleFormatHint() {
+    Text(
+        stringResource(R.string.rules_format_hint),
+        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** 条目行（HTML .prow）：类型小徽章（域名/IP 段）+ 等宽地址 + 删除图标。 */
+@Composable
+internal fun RuleEntryRow(rule: String, accent: RuleAccent, onRemove: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RuleTypeChip(rule, accent)
+        Text(
+            rule,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // 删除用图标按钮：Remove/移除 文字宽度随语言变化导致一列参差（双语检查原则）。
+        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+            Icon(
+                painterResource(R.drawable.ic_delete),
+                contentDescription = stringResource(R.string.rules_remove),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/** 条目类型小徽章（HTML .tchip）：按现有匹配器分派逻辑判「IP 段」vs「域名」，语义色淡底。 */
+@Composable
+internal fun RuleTypeChip(rule: String, accent: RuleAccent) {
+    // 复用 RuleMatcher.add 的分派判定（数字 IP / CIDR → IP 表），UI 徽章与引擎口径一致。
+    val isIp = remember(rule) { IpCidrSet.looksLikeIpOrCidr(rule) }
+    Text(
+        stringResource(if (isIp) R.string.rules_type_ip else R.string.rules_type_domain),
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp),
+        color = accent.main,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        modifier = Modifier
+            .widthIn(min = 44.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(accent.main.copy(alpha = 0.10f))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+    )
+}
+
+// ---------- 规则集网格 ----------
+
+/** 网格行头（HTML .glabel）：语义色圆点 + 行名 + 「N 组」徽章。 */
+@Composable
+private fun GridRowLabel(accent: RuleAccent, name: String, count: Int) {
+    Row(
+        Modifier.padding(top = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        StatusDot(accent.main, size = 7.dp)
+        Text(name, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
+        CountBadge(
+            stringResource(R.string.rules_groups_count, count),
+            fg = accent.onContainer,
+            bg = accent.container,
+        )
+    }
+}
 
 /** 规则集网格单元描述（非 composable，避免在 map 里调 composable）。onSwap≠null 显示 ⇄ 徽标（放行↔拦截移行）。 */
 private class RuleCellDesc(
@@ -282,19 +549,31 @@ private class RuleCellDesc(
     val enabled: Boolean, val onToggle: () -> Unit, val onSwap: (() -> Unit)? = null,
 )
 
-/** 内置 App 集的语义图标（Material 开源图标）。避免商标：用音乐/视频/聊天等通用图标。 */
-private fun groupIcon(id: String): Int = when (id) {
-    "app-neteasemusic" -> R.drawable.ic_rule_music
-    "app-bilibili" -> R.drawable.ic_rule_video
-    "app-wechat" -> R.drawable.ic_rule_chat
-    else -> R.drawable.ic_rule_label
+/** 内置 App 集的语义图标（避免商标）：音乐/视频/聊天沿用旧 ic_rule_*，其余按分类取 ic_b_* 家族。 */
+private fun groupIcon(g: RuleGroup): Int = when (g.category) {
+    RuleCategory.SOCIAL -> R.drawable.ic_rule_chat
+    RuleCategory.VIDEO -> R.drawable.ic_rule_video
+    RuleCategory.MUSIC -> R.drawable.ic_rule_music
+    RuleCategory.SHOPPING -> R.drawable.ic_b_shopping
+    RuleCategory.PAY -> R.drawable.ic_b_card
+    RuleCategory.BANK -> R.drawable.ic_b_bank
+    RuleCategory.BROKER -> R.drawable.ic_b_trending
+    RuleCategory.TRAVEL -> R.drawable.ic_b_send
+    RuleCategory.TOOLS -> R.drawable.ic_b_wrench
+    RuleCategory.GAME -> R.drawable.ic_b_gamepad
+    RuleCategory.ADS -> R.drawable.ic_b_megaphone
 }
 
-/** 规则集圆形图标网格单元：圆形(开=主题 primary / 关=灰) + 名称；点击切换开关。
- *  开关状态只用主题色表达——原先的第三方品牌色(网易红/B站粉/微信绿)不随主题、与蓝粉打架,已收敛。 */
+/**
+ * 规则集圆形图标网格单元（HTML .cell）：粉彩头像圆（板色按位次轮换）+ 语义色 ring（放行蓝/拦截粉，
+ * Modifier.border 2dp）+ 名称；停用集灰圆无 ring。点主体切开关，右上 ⇄ 徽标移到另一行。
+ */
 @Composable
-private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
+private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc, ring: Color, idx: Int) {
+    val dark = LocalDarkTheme.current
     val name = d.titleRes?.let { stringResource(it) } ?: d.titleStr ?: ""
+    val avBg = if (d.enabled) (if (dark) AvatarBgDark else AvatarBgLight)[idx % 6] else MaterialTheme.colorScheme.surfaceContainerHighest
+    val avFg = if (d.enabled) (if (dark) AvatarFgDark else AvatarFgLight)[idx % 6] else MaterialTheme.colorScheme.onSurfaceVariant
     // 外层 Box 不裁剪、留出顶部空间——⇄ 徽标挂外层右上角，不被点击区 clip 切掉（同 NavTabCell 方案）。
     Box(modifier.padding(top = 6.dp)) {
         Column(
@@ -302,51 +581,47 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             AvatarCircle(
-                40.dp,
-                if (d.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                38.dp,
+                avBg,
+                modifier = if (d.enabled) Modifier.border(2.dp, ring, CircleShape) else Modifier,
             ) {
                 Icon(
                     painterResource(d.iconRes),
                     contentDescription = name,
-                    tint = if (d.enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
+                    tint = avFg,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(Modifier.size(4.dp))
-            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.size(5.dp))
+            Text(
+                name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        // ⇄ 徽标：把该集移到另一行（放行↔拦截）。悬于右上角（上移 6dp 进预留区），独立可点。
+        // ⇄ 徽标：把该集移到另一行（放行↔拦截）。悬于右上角（上移 4dp 进预留区），独立可点。
         if (d.onSwap != null) {
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .offset(y = (-6).dp)
-                    .size(22.dp)
+                    .offset(y = (-4).dp)
+                    .size(19.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(if (dark) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .border(1.dp, ruleHairline(), CircleShape)
                     .clickable(onClickLabel = stringResource(R.string.rules_swap_a11y, name)) { d.onSwap.invoke() },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("⇄", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelMedium)
+                Icon(
+                    painterResource(R.drawable.ic_b_swap),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(11.dp),
+                )
             }
-        }
-    }
-}
-
-@Composable
-private fun SectionCard(title: String, trailing: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
-    // 与监控/设置/首页统一：cardContainerColor（浅色 Low 不发灰 / 深色 High 靠明度对比浮出，不描边）。
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                trailing()
-            }
-            content()
         }
     }
 }

@@ -6,22 +6,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,16 +34,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.BentoCard
+import com.mzstd.hxmyproxy.ui.components.CardHeader
+import com.mzstd.hxmyproxy.ui.components.CardTier
+import com.mzstd.hxmyproxy.ui.components.DetailScaffold
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 规则集编辑：多行文本框（一行一个域名）整体编辑 + 导入/导出 txt。
+ * 规则集编辑（Bento 化）：沉底提示条 + 域名清单卡（实时计数头 + 等宽多行编辑框）+
+ * 保存/导入/导出等宽按钮行。逻辑不变——多行文本整体编辑 + 导入/导出 txt。
  * [kind]="user"（自建集，id=UserRuleSet.id）或 "builtin"（内置集，id=groupId，保存为覆盖版、可恢复默认）。
  */
 @Composable
@@ -80,40 +82,75 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
         }
     }
 
-    com.mzstd.hxmyproxy.ui.components.DetailScaffold(title = title, onBack = onBack) { padding ->
-    Column(
-        // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(stringResource(R.string.ruleset_edit_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-        val t = text
-        if (t == null) {
-            CircularProgressIndicator()
-        } else {
-            OutlinedTextField(
-                value = t, onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
-                label = { Text(stringResource(R.string.ruleset_domains_count, parseDomains(t).size)) },
-                shape = MaterialTheme.shapes.large,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    val domains = parseDomains(t)
-                    if (isBuiltin) viewModel.setGroupOverride(id, domains) else viewModel.setRuleSetDomains(id, domains)
-                    onBack()
-                }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_save)) }
-                OutlinedButton(onClick = { importLauncher.launch(arrayOf("text/plain")) }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_import)) }
-                OutlinedButton(onClick = { exportLauncher.launch("$title.txt") }, shape = MaterialTheme.shapes.large) { Text(stringResource(R.string.ruleset_export)) }
+    DetailScaffold(title = title, onBack = onBack) { padding ->
+        Column(
+            // 沉浸式:inset padding 放 verticalScroll 之后,内容可滚入系统栏后方。
+            Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 编辑说明:沉底信息条
+            BentoCard(tier = CardTier.Sunken, contentPadding = 12.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        painterResource(R.drawable.ic_b_info),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.ruleset_edit_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (isBuiltin && hasOverride) {
-                TextButton(onClick = { viewModel.clearGroupOverride(id); onBack() }) {
-                    Text(stringResource(R.string.ruleset_restore_default))
+
+            val t = text
+            if (t == null) {
+                CircularProgressIndicator()
+            } else {
+                // 域名清单卡:实时计数头 + 等宽多行编辑框
+                BentoCard(tier = CardTier.Primary, contentPadding = 12.dp) {
+                    CardHeader(
+                        title = stringResource(R.string.ruleset_domains_count, parseDomains(t).size),
+                        icon = painterResource(R.drawable.ic_b_doc),
+                    )
+                    OutlinedTextField(
+                        value = t, onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                }
+                // 保存/导入/导出:等宽三按钮(中英文文案都不挤不断行)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val domains = parseDomains(t)
+                            if (isBuiltin) viewModel.setGroupOverride(id, domains) else viewModel.setRuleSetDomains(id, domains)
+                            onBack()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.large,
+                    ) { Text(stringResource(R.string.ruleset_save), maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { importLauncher.launch(arrayOf("text/plain")) },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.large,
+                    ) { Text(stringResource(R.string.ruleset_import), maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { exportLauncher.launch("$title.txt") },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.large,
+                    ) { Text(stringResource(R.string.ruleset_export), maxLines = 1) }
+                }
+                if (isBuiltin && hasOverride) {
+                    TextButton(onClick = { viewModel.clearGroupOverride(id); onBack() }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.ruleset_restore_default))
+                    }
                 }
             }
         }
-    }
     }
 
     val pending = pendingImport
