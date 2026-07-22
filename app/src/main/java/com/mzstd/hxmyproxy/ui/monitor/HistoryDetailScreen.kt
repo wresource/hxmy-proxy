@@ -1,17 +1,17 @@
 package com.mzstd.hxmyproxy.ui.monitor
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,14 +27,18 @@ import androidx.compose.ui.unit.dp
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.BentoCard
+import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
+import com.mzstd.hxmyproxy.ui.components.StatusDot
+import com.mzstd.hxmyproxy.ui.theme.StatusColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private val dateFmt = SimpleDateFormat("MM-dd HH:mm", Locale.US)
 
-/** 历史代理入口详情页：完整列表（含上次使用日期）+ 复制/删除。 */
+/** 历史代理入口详情页（Bento 轻改）：每 IP 一张卡（可用性圆点+等宽 IP）+ 复制/删除。 */
 @Composable
 fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -60,33 +64,37 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                     top = padding.calculateTopPadding(),
                     bottom = padding.calculateBottomPadding(),
                 ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(grouped, key = { it.first }) { (ip, lastUsed, available) ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(ip, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace)
-                            Text(
-                                dateFmt.format(Date(lastUsed)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (!available) {
+                    BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Default, contentPadding = 12.dp) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // 可用性圆点：绿=IP/端口仍有效可直接复用,红=已失效。
+                            StatusDot(if (available) StatusColors.good() else StatusColors.bad(), 9.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(ip, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace)
                                 Text(
-                                    stringResource(R.string.history_unavailable),
-                                    color = com.mzstd.hxmyproxy.ui.theme.StatusColors.bad(),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    dateFmt.format(Date(lastUsed)),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                if (!available) {
+                                    Text(
+                                        stringResource(R.string.history_unavailable),
+                                        color = StatusColors.bad(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
                             }
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(ip))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            }) { Text(stringResource(R.string.copy)) }
+                            TextButton(onClick = {
+                                ui.history.filter { it.entry.ip == ip }.forEach { mainViewModel.removeHistoryEndpoint(it.entry) }
+                            }) { Text(stringResource(R.string.delete)) }
                         }
-                        TextButton(onClick = {
-                            clipboard.setText(AnnotatedString(ip))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                        }) { Text(stringResource(R.string.copy)) }
-                        TextButton(onClick = {
-                            ui.history.filter { it.entry.ip == ip }.forEach { mainViewModel.removeHistoryEndpoint(it.entry) }
-                        }) { Text(stringResource(R.string.delete)) }
                     }
-                    HorizontalDivider()
                 }
             }
         }

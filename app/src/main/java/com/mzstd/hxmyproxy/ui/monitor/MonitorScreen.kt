@@ -1,23 +1,33 @@
 package com.mzstd.hxmyproxy.ui.monitor
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +37,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,14 +49,30 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.ClientSession
+import com.mzstd.hxmyproxy.core.model.DomainTraffic
+import com.mzstd.hxmyproxy.core.proxy.TrafficAccounting
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.AvatarCircle
-import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
+import com.mzstd.hxmyproxy.ui.components.BentoCard
+import com.mzstd.hxmyproxy.ui.components.BigStat
 import com.mzstd.hxmyproxy.ui.components.CardGrid
+import com.mzstd.hxmyproxy.ui.components.CardHeader
+import com.mzstd.hxmyproxy.ui.components.CardTier
+import com.mzstd.hxmyproxy.ui.components.CountBadge
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
-import com.mzstd.hxmyproxy.ui.components.GroupCard
-import com.mzstd.hxmyproxy.ui.components.NavRow
+import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
+import com.mzstd.hxmyproxy.ui.components.PageHeader
+import com.mzstd.hxmyproxy.ui.components.ProtoBadge
+import com.mzstd.hxmyproxy.ui.components.RatioBar
+import com.mzstd.hxmyproxy.ui.components.Sparkline
+import com.mzstd.hxmyproxy.ui.components.StatLabel
+import com.mzstd.hxmyproxy.ui.components.StatStripItem
+import com.mzstd.hxmyproxy.ui.components.StatusDot
+import com.mzstd.hxmyproxy.ui.components.protoBadgeColors
+import com.mzstd.hxmyproxy.ui.formatBytes
+import com.mzstd.hxmyproxy.ui.formatRate
 import com.mzstd.hxmyproxy.ui.theme.AvatarBgDark
 import com.mzstd.hxmyproxy.ui.theme.AvatarBgLight
 import com.mzstd.hxmyproxy.ui.theme.AvatarFgDark
@@ -75,21 +103,15 @@ private fun avatarPair(name: String): Pair<Color, Color> {
     return bg[i] to fg[i]
 }
 
-/** 协议配色：HTTP=蓝 primary（主协议）、SOCKS5=蓝灰 secondary、PAC=粉 tertiary（点睛）。 */
-@Composable
-private fun protocolPair(name: String): Pair<Color, Color> {
-    val cs = MaterialTheme.colorScheme
-    return when (name) {
-        "HTTP" -> cs.primary to cs.onPrimary
-        "SOCKS5" -> cs.secondary to cs.onSecondary
-        "PAC" -> cs.tertiary to cs.onTertiary
-        else -> cs.surfaceVariant to cs.onSurfaceVariant
-    }
-}
-
 @Composable
 private fun fmtBytes(bytes: Long): String =
     android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
+
+/** "2.3 MB/s" → ("2.3","MB/s")：BigStat 数字与单位分排。 */
+private fun splitRate(rate: String): Pair<String, String> {
+    val i = rate.lastIndexOf(' ')
+    return if (i > 0) rate.substring(0, i) to rate.substring(i + 1) else rate to ""
+}
 
 /** 诊断项：label + 三态 + 可选修复引导 + 「无需授权」中性态（本地网络权限在 Android 16- 不强制）。 */
 private data class DiagItem(
@@ -125,7 +147,7 @@ private enum class DiagGuide(val titleRes: Int, val bodyRes: Int) {
     }
 }
 
-/** 网格单元：上=圆形字符图标，中=名称（单行省略），下=值。诊断/延迟网格用。 */
+/** 网格单元：上=圆形字符图标，中=名称（单行省略），下=值。服务延迟网格用。 */
 @Composable
 private fun GridCell(
     modifier: Modifier,
@@ -163,70 +185,12 @@ private fun GridCell(
     }
 }
 
-// CardGrid 已提取到 components/SharedUi.kt（监控页与规则页共用）。
-
-/** 数据列表行：小圆点/头像 + 主文本(等宽可选) + 右侧值。客户端/域名等「同质可扫读」内容用。 */
-@Composable
-private fun DataRow(
-    dotBg: Color,
-    dotFg: Color,
-    dotText: String,
-    title: String,
-    subtitle: String? = null,
-    value: String,
-    mono: Boolean = false,
-    onClick: (() -> Unit)? = null,
-) {
-    Row(
-        Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AvatarCircle(32.dp, dotBg) {
-            Text(dotText, style = MaterialTheme.typography.labelLarge, color = dotFg)
-        }
-        Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontFamily = if (mono) FontFamily.Monospace else null,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
-        if (onClick != null) {
-            Spacer(Modifier.size(8.dp))
-            androidx.compose.material3.Icon(
-                androidx.compose.ui.res.painterResource(R.drawable.ic_tune),
-                contentDescription = stringResource(R.string.override_adjust),
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-
 /**
- * 监控页（重设计）：统一「分组卡」语言的六张卡——
- * 实时速率(运行时,大数字) / 诊断(三态网格) / 服务延迟(头像网格+刷新) /
- * 客户端(列表行) / 目标域名(列表行,协议色圆点) / 更多(历史+日志导航行)。
- * 客户端与域名按 M3 官方判据从网格改为列表：同质、可扫读、少动作的内容用 list。
+ * 监控页（Bento 重设计，规格=images/html/02-monitor.html）：
+ * 页头(标题+运行状态胶囊) / 速率大卡(双列大数字+sparkline+地址·连接·累计 strip) /
+ * 诊断(可修复异常置顶横幅+2 列小格) / 服务延迟(头像网格+刷新) /
+ * 客户端|目标域名 双卡并排(RatioBar 占比) / 已拦截(绿计数+域名 chip 流) / 历史 IP|错误日志 双入口卡。
+ * 行为与旧版一致：修复引导弹窗、本地网络版本说明、HostOverrideDialog、展开折叠全保留。
  */
 @Composable
 fun MonitorScreen(
@@ -239,6 +203,8 @@ fun MonitorScreen(
     val vm: MonitorViewModel = hiltViewModel()
     val latency by vm.latency.collectAsStateWithLifecycle()
     val measuring by vm.measuring.collectAsStateWithLifecycle()
+    // 最近 60s 速率历史（1s 采样），速率大卡 sparkline 用。
+    val rates by viewModel.rateHistory.collectAsStateWithLifecycle()
     var domainsExpanded by remember { mutableStateOf(false) }
     var clientsExpanded by remember { mutableStateOf(false) }
     var guideShown by remember { mutableStateOf<DiagGuide?>(null) }
@@ -297,31 +263,85 @@ fun MonitorScreen(
             top = 16.dp + contentPadding.calculateTopPadding(),
             bottom = 16.dp + contentPadding.calculateBottomPadding(),
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // —— 实时速率（运行时）：两个大数字并排 ——
+        // —— 页头：标题 + 右侧运行状态胶囊（绿点=共享中 / 中性点=已停止）——
+        item {
+            PageHeader(
+                title = stringResource(R.string.nav_monitor),
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusDot(if (ui.share.running) StatusColors.good() else MaterialTheme.colorScheme.onSurfaceVariant, 7.dp)
+                        StatLabel(stringResource(if (ui.share.running) R.string.status_running else R.string.status_stopped))
+                    }
+                },
+            )
+        }
+
+        // —— 实时速率大卡（运行时）：双列 BigStat+sparkline + 底部地址·连接·累计 strip ——
         if (ui.share.running) {
             item {
-                GroupCard(stringResource(R.string.monitor_realtime)) {
-                    Row(Modifier.fillMaxWidth()) {
-                        SpeedCell(
+                BentoCard(tier = CardTier.Primary) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatLabel(stringResource(R.string.monitor_realtime))
+                        Spacer(Modifier.weight(1f))
+                        StatLabel(stringResource(R.string.monitor_last_60s))
+                    }
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                        RateColumn(
                             Modifier.weight(1f),
-                            "↓ " + com.mzstd.hxmyproxy.ui.formatRate(ui.share.downloadRateBps),
-                            stringResource(R.string.monitor_down),
+                            icon = painterResource(R.drawable.ic_b_arrow_down),
+                            chipBg = MaterialTheme.colorScheme.primaryContainer,
+                            chipTint = MaterialTheme.colorScheme.primary,
+                            label = stringResource(R.string.monitor_down),
+                            rateBps = ui.share.downloadRateBps,
+                            sparkColor = MaterialTheme.colorScheme.primary,
+                            samples = rates.down,
                         )
-                        SpeedCell(
+                        VerticalDivider(
+                            Modifier.padding(horizontal = 12.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        )
+                        RateColumn(
                             Modifier.weight(1f),
-                            "↑ " + com.mzstd.hxmyproxy.ui.formatRate(ui.share.uploadRateBps),
-                            stringResource(R.string.monitor_up),
+                            icon = painterResource(R.drawable.ic_b_arrow_up),
+                            chipBg = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            chipTint = MaterialTheme.colorScheme.secondary,
+                            label = stringResource(R.string.monitor_up),
+                            rateBps = ui.share.uploadRateBps,
+                            sparkColor = MaterialTheme.colorScheme.secondary,
+                            samples = rates.up,
                         )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    // 底部 strip：入口地址(等宽) · 连接数 · 累计流量。
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    ) {
+                        val entry = ui.share.recommendedEntries.firstOrNull()
+                        if (entry != null) {
+                            Text(
+                                entry.ipEndpoint,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            StripSep()
+                        }
+                        StatStripItem(stringResource(R.string.stat_conns), ui.share.activeConnections.toString())
+                        StripSep()
+                        StatStripItem(stringResource(R.string.stat_traffic), formatBytes(ui.share.totalBytes))
                     }
                 }
             }
         }
 
-        // —— 诊断（三态：未启用/正常/异常；PAC 退化标黄；异常且可修复项**可点击**弹引导）——
+        // —— 诊断：可修复异常置顶横幅（Error 级,点弹引导）+ 其余 2 列小格 ——
         item {
-            GroupCard(stringResource(R.string.monitor_diagnostics)) {
+            BentoCard(tier = CardTier.Primary) {
                 val diag = ui.share.diagnostics
                 // 本地网络权限 Android 17(SDK 37) 起才强制;更低版本显示中性「无需授权」而非绿✓,
                 // 避免在 16- 设备上误以为「已授过权」。
@@ -335,54 +355,72 @@ fun MonitorScreen(
                     DiagItem(R.string.diag_socks_port, diag.socksEnabled, diag.socksPortUp),
                     DiagItem(R.string.diag_pac_port, diag.pacEnabled, diag.pacPortUp),
                 )
-                CardGrid(items = diagItems, collapsedRows = 2) { mod, item ->
-                    val pacDirectOnly = item.label == R.string.diag_pac_port &&
-                        diag.pacEnabled && !diag.httpEnabled && !diag.socksEnabled
-                    // 异常且有引导的项可点击 → 弹「为什么需要 + 去开启」补全引导;
-                    // 本地网络「无需授权」中性格子也可点 → 各 Android 版本差异说明。
-                    val clickable = item.guide != null && !item.up && !item.notApplicable
-                    val cellMod = when {
-                        clickable -> mod.clip(MaterialTheme.shapes.small).clickable { guideShown = item.guide }
-                        item.notApplicable && item.label == R.string.diag_local_net_perm ->
-                            mod.clip(MaterialTheme.shapes.small).clickable { showLocalNetInfo = true }
-                        else -> mod
-                    }
-                    when {
-                        item.notApplicable -> {
-                            val c = MaterialTheme.colorScheme.onSurfaceVariant
-                            GridCell(cellMod, "—", c.copy(alpha = 0.14f), c, stringResource(item.label), stringResource(R.string.diag_not_required), c)
-                        }
-                        !item.enabled -> {
-                            val c = MaterialTheme.colorScheme.onSurfaceVariant
-                            GridCell(cellMod, "—", c.copy(alpha = 0.14f), c, stringResource(item.label), stringResource(R.string.diag_disabled), c)
-                        }
-                        pacDirectOnly -> {
-                            val c = StatusColors.warn()
-                            GridCell(cellMod, "!", c.copy(alpha = 0.18f), c, stringResource(item.label), stringResource(R.string.diag_pac_direct_only), c)
-                        }
-                        item.label == R.string.diag_battery -> {
-                            // 电池优化专属文案:无限制/受限(「正常/异常」在这里语义不清)。
-                            val c = if (item.up) StatusColors.good() else StatusColors.bad()
-                            GridCell(
-                                cellMod, if (item.up) "✓" else "✗", c.copy(alpha = 0.18f), c,
-                                stringResource(item.label),
-                                stringResource(if (item.up) R.string.diag_battery_unrestricted else R.string.diag_battery_restricted), c,
+                // 异常且可修复(有引导)的项抽出置顶为横幅;其余进 2 列小格。
+                val (alerts, gridItems) = diagItems.partition {
+                    it.guide != null && it.enabled && !it.up && !it.notApplicable
+                }
+                val pacDirectOnly = diag.pacEnabled && !diag.httpEnabled && !diag.socksEnabled
+                // 异常计数 = 横幅 + 端口红叉(启用但没起来);VPN 网关态与 PAC 仅直连(黄)不计入。
+                val issueCount = alerts.size + gridItems.count {
+                    it.enabled && !it.up && !it.notApplicable && it.label != R.string.diag_vpn &&
+                        !(it.label == R.string.diag_pac_port && pacDirectOnly)
+                }
+                CardHeader(
+                    title = stringResource(R.string.monitor_diagnostics),
+                    icon = painterResource(R.drawable.ic_b_activity),
+                    trailing = {
+                        if (issueCount > 0) {
+                            CountBadge(
+                                stringResource(R.string.monitor_issue_count, issueCount),
+                                fg = MaterialTheme.colorScheme.onErrorContainer,
+                                bg = MaterialTheme.colorScheme.errorContainer,
                             )
                         }
+                    },
+                )
+                alerts.forEach { a ->
+                    // 横幅标题=「项目 · 状态」;电池优化带后果副文案,其余项弹窗里已有完整解释。
+                    val state = stringResource(
+                        if (a.label == R.string.diag_battery) R.string.diag_battery_restricted else R.string.diag_fail,
+                    )
+                    DiagAlert(
+                        title = "${stringResource(a.label)} · $state",
+                        sub = if (a.label == R.string.diag_battery) stringResource(R.string.diag_battery_warn_sub) else null,
+                        onClick = { guideShown = a.guide },
+                    )
+                }
+                CardGrid(items = gridItems, collapsedRows = 4, columns = 2) { mod, item ->
+                    // 本地网络「无需授权」中性格子可点 → 各 Android 版本差异说明(旧行为保留)。
+                    val cellMod = if (item.notApplicable && item.label == R.string.diag_local_net_perm) {
+                        mod.clip(MaterialTheme.shapes.small).clickable { showLocalNetInfo = true }
+                    } else mod
+                    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+                    when {
+                        item.notApplicable ->
+                            DiagCell(cellMod, null, neutral, stringResource(item.label), stringResource(R.string.diag_not_required), neutral)
+                        !item.enabled ->
+                            DiagCell(cellMod, null, neutral, stringResource(item.label), stringResource(R.string.diag_disabled), neutral)
+                        item.label == R.string.diag_pac_port && pacDirectOnly ->
+                            DiagCell(cellMod, painterResource(R.drawable.ic_b_exclamation), StatusColors.warn(), stringResource(item.label), stringResource(R.string.diag_pac_direct_only), StatusColors.warn())
+                        item.label == R.string.diag_battery ->
+                            // 电池优化异常已抽到横幅,格子里只剩「无限制」绿态。
+                            DiagCell(cellMod, painterResource(R.drawable.ic_b_check), StatusColors.good(), stringResource(item.label), stringResource(R.string.diag_battery_unrestricted), StatusColors.good())
                         item.label == R.string.diag_vpn -> {
-                            // VPN 出口是「环境事实」而非故障:有 VPN=共享出口(绿✓);没 VPN=过滤网关模式(中性「—」,不标红)。
-                            val c = if (item.up) StatusColors.good() else MaterialTheme.colorScheme.onSurfaceVariant
-                            GridCell(
-                                cellMod, if (item.up) "✓" else "—", c.copy(alpha = if (item.up) 0.18f else 0.14f), c,
+                            // VPN 出口是「环境事实」而非故障:有 VPN=共享出口(绿✓);没 VPN=过滤网关模式(中性,不标红)。
+                            val c = if (item.up) StatusColors.good() else neutral
+                            DiagCell(
+                                cellMod, if (item.up) painterResource(R.drawable.ic_b_check) else null, c,
                                 stringResource(item.label),
                                 stringResource(if (item.up) R.string.diag_vpn_sharing else R.string.diag_vpn_gateway), c,
                             )
                         }
                         else -> {
                             val c = if (item.up) StatusColors.good() else StatusColors.bad()
-                            GridCell(
-                                cellMod, if (item.up) "✓" else "✗", c.copy(alpha = 0.18f), c,
-                                stringResource(item.label), stringResource(if (item.up) R.string.diag_ok else R.string.diag_fail), c,
+                            DiagCell(
+                                cellMod,
+                                painterResource(if (item.up) R.drawable.ic_b_check else R.drawable.ic_b_close), c,
+                                stringResource(item.label),
+                                stringResource(if (item.up) R.string.diag_ok else R.string.diag_fail), c,
                             )
                         }
                     }
@@ -392,16 +430,22 @@ fun MonitorScreen(
 
         // —— 服务延迟（头像网格 + 刷新）——
         item {
-            GroupCard(
-                stringResource(R.string.monitor_latency),
-                trailing = {
-                    if (measuring) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        TextButton(onClick = vm::refreshLatency) { Text(stringResource(R.string.refresh)) }
-                    }
-                },
-            ) {
+            BentoCard(tier = CardTier.Default) {
+                CardHeader(
+                    title = stringResource(R.string.monitor_latency),
+                    icon = painterResource(R.drawable.ic_b_timer),
+                    trailing = {
+                        if (measuring) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            TextButton(onClick = vm::refreshLatency) {
+                                Icon(painterResource(R.drawable.ic_b_refresh), contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.size(5.dp))
+                                Text(stringResource(R.string.refresh))
+                            }
+                        }
+                    },
+                )
                 if (!ui.share.vpn.detected) {
                     Text(
                         stringResource(R.string.monitor_novpn_hint),
@@ -429,119 +473,427 @@ fun MonitorScreen(
             }
         }
 
-        // —— 客户端（列表行：同质可扫读内容按 M3 判据用 list 而非网格）——
+        // —— 客户端 | 目标域名：bento 双卡并排（0.86 : 1.14,HTML duo 比例）——
         item {
-            GroupCard(stringResource(R.string.monitor_clients)) {
-                if (ui.share.clients.isEmpty()) {
-                    Text(
-                        stringResource(R.string.monitor_no_clients),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    val shown = if (clientsExpanded) ui.share.clients else ui.share.clients.take(4)
-                    shown.forEach { c ->
-                        val ipStr = c.clientIp.hostAddress ?: "?"
-                        DataRow(
-                            dotBg = MaterialTheme.colorScheme.primaryContainer,
-                            dotFg = MaterialTheme.colorScheme.onPrimaryContainer,
-                            dotText = ipStr.substringAfterLast('.').ifEmpty { "?" },
-                            title = ipStr,
-                            value = "↓${fmtBytes(c.downloadBytes)} ↑${fmtBytes(c.uploadBytes)}",
-                            mono = true,
-                        )
-                    }
-                    if (ui.share.clients.size > 4) {
-                        ExpandCollapseButton(clientsExpanded, ui.share.clients.size) { clientsExpanded = !clientsExpanded }
-                    }
-                }
+            Row(
+                Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ClientsCard(
+                    Modifier.weight(0.86f).fillMaxHeight(),
+                    clients = ui.share.clients,
+                    expanded = clientsExpanded,
+                    onToggle = { clientsExpanded = !clientsExpanded },
+                )
+                DomainsCard(
+                    Modifier.weight(1.14f).fillMaxHeight(),
+                    domains = ui.share.topDomains,
+                    expanded = domainsExpanded,
+                    onToggle = { domainsExpanded = !domainsExpanded },
+                    onEdit = { editHost = it },
+                )
             }
         }
 
-        // —— 目标域名 Top N（列表行：协议色圆点 + 域名 + 流量）——
+        // —— 已拦截（广告/拒绝规则命中；绿色计数 + 域名 chip 流）——
         item {
-            GroupCard(stringResource(R.string.monitor_top_domains)) {
-                if (ui.share.topDomains.isEmpty()) {
-                    Text(
-                        stringResource(R.string.monitor_no_domains),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    val sorted = ui.share.topDomains.sortedByDescending { it.lastSeenAtEpochMs }
-                    val shown = if (domainsExpanded) sorted else sorted.take(5)
-                    shown.forEach { d ->
-                        val (bg, fg) = protocolPair(d.protocol.name)
-                        // "(其他)" 聚合桶是运行时常量,显示时本地化(英文界面不冒中文,双语检查原则)。
-                        val hostLabel = if (d.host == com.mzstd.hxmyproxy.core.proxy.TrafficAccounting.OTHERS) {
-                            stringResource(R.string.monitor_others)
-                        } else d.host
-                        DataRow(
-                            dotBg = bg,
-                            dotFg = fg,
-                            dotText = (hostLabel.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                            title = hostLabel,
-                            // 「直连」标识:规则白名单命中的域名流量绕过 VPN 直连出口(仍经本代理转发,
-                            // 故仍出现在监控)——有了标识,规则是否生效一眼可见。
-                            subtitle = if (d.direct) {
-                                "${d.protocol.name} · ${stringResource(R.string.route_direct)}"
-                            } else d.protocol.name,
-                            value = fmtBytes(d.uploadBytes + d.downloadBytes),
-                            // "(其他)" 聚合桶不是真实 host,不可点;其余点击弹三态救济弹窗。
-                            onClick = if (d.host == com.mzstd.hxmyproxy.core.proxy.TrafficAccounting.OTHERS) null
-                            else ({ editHost = d.host }),
-                        )
-                    }
-                    if (sorted.size > 5) {
-                        ExpandCollapseButton(domainsExpanded, sorted.size) { domainsExpanded = !domainsExpanded }
-                    }
-                }
-            }
-        }
-
-        // —— 已拦截（广告/拒绝规则命中；会话内累计）——
-        item {
-            GroupCard(stringResource(R.string.monitor_blocked)) {
+            BentoCard(tier = CardTier.Primary) {
                 if (ui.share.blockedTotal <= 0L) {
+                    CardHeader(
+                        title = stringResource(R.string.monitor_blocked),
+                        icon = painterResource(R.drawable.ic_b_shield_check),
+                        iconBg = StatusColors.goodContainer(),
+                        iconTint = StatusColors.good(),
+                    )
                     Text(
                         stringResource(R.string.monitor_no_blocked),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    Text(
-                        stringResource(R.string.protection_blocked_count, ui.share.blockedTotal),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = StatusColors.good(),
-                    )
-                    ui.share.topBlockedDomains.take(8).forEach { b ->
-                        DataRow(
-                            dotBg = MaterialTheme.colorScheme.errorContainer,
-                            dotFg = MaterialTheme.colorScheme.onErrorContainer,
-                            dotText = (b.host.firstOrNull()?.uppercaseChar() ?: '?').toString(),
-                            title = b.host,
-                            value = "×${b.count}",
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(
+                            painterResource(R.drawable.ic_b_shield_check),
+                            contentDescription = null,
+                            tint = StatusColors.good(),
+                            modifier = Modifier.size(16.dp),
                         )
+                        Text(
+                            stringResource(R.string.protection_blocked_count, ui.share.blockedTotal),
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = StatusColors.good(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        StatLabel(stringResource(R.string.monitor_blocked_tag))
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        ui.share.topBlockedDomains.take(8).forEach { b -> BlockedChip(b.host, b.count) }
                     }
                 }
             }
         }
 
-        // —— 历史入口 / 错误日志（无标题导航卡；「更多」标题冗余已删）——
+        // —— 底部双入口卡：历史 IP | 错误日志 ——
         item {
-            GroupCard(title = null) {
-                NavRow("${stringResource(R.string.monitor_open_history)} (${ui.history.size})", onOpenHistory)
-                NavRow(stringResource(R.string.error_logs), onOpenLogs)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                EntryCard(
+                    Modifier.weight(1f),
+                    icon = painterResource(R.drawable.ic_b_history),
+                    title = stringResource(R.string.monitor_open_history),
+                    count = stringResource(R.string.log_count, ui.history.size),
+                    onClick = onOpenHistory,
+                )
+                EntryCard(
+                    Modifier.weight(1f),
+                    icon = painterResource(R.drawable.ic_b_doc),
+                    title = stringResource(R.string.error_logs),
+                    count = null,
+                    onClick = onOpenLogs,
+                )
             }
         }
     }
 }
 
-/** 速率大格：大数字（tnum 等宽，刷新不抖）+ 标签。 */
+/** 速率半列：方向角标小方块 + 标签、BigStat 大数字+单位、60s sparkline。 */
 @Composable
-private fun SpeedCell(modifier: Modifier, value: String, label: String) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun RateColumn(
+    modifier: Modifier,
+    icon: Painter,
+    chipBg: Color,
+    chipTint: Color,
+    label: String,
+    rateBps: Long,
+    sparkColor: Color,
+    samples: List<Float>,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(
+                Modifier.size(20.dp).clip(RoundedCornerShape(7.dp)).background(chipBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = chipTint, modifier = Modifier.size(12.dp))
+            }
+            StatLabel(label)
+        }
+        val (num, unit) = splitRate(formatRate(rateBps))
+        BigStat(num, unit.ifEmpty { null }, valueSize = 26)
+        Sparkline(samples, color = sparkColor)
+    }
+}
+
+/** strip 分隔点。 */
+@Composable
+private fun StripSep() {
+    Text(
+        "·",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+    )
+}
+
+/**
+ * 诊断异常置顶横幅（Error 级，一次性形态）：叉圆点 + 「项目 · 状态」+ 可选后果副文案 +
+ * 右侧「去开启 ›」。整条可点 → 修复引导弹窗（为什么需要 + 直跳系统页面）。
+ */
+@Composable
+private fun DiagAlert(title: String, sub: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        AvatarCircle(22.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.14f)) {
+            Icon(
+                painterResource(R.drawable.ic_b_close),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(11.dp),
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            if (sub != null) {
+                Text(
+                    sub,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f),
+                )
+            }
+        }
+        Text(
+            stringResource(R.string.diag_go_enable),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Icon(
+            painterResource(R.drawable.ic_b_chevron_right),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(12.dp),
+        )
+    }
+}
+
+/** 诊断小格（2 列网格用）：状态圆点(✓绿/!黄/✗红/—中性) + 名称 + 状态字。 */
+@Composable
+private fun DiagCell(
+    modifier: Modifier,
+    icon: Painter?,
+    tint: Color,
+    name: String,
+    state: String,
+    stateColor: Color,
+) {
+    Row(
+        modifier.padding(horizontal = 4.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AvatarCircle(20.dp, tint.copy(alpha = 0.16f)) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(10.dp))
+            } else {
+                Text("—", style = MaterialTheme.typography.labelSmall, color = tint)
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(state, style = MaterialTheme.typography.labelSmall, color = stateColor, maxLines = 1)
+        }
+    }
+}
+
+/** 客户端卡：IP 徽章(末段) + 等宽 IP + RatioBar 占比(按下行流量归一) + 上下行流量。 */
+@Composable
+private fun ClientsCard(
+    modifier: Modifier,
+    clients: List<ClientSession>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    BentoCard(modifier, tier = CardTier.Default, contentPadding = 12.dp, spacing = 8.dp) {
+        CardHeader(stringResource(R.string.monitor_clients), icon = painterResource(R.drawable.ic_b_phone))
+        if (clients.isEmpty()) {
+            Text(
+                stringResource(R.string.monitor_no_clients),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            val shown = if (expanded) clients else clients.take(4)
+            val maxDown = shown.maxOf { it.downloadBytes }.coerceAtLeast(1L)
+            shown.forEach { c -> ClientRow(c, maxDown) }
+            if (clients.size > 4) {
+                ExpandCollapseButton(expanded, clients.size, onToggle)
+            }
+        }
+    }
+}
+
+/** 客户端行：l1=IP 末段徽章+等宽 IP；l2=下行占比条+「↓x ↑y」。 */
+@Composable
+private fun ClientRow(c: ClientSession, maxDown: Long) {
+    val ipStr = c.clientIp.hostAddress ?: "?"
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                ipStr.substringAfterLast('.').ifEmpty { "?" },
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+            Text(
+                ipStr,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            RatioBar(
+                fraction = c.downloadBytes / maxDown.toFloat(),
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f),
+                height = 4.dp,
+            )
+            Text(
+                "↓${fmtBytes(c.downloadBytes)} ↑${fmtBytes(c.uploadBytes)}",
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 目标域名卡：协议色圆点 + 域名 + ProtoBadge + 直连标注 + 流量 + RatioBar；行点击弹三态救济弹窗。 */
+@Composable
+private fun DomainsCard(
+    modifier: Modifier,
+    domains: List<DomainTraffic>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onEdit: (String) -> Unit,
+) {
+    BentoCard(modifier, tier = CardTier.Primary, contentPadding = 12.dp, spacing = 8.dp) {
+        CardHeader(stringResource(R.string.monitor_top_domains), icon = painterResource(R.drawable.ic_b_globe))
+        if (domains.isEmpty()) {
+            Text(
+                stringResource(R.string.monitor_no_domains),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            val sorted = domains.sortedByDescending { it.lastSeenAtEpochMs }
+            val shown = if (expanded) sorted else sorted.take(5)
+            val maxBytes = shown.maxOf { it.uploadBytes + it.downloadBytes }.coerceAtLeast(1L)
+            shown.forEach { d -> DomainRow(d, maxBytes, onEdit) }
+            if (sorted.size > 5) {
+                ExpandCollapseButton(expanded, sorted.size, onToggle)
+            }
+        }
+    }
+}
+
+/** 目标域名行。"(其他)" 聚合桶：中性色、无徽章、不可点（不是真实 host）。 */
+@Composable
+private fun DomainRow(d: DomainTraffic, maxBytes: Long, onEdit: (String) -> Unit) {
+    val others = d.host == TrafficAccounting.OTHERS
+    // "(其他)" 聚合桶是运行时常量,显示时本地化(英文界面不冒中文,双语检查原则)。
+    val hostLabel = if (others) stringResource(R.string.monitor_others) else d.host
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val dotColor = if (others) neutral.copy(alpha = 0.7f) else protoBadgeColors(d.protocol).second
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (!others) {
+                    Modifier.clip(MaterialTheme.shapes.small).clickable { onEdit(d.host) }
+                } else Modifier,
+            ),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            StatusDot(dotColor, 8.dp)
+            Text(
+                hostLabel,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = if (others) neutral else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!others) {
+                ProtoBadge(d.protocol)
+                // 「直连」标识:规则白名单命中的域名流量绕过 VPN 直连出口(仍经本代理转发,
+                // 故仍出现在监控)——有了标识,规则是否生效一眼可见。
+                if (d.direct) {
+                    Text(stringResource(R.string.route_direct), style = MaterialTheme.typography.labelSmall, color = neutral)
+                }
+            }
+            Text(
+                fmtBytes(d.uploadBytes + d.downloadBytes),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"),
+                color = if (others) neutral else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            if (!others) {
+                Icon(
+                    painterResource(R.drawable.ic_tune),
+                    contentDescription = stringResource(R.string.override_adjust),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+        RatioBar(
+            fraction = (d.uploadBytes + d.downloadBytes) / maxBytes.toFloat(),
+            color = if (others) neutral.copy(alpha = 0.55f) else MaterialTheme.colorScheme.primary,
+            height = 4.dp,
+        )
+    }
+}
+
+/** 已拦截域名 chip：域名 + ×次数（红调）。 */
+@Composable
+private fun BlockedChip(host: String, count: Long) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            host,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            maxLines = 1,
+        )
+        Text(
+            "×$count",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.error,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 底部入口卡（历史 IP / 错误日志）：图标 + 标题 + 可选条数 + 右尖角，整卡可点。 */
+@Composable
+private fun EntryCard(
+    modifier: Modifier,
+    icon: Painter,
+    title: String,
+    count: String?,
+    onClick: () -> Unit,
+) {
+    BentoCard(modifier, tier = CardTier.Sunken, onClick = onClick, contentPadding = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Text(
+                title,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (count != null) {
+                Text(
+                    count,
+                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Icon(
+                painterResource(R.drawable.ic_b_chevron_right),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(13.dp),
+            )
+        }
     }
 }

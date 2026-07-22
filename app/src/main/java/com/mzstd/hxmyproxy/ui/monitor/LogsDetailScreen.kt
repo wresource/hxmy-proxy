@@ -2,10 +2,8 @@ package com.mzstd.hxmyproxy.ui.monitor
 
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,9 +35,12 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.log.LogExport
 import com.mzstd.hxmyproxy.ui.LogEntry
 import com.mzstd.hxmyproxy.ui.LogsViewModel
+import com.mzstd.hxmyproxy.ui.components.BentoCard
+import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
+import com.mzstd.hxmyproxy.ui.components.StatusDot
 
-/** 错误日志详情页：按条目（最近在前）折叠展示——每条默认 2 行、可展开看堆栈；顶部显示总条数。 */
+/** 错误日志详情页（Bento 轻改）：每条一张卡（等级圆点+等宽字），默认 2 行、可展开看堆栈；顶部显示总条数。 */
 @Composable
 fun LogsDetailScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -85,6 +85,7 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                     top = padding.calculateTopPadding(),
                     bottom = padding.calculateBottomPadding(),
                 ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // 总条数（+ 错误/警告分项）：一眼看清数量。
                 item(key = "__count") {
@@ -95,40 +96,50 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                             if (err + warn > 0) "  ·  E $err · W $warn" else "",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
                 items(entries) { entry ->
                     LogEntryRow(entry)
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                 }
             }
         }
     }
 }
 
-/** 单条日志：折叠态显示元信息一行 + 消息最多 2 行；有堆栈则可点开看全文。 */
+/** 单条日志卡：折叠态显示元信息一行 + 消息最多 2 行；有堆栈则整卡可点开看全文。 */
 @Composable
 private fun LogEntryRow(entry: LogEntry) {
     var expanded by remember { mutableStateOf(false) }
     val canExpand = entry.hasMore
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .then(if (canExpand) Modifier.clickable { expanded = !expanded } else Modifier)
-            .padding(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+    BentoCard(
+        Modifier.fillMaxWidth(),
+        tier = CardTier.Default,
+        onClick = if (canExpand) ({ expanded = !expanded }) else null,
+        contentPadding = 12.dp,
+        spacing = 3.dp,
     ) {
-        // 元信息行：等级色点 + 时间戳 + tag。
+        // 元信息行：等级圆点 + 等级字母 + 时间戳 + tag（等宽小字）。
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatusDot(levelColor(entry.level), 8.dp)
             Text(
                 entry.level,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                 fontWeight = FontWeight.Bold,
                 color = levelColor(entry.level),
             )
-            Text(entry.timestamp, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(entry.tag, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                entry.timestamp,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                entry.tag,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         // 消息：折叠 2 行、展开全显。
         Text(
