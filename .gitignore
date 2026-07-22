@@ -18,3 +18,7 @@ local.properties
 /.idea/
 /google-play/
 release-artifacts/
+/version-md/
+/.claude/
+/release/
+/images/
