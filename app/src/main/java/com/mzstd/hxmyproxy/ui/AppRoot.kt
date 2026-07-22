@@ -26,8 +26,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -302,6 +304,14 @@ private fun BottomNavBar(navController: NavController, destinations: List<NavTab
                 onClick = { navController.switchTo(dest) },
                 icon = { Icon(painterResource(dest.icon), contentDescription = stringResource(dest.label)) },
                 label = { Text(stringResource(dest.label)) },
+                // Bento 设计稿(01-dashboard .tab.on/.pill)：选中态 = primaryContainer 蓝 pill 指示 +
+                // primary 蓝图标与字标签(替代 M3 默认的 secondaryContainer/onSecondaryContainer)。
+                // 未选中沿用默认 onSurfaceVariant。浅/深两套 scheme 的 primary/primaryContainer 均已定义。
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         }
     }
@@ -321,6 +331,12 @@ private fun SideNavRail(navController: NavController, destinations: List<NavTab>
                 onClick = { navController.switchTo(dest) },
                 icon = { Icon(painterResource(dest.icon), contentDescription = stringResource(dest.label)) },
                 label = { Text(stringResource(dest.label)) },
+                // 与底栏同步：选中态 primaryContainer pill + primary 图标/字标签。
+                colors = NavigationRailItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                ),
             )
         }
         Spacer(Modifier.weight(1f))
