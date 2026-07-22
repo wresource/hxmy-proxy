@@ -50,6 +50,28 @@ class MainViewModel @Inject constructor(
             MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
+    /** 速率历史（最近 60 个 1s 样本，字节/秒），监控/首页 sparkline 用；停止即清空。 */
+    data class RateHistory(val down: List<Float> = emptyList(), val up: List<Float> = emptyList())
+
+    val rateHistory: StateFlow<RateHistory> = kotlinx.coroutines.flow.flow {
+        val down = ArrayDeque<Float>()
+        val up = ArrayDeque<Float>()
+        while (true) {
+            val s = uiState.value.share
+            if (s.running) {
+                down.addLast(s.downloadRateBps.toFloat())
+                up.addLast(s.uploadRateBps.toFloat())
+                while (down.size > 60) down.removeFirst()
+                while (up.size > 60) up.removeFirst()
+            } else {
+                down.clear()
+                up.clear()
+            }
+            emit(RateHistory(down.toList(), up.toList()))
+            kotlinx.coroutines.delay(1_000)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RateHistory())
+
     private val replayRequested = MutableStateFlow(false)
 
     /** 是否显示首次引导：null=加载中；未完成、或用户「重新查看」→ true。 */

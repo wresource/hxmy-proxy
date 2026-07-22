@@ -81,7 +81,7 @@
     <string name="rule_app_wechat">WeChat</string>
     <string name="rule_app_src">blackmatrix7 · GPL-2 · direct (bypass VPN)</string>
     <string name="rules_manage">Manage rule sets</string>
-    <string name="ruleset_manager_title">Rule sets</string>
+    <string name="ruleset_manager_title">Rule set manager</string>
     <string name="ruleset_my">My rule sets</string>
     <string name="ruleset_builtin">Built-in rule sets</string>
     <string name="ruleset_new">New rule set</string>
@@ -108,9 +108,9 @@
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
     <string name="rules_add_from_history">Re-add removed</string>
     <string name="rules_history_empty">No removed domains yet</string>
-    <string name="rules_user_direct_hint">These domains exit via the phone\'s real network instead of the shared connection. Traffic still goes through this proxy, so they still appear in Monitor (tagged "Direct").</string>
+    <string name="rules_user_direct_hint">Exits via the phone\'s real network — still shown in Monitor, tagged \"Direct\".</string>
     <string name="route_direct">Direct</string>
-    <string name="rules_app_sets_hint">Toggle a set to route that app\'s domains in one tap. Tap Manage to edit sets and domains.</string>
+    <string name="rules_app_sets_hint">Route whole apps / services as sets — tap ⇄ to move one between Allow and Block.</string>
     <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
     <string name="cat_social">Social &amp; messaging</string>
     <string name="cat_video">Video</string>
@@ -205,20 +205,20 @@
     <string name="protect_off">Off</string>
     <string name="protect_blocked">%1$d blocked</string>
     <!-- 规则页语义重组：拦截/放行分区 + 快速拦截 + 格式提醒 -->
-    <string name="rules_group_reject">🛡️ Block</string>
-    <string name="rules_group_bypass">🌐 Allow</string>
+    <string name="rules_group_reject">Block</string>
+    <string name="rules_group_bypass">Allow</string>
     <string name="rules_reject_quick">Quick block</string>
-    <string name="rules_reject_quick_hint">Hosts added here are blocked (connection refused) — works with or without a VPN.</string>
+    <string name="rules_reject_quick_hint">Added domains / IPs are refused — ads and trackers go dark instantly.</string>
     <string name="rules_reject_sets">Block rule sets</string>
     <string name="rules_format_hint">example.com (incl. subdomains) · 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
     <string name="warn_no_iface">No network selected — refusing all connections</string>
     <string name="warn_no_proto">No protocol enabled — nothing is listening</string>
-    <string name="entry_none_running">Running, but no usable entry — select a network below and enable at least one protocol in Settings.</string>
+    <string name="entry_none_running">Running, but no usable entry — select a network below or enable a protocol.</string>
     <string name="status_idle">Not ready</string>
     <string name="warn_no_port_up">No port is listening</string>
     <string name="backup_dns">Backup DNS (DoH)</string>
-    <string name="backup_dns_sub">When system DNS fails, retry via encrypted DNS (8.8.8.8 / 1.1.1.1) — survives broken network DNS</string>
+    <string name="backup_dns_sub">When DNS fails, retry via encrypted 8.8.8.8 / 1.1.1.1</string>
     <string name="override_adjust">Adjust</string>
     <string name="rules_row_empty">None yet — tap the ⇄ badge on a set in the other row to move it here.</string>
     <string name="rules_swap_a11y">Switch %1$s between allow and block</string>
@@ -273,7 +273,7 @@
     <string name="start_to_show_entries">Start sharing to see proxy addresses here.</string>
     <string name="proto_http_sub">Most compatible — works with system proxy settings and browsers</string>
     <string name="proto_socks_sub">For terminals, games and other TCP apps</string>
-    <string name="proto_pac_sub">Auto-config file; browsers/system route traffic by rules</string>
+    <string name="proto_pac_sub">Serves an auto-config file; clients proxy only when needed</string>
     <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
     <string name="settings_privacy">Privacy &amp; security</string>
     <string name="settings_nav">Navigation bar</string>
@@ -305,9 +305,9 @@
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">Performance preset</string>
-    <string name="preset_battery">low</string>
-    <string name="preset_balanced">medium</string>
-    <string name="preset_high">high</string>
+    <string name="preset_battery">Low</string>
+    <string name="preset_balanced">Balanced</string>
+    <string name="preset_high">High</string>
     <string name="preset_custom">Custom</string>
     <string name="settings_protocols">Protocols</string>
     <string name="proto_http">HTTP / HTTPS CONNECT</string>
@@ -436,4 +436,53 @@
     <string name="help_d_body">1) Make sure both devices are on the same Wi-Fi (most common cause). 2) Double-check address, port and type. 3) Check the sharing notification is still active — if dismissed, sharing stopped. 4) Asked for a password? Authentication is on — check Settings. 5) Everything dropped? The phone\'s VPN may be down; with default protection, sharing stops automatically. 6) Still stuck? Open the Diagnostics page to see which step failed.</string>
     <string name="help_e_title">About · Privacy · Open source</string>
     <string name="help_e_body">hxmy proxy is an open-source, free, ad-free local tool. No data collection, no phone-home, no account. All your connections stay on your local Wi-Fi — we can\'t see or store them.</string>
+
+    <!-- Bento redesign (images/html 01–06) -->
+    <!-- 01 Dashboard -->
+    <string name="dash_brand_mode">Gateway · dual mode</string>
+    <string name="dash_gateway_foot">Filtering gateway mode</string>
+    <string name="dash_selected_count">%1$d/%2$d selected</string>
+    <string name="monitor_last_60s">Last 60 s</string>
+    <string name="stat_unit_devices">devices</string>
+    <!-- 02 Monitor -->
+    <string name="monitor_issue_count">%1$d issue(s)</string>
+    <string name="diag_battery_warn_sub">Sharing may be killed in the background — set battery to Unrestricted</string>
+    <string name="monitor_blocked_tag">Ads · trackers</string>
+    <!-- 03 Protection -->
+    <string name="protection_mode_line">This session · live</string>
+    <string name="protection_hero_label">Ad &amp; tracker blocking · active</string>
+    <string name="protection_unit_times">times</string>
+    <string name="protection_set_direct">Set to direct</string>
+    <string name="protection_top_note">Others ×%1$d · mis-blocked? Tap the tuner to allow or go direct</string>
+    <string name="protection_how_1">Filtered at the proxy — no tunnel used</string>
+    <string name="protection_how_2">Works for every device on the network</string>
+    <string name="protection_how_3">Works without a VPN</string>
+    <string name="protection_how_4">Tap a mis-blocked domain to allow it</string>
+    <!-- 04 Rules -->
+    <string name="rules_mode_line">Routing · block &amp; allow</string>
+    <string name="rules_reject_zone_sub">Refuses connections · with or without a VPN</string>
+    <string name="rules_bypass_zone_sub">Direct via phone network · bypasses shared egress</string>
+    <string name="rules_type_domain">Domain</string>
+    <string name="rules_type_ip">CIDR</string>
+    <string name="rules_enabled_count">%1$d enabled</string>
+    <string name="rules_groups_count">%1$d sets</string>
+    <string name="ruleset_custom_count">%1$d custom</string>
+    <string name="ruleset_builtin_count">%1$d built-in</string>
+    <!-- 05 Settings -->
+    <string name="settings_mode_line">Changes apply instantly</string>
+    <string name="settings_proto_ports">Protocols &amp; ports</string>
+    <string name="proto_pac_full">PAC auto-config</string>
+    <string name="settings_risk_tag">At risk</string>
+    <string name="auth_enable_sub">Clients must sign in with a username and password</string>
+    <string name="settings_nav_tap_hint">Tap a tile to move it</string>
+    <!-- 06 Rule set manager -->
+    <string name="ruleset_enabled_of_total">%1$d of %2$d sets enabled</string>
+    <string name="ruleset_domains_total">%1$d domains total</string>
+    <string name="ruleset_search_hint">Search rule sets or domains</string>
+    <string name="ruleset_groups_cats">%1$d sets · %2$d categories</string>
+    <string name="ruleset_collapse_all">Collapse all</string>
+    <string name="ruleset_on_count">%1$d on</string>
+    <string name="ruleset_domain_preview">Domain preview · %1$d entries</string>
+    <string name="protection_hero_label_off">Ad &amp; tracker blocking · off</string>
+    <string name="rules_manage_all_plain">Manage all</string>
 </resources>

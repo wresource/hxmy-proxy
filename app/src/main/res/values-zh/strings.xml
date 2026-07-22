@@ -81,7 +81,7 @@
     <string name="rule_app_wechat">微信</string>
     <string name="rule_app_src">blackmatrix7 · GPL-2 · 直连(绕过 VPN)</string>
     <string name="rules_manage">管理规则集</string>
-    <string name="ruleset_manager_title">规则集</string>
+    <string name="ruleset_manager_title">规则集管理</string>
     <string name="ruleset_my">我的规则集</string>
     <string name="ruleset_builtin">内置规则集</string>
     <string name="ruleset_new">新建规则集</string>
@@ -105,12 +105,12 @@
     <string name="ruleset_import_how">导入 %1$d 个域名 — 追加还是替换?</string>
     <string name="lockdown_warning">出口分流可能失效:你的 VPN 开了「阻止无 VPN 连接」,系统会拦掉绕过 VPN 的流量。要让规则的「直连」生效,请到系统 VPN 设置里关闭它。</string>
     <string name="rules_add">添加</string>
-    <string name="rules_add_domain">域名(如 example.com)</string>
+    <string name="rules_add_domain">域名（如 example.com）</string>
     <string name="rules_add_from_history">添加移除过的</string>
     <string name="rules_history_empty">还没有移除过的域名</string>
-    <string name="rules_user_direct_hint">这些域名从手机真实网络直接出口，而非走共享连接。流量仍经本代理转发，因此监控中仍会显示（标注为「直连」）。</string>
+    <string name="rules_user_direct_hint">走手机真实网络直连出口，监控中仍显示并标注「直连」</string>
     <string name="route_direct">直连</string>
-    <string name="rules_app_sets_hint">按 App/服务一键分流：打开即对该 App 的域名生效；点「管理」可编辑集合与域名。</string>
+    <string name="rules_app_sets_hint">按 App / 服务整组分流，点 ⇄ 在放行与拦截两行间移动</string>
     <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
     <string name="cat_social">社交与通讯</string>
     <string name="cat_video">视频</string>
@@ -184,7 +184,7 @@
     <string name="rg_mihoyo">米哈游</string>
     <string name="rg_steam">Steam</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
-    <string name="log_count">共 %1$d 条</string>
+    <string name="log_count">%1$d 条</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>
     <string name="rules_remove">移除</string>
@@ -205,20 +205,20 @@
     <string name="protect_off">未开启</string>
     <string name="protect_blocked">已拦 %1$d 次</string>
     <!-- 规则页语义重组：拦截/放行分区 + 快速拦截 + 格式提醒 -->
-    <string name="rules_group_reject">🛡️ 拦截</string>
-    <string name="rules_group_bypass">🌐 放行</string>
+    <string name="rules_group_reject">拦截</string>
+    <string name="rules_group_bypass">放行</string>
     <string name="rules_reject_quick">快速拦截</string>
-    <string name="rules_reject_quick_hint">加入的域名/IP 会被拒绝连接（拦截）——有没有 VPN 都生效。</string>
+    <string name="rules_reject_quick_hint">加入的域名 / IP 会被拒绝连接，广告与追踪立刻失联</string>
     <string name="rules_reject_sets">拦截规则集</string>
     <string name="rules_format_hint">example.com（含子域）· 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
     <string name="warn_no_iface">未选网段 · 拒绝所有连接</string>
     <string name="warn_no_proto">未启用协议 · 无监听端口</string>
-    <string name="entry_none_running">运行中，但没有可用入口——请在下方选择网段，并在设置中启用至少一个协议。</string>
+    <string name="entry_none_running">运行中，但没有可用入口——请在下方选择网段或启用协议。</string>
     <string name="status_idle">未就绪</string>
     <string name="warn_no_port_up">没有端口在监听</string>
     <string name="backup_dns">备用 DNS（DoH）</string>
-    <string name="backup_dns_sub">系统解析失败时改走加密 DNS（8.8.8.8 / 1.1.1.1）重试——网络自身 DNS 故障时仍可解析</string>
+    <string name="backup_dns_sub">解析失败时改走 8.8.8.8 / 1.1.1.1 加密重试</string>
     <string name="override_adjust">调整</string>
     <string name="rules_row_empty">暂无——点另一行集合右上角的 ⇄ 移入</string>
     <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>
@@ -226,7 +226,7 @@
     <string name="protect_works_always">有没有 VPN 都生效</string>
     <string name="rules_manage_all">管理全部（%1$d）</string>
     <string name="rules_list_empty">还没有条目</string>
-    <string name="monitor_others">(其他)</string>
+    <string name="monitor_others">（其他）</string>
     <string name="blocked_detail_title">拦截明细</string>
     <string name="save">保存</string>
     <string name="override_current">当前：%1$s</string>
@@ -271,9 +271,9 @@
     <string name="pac_needs_backend">PAC 已开启但 HTTP 和 SOCKS 都关了，只会直连、不代理。请至少开启 HTTP 或 SOCKS。</string>
     <string name="qr_http_only">此扫码/配置仅用于 HTTP 代理；SOCKS5、PAC 请在入口卡复制地址手动配置。</string>
     <string name="start_to_show_entries">开始共享后，这里会显示代理地址。</string>
-    <string name="proto_http_sub">最通用——电脑/手机的系统代理、浏览器都支持</string>
+    <string name="proto_http_sub">最通用：系统代理、浏览器都支持</string>
     <string name="proto_socks_sub">终端、游戏等 TCP 应用常用</string>
-    <string name="proto_pac_sub">自动配置文件，浏览器/系统按规则自动走代理</string>
+    <string name="proto_pac_sub">下发自动配置文件，客户端按需走代理</string>
     <string name="block_private_sub">阻止客户端借代理访问你手机所在内网的其他设备</string>
     <string name="settings_privacy">隐私与安全</string>
     <string name="settings_nav">导航栏</string>
@@ -297,17 +297,17 @@
 
     <!-- 设置 -->
     <string name="settings_language">语言</string>
-    <string name="lang_system">System</string>
+    <string name="lang_system">跟随系统</string>
     <string name="settings_appearance">外观</string>
-    <string name="theme_system">System</string>
+    <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">性能预设</string>
-    <string name="preset_battery">low</string>
-    <string name="preset_balanced">medium</string>
-    <string name="preset_high">high</string>
+    <string name="preset_battery">低</string>
+    <string name="preset_balanced">均衡</string>
+    <string name="preset_high">高</string>
     <string name="preset_custom">自定义</string>
     <string name="settings_protocols">协议</string>
     <string name="proto_http">HTTP / HTTPS CONNECT</string>
@@ -436,4 +436,53 @@
     <string name="help_d_body">① 先确认两台设备在同一个 WiFi（最常见原因）。② 核对地址、端口、类型有没有填错（端口很容易错）。③ 看手机通知栏「共享」还开着吗，被划掉就停了。④ 提示要账号密码 = 手机开了认证，去设置查。⑤ 突然全断可能是手机 VPN 掉了，默认保护下会自动停。⑥ 还不行去「诊断」页看哪一步出问题。</string>
     <string name="help_e_title">关于 · 隐私 · 开源</string>
     <string name="help_e_body">hxmy proxy 是开源、免费、无广告的本地工具。不收集数据、不联网汇报、没有账号。你的所有连接都只在本地 WiFi 内，我们看不到、也存不了。</string>
+
+    <!-- Bento 重设计（images/html 01–06） -->
+    <!-- 01 主页 -->
+    <string name="dash_brand_mode">网关 · 双模式</string>
+    <string name="dash_gateway_foot">过滤网关模式 · 防护规则仍生效</string>
+    <string name="dash_selected_count">已选 %1$d/%2$d</string>
+    <string name="monitor_last_60s">最近 60 秒</string>
+    <string name="stat_unit_devices">台设备</string>
+    <!-- 02 监控 -->
+    <string name="monitor_issue_count">%1$d 项异常</string>
+    <string name="diag_battery_warn_sub">后台可能被系统中断共享，建议改为无限制</string>
+    <string name="monitor_blocked_tag">广告 · 追踪</string>
+    <!-- 03 防护 -->
+    <string name="protection_mode_line">本次会话 · 实时</string>
+    <string name="protection_hero_label">广告与追踪拦截 · 运行中</string>
+    <string name="protection_unit_times">次</string>
+    <string name="protection_set_direct">已设直连</string>
+    <string name="protection_top_note">其他来源 ×%1$d · 误拦的域名点右侧调节可放行或直连</string>
+    <string name="protection_how_1">代理层过滤，不占通道</string>
+    <string name="protection_how_2">网络里每台设备都生效</string>
+    <string name="protection_how_3">没有 VPN 也能用</string>
+    <string name="protection_how_4">误拦域名点它放行</string>
+    <!-- 04 规则 -->
+    <string name="rules_mode_line">分流 · 拦截与放行</string>
+    <string name="rules_reject_zone_sub">拒绝连接 · 有无 VPN 都生效</string>
+    <string name="rules_bypass_zone_sub">直连手机网络 · 绕过共享出口</string>
+    <string name="rules_type_domain">域名</string>
+    <string name="rules_type_ip">IP 段</string>
+    <string name="rules_enabled_count">已启用 %1$d</string>
+    <string name="rules_groups_count">%1$d 组</string>
+    <string name="ruleset_custom_count">自建 %1$d</string>
+    <string name="ruleset_builtin_count">内置 %1$d 组</string>
+    <!-- 05 设置 -->
+    <string name="settings_mode_line">改动即时生效</string>
+    <string name="settings_proto_ports">协议与端口</string>
+    <string name="proto_pac_full">PAC 自动配置</string>
+    <string name="settings_risk_tag">有风险</string>
+    <string name="auth_enable_sub">客户端需凭用户名与密码接入</string>
+    <string name="settings_nav_tap_hint">点击格子移动</string>
+    <!-- 06 规则集管理 -->
+    <string name="ruleset_enabled_of_total">%1$d / %2$d 组已启用</string>
+    <string name="ruleset_domains_total">共 %1$d 个域名</string>
+    <string name="ruleset_search_hint">搜索规则集或域名</string>
+    <string name="ruleset_groups_cats">%1$d 组 · %2$d 类</string>
+    <string name="ruleset_collapse_all">全部收起</string>
+    <string name="ruleset_on_count">%1$d 开</string>
+    <string name="ruleset_domain_preview">域名预览 · 共 %1$d 条</string>
+    <string name="protection_hero_label_off">广告与追踪拦截 · 已关闭</string>
+    <string name="rules_manage_all_plain">管理全部</string>
 </resources>
