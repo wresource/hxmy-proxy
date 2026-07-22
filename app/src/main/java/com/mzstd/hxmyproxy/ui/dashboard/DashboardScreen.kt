@@ -6,38 +6,41 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,27 +48,47 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
-import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.ui.MainUiState
+import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.BannerLevel
+import com.mzstd.hxmyproxy.ui.components.BentoCard
+import com.mzstd.hxmyproxy.ui.components.BigStat
+import com.mzstd.hxmyproxy.ui.components.CardTier
+import com.mzstd.hxmyproxy.ui.components.CountBadge
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
-import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
+import com.mzstd.hxmyproxy.ui.components.PageHeader
+import com.mzstd.hxmyproxy.ui.components.ProtoBadge
 import com.mzstd.hxmyproxy.ui.components.QrImage
-import com.mzstd.hxmyproxy.ui.components.cardContainerColor
+import com.mzstd.hxmyproxy.ui.components.Sparkline
+import com.mzstd.hxmyproxy.ui.components.StatLabel
+import com.mzstd.hxmyproxy.ui.components.StatusDot
+import com.mzstd.hxmyproxy.ui.components.WarnBanner
+import com.mzstd.hxmyproxy.ui.components.stdFilterChipColors
+import com.mzstd.hxmyproxy.ui.components.stdSwitchColors
 import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 import com.mzstd.hxmyproxy.ui.theme.StatusColors
+import java.util.Locale
 
 /** 接口类型 → 本地化标签（随 InterfacesScreen 删除从该页迁来）。 */
 private fun InterfaceType.labelRes(): Int = when (this) {
@@ -77,21 +100,57 @@ private fun InterfaceType.labelRes(): Int = when (this) {
     InterfaceType.UNKNOWN -> R.string.iface_unknown
 }
 
+/** 接口类型 → Bento 线性图标（以太网与 USB 同属有线入口共用一枚）。 */
+private fun InterfaceType.iconRes(): Int = when (this) {
+    InterfaceType.WIFI -> R.drawable.ic_b_wifi
+    InterfaceType.HOTSPOT -> R.drawable.ic_b_hotspot
+    InterfaceType.USB, InterfaceType.ETHERNET -> R.drawable.ic_b_usb
+    InterfaceType.BLUETOOTH -> R.drawable.ic_b_devices
+    InterfaceType.UNKNOWN -> R.drawable.ic_b_globe
+}
+
+/** 共享 hero 三态：共享中 / 已停止 / 未就绪（服务在跑但谁也连不进——空转）。 */
+private enum class HeroState { Running, Stopped, NotReady }
+
 /**
- * 主页（hero 重构）：状态大字 + 地址卡钉在最前 + 统计小格，
- * 「开始/停止」主按钮**固定在底部不随内容滚动**（全 app 最高频操作不该被滚走）。
- * 主按钮用「形状+颜色」双编码状态（学 Pixel VPN）：停止=蓝填充全圆 pill，
- * 运行=错误容器色、圆角收紧；切换以弹簧动效过渡（Expressive 方向）。
+ * hero 态判定（与旧 StatusTile 同一套规则原样保留）：
+ * 「共享中」是效果承诺而非进程状态——只有真的具备共享能力才配这三个字；
+ * 运行中但零网段 / 零协议 / 端口全没起 → 未就绪 + 对应黄警示文案。
+ */
+private fun heroStateOf(ui: MainUiState): Pair<HeroState, Int?> {
+    val share = ui.share
+    val noProto = !ui.settings.httpEnabled && !ui.settings.socksEnabled && !ui.settings.pacEnabled
+    val d = share.diagnostics
+    val anyPortUp = d.httpPortUp || d.socksPortUp || d.pacPortUp
+    val warnRes = when {
+        !share.running -> null
+        share.admissionEmpty -> R.string.warn_no_iface
+        noProto -> R.string.warn_no_proto
+        !anyPortUp -> R.string.warn_no_port_up
+        else -> null
+    }
+    val state = when {
+        !share.running -> HeroState.Stopped
+        warnRes != null -> HeroState.NotReady
+        else -> HeroState.Running
+    }
+    return state to warnRes
+}
+
+/**
+ * 主页（Bento 重设计，规格=images/html/01-dashboard.html）：
+ * 行1 共享 hero（状态色渐变底 + display 级状态词 + 88dp 启停圆钮）+ 防护竖卡（2:1）；
+ * 行2 速率宽卡 + 统计竖条（仅共享中）；行3 入口配置；行4 可分享入口 + 出口网络。
+ * 启停按钮进 hero 圆钮（竖屏不再悬浮底部）；横屏保持原结构（rail 侧竖长条按钮 + 滚动列）。
  */
 @Composable
 fun DashboardScreen(
     ui: MainUiState,
-    viewModel: com.mzstd.hxmyproxy.ui.MainViewModel,
+    viewModel: MainViewModel,
     onOpenProtection: () -> Unit = {},
-    contentPadding: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(0.dp),
+    contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val context = LocalContext.current
-    val share = ui.share
 
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -110,7 +169,7 @@ fun DashboardScreen(
 
     if (landscape) {
         // 横屏：竖向长条主按钮贴在导航 rail 右侧、内容列左侧——填满高度不留空,
-        // 且不在屏幕边缘/内容滚动区,避免误触(用户设计)。
+        // 且不在屏幕边缘/内容滚动区,避免误触(用户设计)。hero 内不再重复放圆钮。
         Row(Modifier.fillMaxSize().consumeWindowInsets(contentPadding)) {
             VerticalStartStopButton(
                 ui, onStart,
@@ -128,122 +187,445 @@ fun DashboardScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                HeroDuo(ui, onOpenProtection)
-                EntryCard(ui)
-                PortBindErrorCard(ui)
-                if (share.running) StatRow(ui)
-                InterfacesCard(ui, viewModel)
-                EgressCard(ui, viewModel)
+                DashboardContent(ui, viewModel, onStart, onOpenProtection, showHeroButton = false)
             }
         }
     } else {
-        // 竖屏：悬浮按钮布局——滚动内容全屏（底部预留按钮高度），按钮悬浮其上、
-        // 背后「透明→surface」柔和渐变,内容从按钮下穿过时逐渐淡出。
-        val surface = MaterialTheme.colorScheme.surface
-        Box(Modifier.fillMaxSize().consumeWindowInsets(contentPadding)) {
-            Column(
-                // 沉浸式:inset padding 放 verticalScroll 之后,内容滚动时穿入状态栏后方。
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(contentPadding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                HeroDuo(ui, onOpenProtection)
-                EntryCard(ui)
-                PortBindErrorCard(ui)
-                if (share.running) StatRow(ui)
-                InterfacesCard(ui, viewModel)
-                EgressCard(ui, viewModel)
-                // 预留悬浮按钮区：最后一张卡能完整滚出、不被按钮遮挡。
-                Spacer(Modifier.height(76.dp))
+        // 竖屏：单列滚动 bento 网格；启停圆钮在 hero 内（首屏即达,无需悬浮按钮）。
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .consumeWindowInsets(contentPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(contentPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            DashboardContent(ui, viewModel, onStart, onOpenProtection, showHeroButton = true)
+        }
+    }
+}
+
+/** 页面内容（竖/横屏共用）：页头 + 四行 bento。 */
+@Composable
+private fun DashboardContent(
+    ui: MainUiState,
+    viewModel: MainViewModel,
+    onStart: () -> Unit,
+    onOpenProtection: () -> Unit,
+    showHeroButton: Boolean,
+) {
+    val (heroState, warnRes) = heroStateOf(ui)
+    PageHeader(
+        title = stringResource(R.string.app_name),
+        icon = painterResource(R.drawable.ic_b_arrow_right),
+        trailing = {
+            Text(
+                stringResource(R.string.dash_brand_mode),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
+    HeroRow(ui, heroState, warnRes, onStart, onOpenProtection, showHeroButton)
+    // 行2 仅「真·共享中」显示（含端口部分被占的 porterror 态）；停止/未就绪整体移除。
+    if (heroState == HeroState.Running) RateRow(ui, viewModel)
+    PortBindBanner(ui)
+    EntryCard(ui)
+    DuoRow(ui, viewModel)
+}
+
+// ══════════ 行1：共享 hero + 防护竖卡 ══════════
+
+/** 行1 bento：共享 hero(2) + 防护竖卡(1)，等高对齐。 */
+@Composable
+private fun HeroRow(
+    ui: MainUiState,
+    state: HeroState,
+    warnRes: Int?,
+    onStart: () -> Unit,
+    onOpenProtection: () -> Unit,
+    showButton: Boolean,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        HeroCard(ui, state, warnRes, onStart, showButton, Modifier.weight(2f).fillMaxHeight())
+        GuardCard(ui, onOpenProtection, Modifier.weight(1f).fillMaxHeight())
+    }
+}
+
+/** hero 渐变底（一次性形态,色值来自 HTML 稿 --hero-*-bg,按明暗分）。 */
+@Composable
+private fun heroBrush(state: HeroState): Brush {
+    val dark = LocalDarkTheme.current
+    val (top, bottom) = when (state) {
+        HeroState.Running -> if (dark) Color(0xFF22392A) to Color(0xFF182B1E) else Color(0xFFF0FAF1) to Color(0xFFD2EEDA)
+        HeroState.Stopped -> if (dark) Color(0xFF2B2D34) to Color(0xFF23262E) else Color(0xFFFFFFFF) to Color(0xFFF3F7FF)
+        HeroState.NotReady -> if (dark) Color(0xFF392B17) to Color(0xFF2B2013) else Color(0xFFFDF3E4) to Color(0xFFF9E7CF)
+    }
+    return Brush.verticalGradient(listOf(top, bottom))
+}
+
+/** hero display 状态词颜色（绿/中性/暖黄,与渐变底同族）。 */
+@Composable
+private fun heroWordColor(state: HeroState): Color {
+    val dark = LocalDarkTheme.current
+    return when (state) {
+        HeroState.Running -> if (dark) Color(0xFFB9EDBD) else Color(0xFF0C4A16)
+        HeroState.Stopped -> MaterialTheme.colorScheme.onSurface
+        HeroState.NotReady -> if (dark) Color(0xFFFFCFA5) else Color(0xFF6F3600)
+    }
+}
+
+/** 状态圆点 + 同色光晕（HTML .dot 的 box-shadow 光环形态）。 */
+@Composable
+private fun GlowDot(color: Color) {
+    Box(
+        Modifier.size(16.dp).clip(CircleShape).background(color.copy(alpha = 0.22f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        StatusDot(color, size = 8.dp)
+    }
+}
+
+/**
+ * 共享 hero：状态点 + display 级状态词 + 条件黄警示行 + 88dp 启停圆钮 + 模式脚注。
+ * 渐变底盖满整卡：BentoCard 透明底 + 内层 Column 自绘 Brush（卡壳仍走组件库,Surface 裁剪圆角）。
+ */
+@Composable
+private fun HeroCard(
+    ui: MainUiState,
+    state: HeroState,
+    warnRes: Int?,
+    onStart: () -> Unit,
+    showButton: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val share = ui.share
+    val dotColor = when (state) {
+        HeroState.Running -> StatusColors.runningDot()
+        HeroState.Stopped -> StatusColors.stoppedDot()
+        HeroState.NotReady -> StatusColors.warn()
+    }
+    BentoCard(modifier, container = Color.Transparent, contentPadding = 0.dp) {
+        Column(
+            Modifier.fillMaxSize().background(heroBrush(state)).padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GlowDot(dotColor)
+                StatLabel(stringResource(R.string.status_share))
             }
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(bottom = contentPadding.calculateBottomPadding())
-                    .background(
-                        Brush.verticalGradient(
-                            0f to surface.copy(alpha = 0f),
-                            0.55f to surface,
-                        ),
-                    ),
-            ) {
-                StartStopButton(ui, onStart)
+            Text(
+                stringResource(
+                    when (state) {
+                        HeroState.Running -> R.string.status_running
+                        HeroState.Stopped -> R.string.status_stopped
+                        HeroState.NotReady -> R.string.status_idle
+                    },
+                ),
+                Modifier.padding(top = 4.dp),
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = 36.sp, lineHeight = 40.sp),
+                color = heroWordColor(state),
+                maxLines = 1,
+            )
+            if (warnRes != null) {
+                Row(
+                    Modifier.padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_b_alert),
+                        contentDescription = null,
+                        tint = StatusColors.warn(),
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        stringResource(warnRes),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = StatusColors.warn(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                if (showButton) HeroRoundButton(share.running, onStart)
+            }
+            // 脚注：运行且检测到 VPN → 「VPN 已接入 · 共享出口」；否则过滤网关叙事（防护仍生效）。
+            val vpnFoot = share.running && share.vpn.detected
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Icon(
+                    painterResource(if (vpnFoot) R.drawable.ic_b_key else R.drawable.ic_b_shield),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(13.dp),
+                )
+                Text(
+                    stringResource(if (vpnFoot) R.string.mode_vpn_egress else R.string.dash_gateway_foot),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
 /**
- * Hero 第一排：「共享 | 防护」双状态立体 tile（替代原大字标题——第一排即状态，用户设计）。
- * 模式叙事/连接数/速率并入左（共享）tile 小字，不再独立成行（用户反馈）；右 tile 小字=「有没有 VPN 都生效」。
+ * 88dp 启停圆钮（M3 双编码）：运行=tonal errorContainer 红（读作「停止」）、
+ * 停止=filled primary 蓝（邀请开始）；色彩动效过渡。危险/停止一律 error,不用粉。
  */
 @Composable
-private fun HeroDuo(ui: MainUiState, onOpenProtection: () -> Unit) {
-    val share = ui.share
-    val adBlockOn = com.mzstd.hxmyproxy.core.rules.RuleCatalog.adGroups.any { it.id in ui.settings.enabledRuleGroups }
-    val shareSubs = buildList {
-        add(
-            if (share.vpn.detected) stringResource(R.string.mode_vpn_egress)
-            else stringResource(R.string.mode_gateway_plain),
-        )
-        add(stringResource(R.string.active_conns, share.activeConnections))
-        if (share.running) {
-            add(
-                stringResource(
-                    R.string.rate_line,
-                    com.mzstd.hxmyproxy.ui.formatRate(share.downloadRateBps),
-                    com.mzstd.hxmyproxy.ui.formatRate(share.uploadRateBps),
-                ),
+private fun HeroRoundButton(running: Boolean, onStart: () -> Unit) {
+    val context = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        targetValue = if (running) cs.errorContainer else cs.primary,
+        label = "heroBtnBg",
+    )
+    val content by animateColorAsState(
+        targetValue = if (running) cs.onErrorContainer else cs.onPrimary,
+        label = "heroBtnFg",
+    )
+    Button(
+        onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
+        modifier = Modifier.size(88.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
+        contentPadding = PaddingValues(0.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Icon(
+                painterResource(if (running) R.drawable.ic_stop else R.drawable.ic_play),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
             )
         }
     }
-    Row(
-        Modifier.fillMaxWidth().padding(top = 4.dp).height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+}
+
+/**
+ * 防护竖卡：中性底 + 1.5dp 粉描边（ElevatedCard 无 border 参,用 Modifier.border 自绘）,
+ * 粉只落在盾图标与大数字上（≤10% 点睛纪律）。点击进防护页（右上尖角提示可点）。
+ */
+@Composable
+private fun GuardCard(ui: MainUiState, onOpenProtection: () -> Unit, modifier: Modifier = Modifier) {
+    val share = ui.share
+    val adBlockOn = com.mzstd.hxmyproxy.core.rules.RuleCatalog.adGroups.any { it.id in ui.settings.enabledRuleGroups }
+    val dark = LocalDarkTheme.current
+    val edge = MaterialTheme.colorScheme.tertiary.copy(alpha = if (dark) 0.32f else 0.30f)
+    BentoCard(
+        modifier = modifier.border(1.5.dp, edge, MaterialTheme.shapes.large),
+        tier = CardTier.Primary,
+        onClick = onOpenProtection,
+        contentPadding = 14.dp,
+        spacing = 5.dp,
     ) {
-        // 三态：已停止 / 未就绪（服务跑着但零接口·零协议·端口全没起——空转，谁也连不进）/ 正在分享。
-        // 「正在分享」是效果承诺而非进程状态——只有真的具备共享能力才配这四个字。
-        val noProto = !ui.settings.httpEnabled && !ui.settings.socksEnabled && !ui.settings.pacEnabled
-        val d = share.diagnostics
-        val anyPortUp = d.httpPortUp || d.socksPortUp || d.pacPortUp
-        val shareWarn = when {
-            !share.running -> null
-            share.admissionEmpty -> stringResource(R.string.warn_no_iface)
-            noProto -> stringResource(R.string.warn_no_proto)
-            !anyPortUp -> stringResource(R.string.warn_no_port_up)
-            else -> null
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            GlowDot(if (adBlockOn) StatusColors.runningDot() else StatusColors.stoppedDot())
+            Spacer(Modifier.width(5.dp))
+            StatLabel(stringResource(R.string.protection_title))
+            Spacer(Modifier.weight(1f))
+            Icon(
+                painterResource(R.drawable.ic_b_chevron_right),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(14.dp),
+            )
         }
-        StatusTile(
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            on = share.running,
-            label = stringResource(R.string.status_share),
-            value = stringResource(
-                when {
-                    !share.running -> R.string.status_stopped
-                    shareWarn != null -> R.string.status_idle
-                    else -> R.string.status_running
-                },
-            ),
-            subs = shareSubs,
-            warnText = shareWarn,
+        Icon(
+            painterResource(R.drawable.ic_b_shield_check),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(top = 6.dp).size(22.dp),
         )
-        StatusTile(
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            on = adBlockOn,
-            label = stringResource(R.string.protection_title),
-            value = if (adBlockOn) stringResource(R.string.protect_blocked, share.blockedTotal)
-            else stringResource(R.string.protect_off),
-            subs = listOf(stringResource(R.string.protect_works_always)),
-            onClick = onOpenProtection,
+        Spacer(Modifier.weight(1f))
+        Text(
+            String.format(Locale.US, "%,d", share.blockedTotal),
+            style = MaterialTheme.typography.displaySmall.copy(fontSize = 26.sp, lineHeight = 30.sp),
+            color = MaterialTheme.colorScheme.tertiary,
+            maxLines = 1,
+        )
+        Text(
+            stringResource(if (adBlockOn) R.string.monitor_blocked else R.string.protect_off),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            stringResource(R.string.protect_works_always),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-/** 入口地址卡（学 Tailscale 钉在最前）：主地址等宽大字 + 一键复制；PAC 常显；停止态给引导文案。 */
+// ══════════ 行2：速率宽卡 + 统计竖条（仅共享中） ══════════
+
+/** 行2 bento：实时速率(2) + 统计竖条(1)，与行1 同比例对齐。 */
+@Composable
+private fun RateRow(ui: MainUiState, viewModel: MainViewModel) {
+    val hist by viewModel.rateHistory.collectAsStateWithLifecycle()
+    val dark = LocalDarkTheme.current
+    // 上行专用灰蓝（HTML --up）：下行=primary 主角、上行退居配角,一眼分主次。
+    val upColor = if (dark) Color(0xFF93A5C4) else Color(0xFF7C8DA6)
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        BentoCard(Modifier.weight(2f).fillMaxHeight(), tier = CardTier.Primary, contentPadding = 14.dp, spacing = 8.dp) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                StatLabel(stringResource(R.string.monitor_realtime))
+                Spacer(Modifier.weight(1f))
+                StatLabel(stringResource(R.string.monitor_last_60s))
+            }
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                RateColumn(
+                    Modifier.weight(1f),
+                    label = stringResource(R.string.monitor_down),
+                    iconRes = R.drawable.ic_b_arrow_down,
+                    color = MaterialTheme.colorScheme.primary,
+                    chipBg = if (dark) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.primaryContainer,
+                    rate = ui.share.downloadRateBps,
+                    history = hist.down,
+                )
+                VerticalDivider(
+                    Modifier.padding(horizontal = 12.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                )
+                RateColumn(
+                    Modifier.weight(1f),
+                    label = stringResource(R.string.monitor_up),
+                    iconRes = R.drawable.ic_b_arrow_up,
+                    color = upColor,
+                    chipBg = if (dark) upColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainer,
+                    rate = ui.share.uploadRateBps,
+                    history = hist.up,
+                )
+            }
+        }
+        StatColumn(ui, Modifier.weight(1f).fillMaxHeight())
+    }
+}
+
+/** 速率单列：方向角标 + 标签 + BigStat 大数字 + 60s Sparkline。 */
+@Composable
+private fun RateColumn(
+    modifier: Modifier,
+    label: String,
+    iconRes: Int,
+    color: Color,
+    chipBg: Color,
+    rate: Long,
+    history: List<Float>,
+) {
+    // formatRate 恒为「数字 空格 单位」,拆开喂 BigStat 的值/单位槽。
+    val txt = com.mzstd.hxmyproxy.ui.formatRate(rate)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(
+                Modifier.size(20.dp).clip(RoundedCornerShape(7.dp)).background(chipBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(iconRes), contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+            }
+            StatLabel(label)
+        }
+        BigStat(value = txt.substringBefore(' '), unit = txt.substringAfter(' '), valueSize = 26)
+        Sparkline(history, color = color)
+    }
+}
+
+/** 统计竖条（outlined=次要信息）：连接 / 信号 / 累计；信号无值时收缩为两格均分。 */
+@Composable
+private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
+    val share = ui.share
+    val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    Column(
+        modifier
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            .padding(horizontal = 13.dp, vertical = 4.dp),
+    ) {
+        StatCell(
+            Modifier.weight(1f),
+            stringResource(R.string.stat_conns),
+            "${share.activeConnections}",
+            stringResource(R.string.stat_unit_devices),
+        )
+        if (share.signalLevel >= 0) {
+            HorizontalDivider(color = hairline)
+            StatCell(Modifier.weight(1f), stringResource(R.string.stat_signal), "${share.signalDbm}", "dBm")
+        }
+        HorizontalDivider(color = hairline)
+        val total = com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes)
+        StatCell(
+            Modifier.weight(1f),
+            stringResource(R.string.stat_traffic),
+            total.substringBefore(' '),
+            total.substringAfter(' '),
+        )
+    }
+}
+
+/** 统计竖条单格：小标签 + tnum 值 + 单位。 */
+@Composable
+private fun StatCell(modifier: Modifier, label: String, value: String, unit: String) {
+    Column(modifier.padding(vertical = 3.dp), verticalArrangement = Arrangement.Center) {
+        StatLabel(label)
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum", fontWeight = FontWeight.Bold),
+                maxLines = 1,
+            )
+            Text(
+                unit,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 2.dp),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+// ══════════ 端口占用告警 + 入口配置 ══════════
+
+/** 端口占用告警：某协议 bind 失败（端口被占）→ 该代理未启动，全宽 errorContainer 行。 */
+@Composable
+private fun PortBindBanner(ui: MainUiState) {
+    val share = ui.share
+    if (share.portBindErrors.isEmpty()) return
+    val portOf: (ProxyProtocol) -> Int = {
+        when (it) {
+            ProxyProtocol.HTTP -> ui.settings.httpPort
+            ProxyProtocol.SOCKS5 -> ui.settings.socksPort
+            ProxyProtocol.PAC -> ui.settings.pacPort
+        }
+    }
+    val portList = share.portBindErrors.sortedBy { it.name }
+        .joinToString("、") { "${it.name} :${portOf(it)}" }
+    WarnBanner(
+        text = stringResource(R.string.port_bind_failed_banner, portList),
+        level = BannerLevel.Error,
+        icon = painterResource(R.drawable.ic_b_alert_circle),
+    )
+}
+
+/**
+ * 入口配置卡：三协议 ProtoBadge + 等宽地址 + 复制钮；「扫码配置」上移卡头成常驻 chip
+ * （无入口时降透明度,点开弹层自会给引导）；折叠逻辑与 QR bottom sheet 原样保留。
+ */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun EntryCard(ui: MainUiState) {
@@ -255,69 +637,117 @@ private fun EntryCard(ui: MainUiState) {
 
     val primaryEntry = share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.HTTP }
         ?: share.recommendedEntries.firstOrNull()
+    val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
 
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.entry_config), style = MaterialTheme.typography.titleMedium)
-            if (primaryEntry == null) {
-                // 三种空态分开引导：运行中无入口 → 明说拒绝一切并指路；没选接口 → 提示选接口；
-                // 选了但没开始 → 提示开始共享（原来「运行中」也显示"开始共享后可见"，自相矛盾）。
+    BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Default, contentPadding = 14.dp, spacing = 6.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.entry_config),
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            // 扫码 chip：primaryContainer 小胶囊;停止/未就绪降透明度但仍可点(弹层内给缺 PAC 引导)。
+            Row(
+                Modifier
+                    .alpha(if (primaryEntry != null) 1f else 0.45f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .clickable { showQr = true }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_b_qr),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(13.dp),
+                )
                 Text(
-                    stringResource(
-                        when {
-                            share.running -> R.string.entry_none_running
-                            ui.settings.selectedInterfaceIds.isEmpty() -> R.string.no_entry
-                            else -> R.string.start_to_show_entries
-                        },
-                    ),
-                    color = if (share.running) StatusColors.warn() else MaterialTheme.colorScheme.onSurfaceVariant,
+                    stringResource(R.string.qr_setup),
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+        if (primaryEntry == null) {
+            // 三种空态分开引导（原样保留）：运行中无入口 → 黄警示明说；没选接口 → 提示选接口；
+            // 选了但没开始 → 引导开始共享。
+            if (share.running) {
+                WarnBanner(
+                    text = stringResource(R.string.entry_none_running),
+                    icon = painterResource(R.drawable.ic_b_alert),
                 )
             } else {
-                val allEntries = share.recommendedEntries
-                // 折叠态除首选(HTTP)外,常显 PAC 那条——完整 http://ip:port/proxy.pac 是系统「自动配置」要的。
-                val pacEntry = allEntries.firstOrNull { it.protocol == ProxyProtocol.PAC && it != primaryEntry }
-                val collapsedEntries = listOfNotNull(primaryEntry, pacEntry)
-                val shownEntries = if (entriesExpanded) allEntries else collapsedEntries
-                shownEntries.forEach { e ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                e.protocol.name,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            // 等宽字体：地址是要抄写/核对的内容，等宽更易读、更「技术可信」。
-                            Text(
-                                e.displayEndpoint,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                        TextButton(onClick = {
-                            clipboard.setText(AnnotatedString(e.copyValue))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                        }) { Text(stringResource(R.string.copy)) }
-                    }
-                }
-                // PAC 已开但 HTTP/SOCKS 全关 → 生成的 pac 退化成 return "DIRECT"(能拉取但不代理),明确告警。
-                if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) {
+                Row(
+                    Modifier.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_b_info),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(15.dp),
+                    )
                     Text(
-                        stringResource(R.string.pac_needs_backend),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = StatusColors.warn(),
+                        stringResource(
+                            if (ui.settings.selectedInterfaceIds.isEmpty()) R.string.no_entry
+                            else R.string.start_to_show_entries,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                // 仅当有被折叠隐藏的入口才显示展开按钮（避免已全显时出现无效「展开」）。
-                if (allEntries.size > collapsedEntries.size) {
-                    ExpandCollapseButton(entriesExpanded, allEntries.size) { entriesExpanded = !entriesExpanded }
+            }
+        } else {
+            val allEntries = share.recommendedEntries
+            // 折叠态除首选(HTTP)外,常显 PAC 那条——完整 http://ip:port/proxy.pac 是系统「自动配置」要的。
+            val pacEntry = allEntries.firstOrNull { it.protocol == ProxyProtocol.PAC && it != primaryEntry }
+            val collapsedEntries = listOfNotNull(primaryEntry, pacEntry)
+            val shownEntries = if (entriesExpanded) allEntries else collapsedEntries
+            shownEntries.forEachIndexed { i, e ->
+                if (i > 0) HorizontalDivider(color = hairline)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    ProtoBadge(e.protocol)
+                    // 等宽字体：地址是要抄写/核对的内容，等宽更易读、更「技术可信」。
+                    Text(
+                        e.displayEndpoint,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(e.copyValue))
+                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_b_copy),
+                            contentDescription = stringResource(R.string.copy),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
-                OutlinedButton(onClick = { showQr = true }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
-                    Text(stringResource(R.string.qr_setup))
-                }
+            }
+            // PAC 已开但 HTTP/SOCKS 全关 → 生成的 pac 退化成 return "DIRECT"(能拉取但不代理),明确告警。
+            if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) {
+                WarnBanner(
+                    text = stringResource(R.string.pac_needs_backend),
+                    icon = painterResource(R.drawable.ic_b_alert),
+                )
+            }
+            // 仅当有被折叠隐藏的入口才显示展开按钮（避免已全显时出现无效「展开」）。
+            if (allEntries.size > collapsedEntries.size) {
+                ExpandCollapseButton(entriesExpanded, allEntries.size) { entriesExpanded = !entriesExpanded }
             }
         }
     }
@@ -376,7 +806,7 @@ private fun EntryCard(ui: MainUiState) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Surface(shape = MaterialTheme.shapes.large, color = androidx.compose.ui.graphics.Color.White) {
+                    Surface(shape = MaterialTheme.shapes.large, color = Color.White) {
                         Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = 180) }
                     }
                 }
@@ -411,7 +841,7 @@ private fun EntryCard(ui: MainUiState) {
                     )
                     Surface(
                         shape = MaterialTheme.shapes.large,
-                        color = androidx.compose.ui.graphics.Color.White,
+                        color = Color.White,
                     ) {
                         Column(Modifier.padding(18.dp)) { QrImage(setupUrl, sizeDp = 216) }
                     }
@@ -421,157 +851,203 @@ private fun EntryCard(ui: MainUiState) {
     }
 }
 
-/** 端口占用告警：某协议 bind 失败（端口被占）→ 该代理未启动，明确提示用户换端口。 */
-@Composable
-private fun PortBindErrorCard(ui: MainUiState) {
-    val share = ui.share
-    if (share.portBindErrors.isEmpty()) return
-    val portOf: (ProxyProtocol) -> Int = {
-        when (it) {
-            ProxyProtocol.HTTP -> ui.settings.httpPort
-            ProxyProtocol.SOCKS5 -> ui.settings.socksPort
-            ProxyProtocol.PAC -> ui.settings.pacPort
-        }
-    }
-    val portList = share.portBindErrors.sortedBy { it.name }
-        .joinToString("、") { "${it.name} :${portOf(it)}" }
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Text(
-            stringResource(R.string.port_bind_failed_banner, portList),
-            Modifier.padding(16.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
-    }
-}
+// ══════════ 行4：可分享入口 + 出口网络 ══════════
 
-/** 统计小格 ×3：连接 / 信号 / 累计流量。大数字（tnum 等宽，刷新不抖），底 surfaceContainer 分层。 */
+/** 行4 bento：可分享入口(1.16) + 出口网络(1)，等高对齐。 */
 @Composable
-private fun StatRow(ui: MainUiState) {
-    val share = ui.share
-    // height(IntrinsicSize.Min) + 每格 fillMaxHeight → 三格等高（取最高者）；label 换行也不再高低不齐。
+private fun DuoRow(ui: MainUiState, viewModel: MainViewModel) {
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StatCell(Modifier.weight(1f).fillMaxHeight(), "${share.activeConnections}", stringResource(R.string.stat_conns))
-        if (share.signalLevel >= 0) {
-            StatCell(Modifier.weight(1f).fillMaxHeight(), "${share.signalDbm}", stringResource(R.string.stat_signal) + " dBm")
-        }
-        StatCell(Modifier.weight(1f).fillMaxHeight(), com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes), stringResource(R.string.stat_traffic))
+        InterfacesCard(ui, viewModel, Modifier.weight(1.16f).fillMaxHeight())
+        EgressCard(ui, viewModel, Modifier.weight(1f).fillMaxHeight())
     }
 }
 
+/** 可分享入口卡：逐接口开关直嵌 + 「已选 n/m」徽章；默认 2 行、超出折叠；空态双文案。 */
 @Composable
-private fun StatCell(modifier: Modifier, value: String, label: String) {
-    com.mzstd.hxmyproxy.ui.components.TileCard(
-        modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        spacing = 2.dp,
-    ) {
-        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/** 可分享接口卡：每个接口一个开关，默认 2 行、超出折叠（配置项，层级下沉）。 */
-@Composable
-private fun InterfacesCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
+private fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val share = ui.share
     var interfacesExpanded by remember { mutableStateOf(false) }
     val interfaces = share.interfaces
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.shareable_interfaces), style = MaterialTheme.typography.titleMedium)
-            if (interfaces.isEmpty()) {
-                // 走蜂窝上网时没有局域网可共享,引导用户开个人热点;否则给通用「无接口」提示。
+    val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 4.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painterResource(R.drawable.ic_b_wifi),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            StatLabel(stringResource(R.string.shareable_interfaces), Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
+            if (interfaces.isNotEmpty()) {
+                val selected = interfaces.count { it.id in ui.settings.selectedInterfaceIds }
+                // 准入空集且运行中=fail-closed 全拒,徽章转黄警示色(与 hero 未就绪呼应)。
+                val warn = share.running && share.admissionEmpty
+                CountBadge(
+                    stringResource(R.string.dash_selected_count, selected, interfaces.size),
+                    fg = if (warn) StatusColors.warn() else MaterialTheme.colorScheme.onPrimaryContainer,
+                    bg = if (warn) StatusColors.warnContainer() else MaterialTheme.colorScheme.primaryContainer,
+                )
+            }
+        }
+        if (interfaces.isEmpty()) {
+            Row(
+                Modifier.padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_b_wifi_off),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp),
+                )
                 Text(
-                    stringResource(
-                        if (share.needsHotspotHint) R.string.hint_enable_hotspot
-                        else R.string.no_interfaces,
-                    ),
+                    stringResource(R.string.no_interfaces),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
-                val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
-                shownIfaces.forEach { iface ->
-                    LabeledSwitchRow(
-                        title = "${stringResource(iface.type.labelRes())} · ${iface.name}",
-                        subtitle = iface.cidr,
-                        checked = iface.id in ui.settings.selectedInterfaceIds,
-                        onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
+            }
+            // 走蜂窝上网时没有局域网可共享,追加引导开个人热点。
+            if (share.needsHotspotHint) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp), color = hairline)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Icon(
+                        painterResource(R.drawable.ic_b_hotspot),
+                        contentDescription = null,
+                        tint = StatusColors.warn(),
+                        modifier = Modifier.padding(top = 2.dp).size(13.dp),
+                    )
+                    Text(
+                        stringResource(R.string.hint_enable_hotspot),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = StatusColors.warn(),
                     )
                 }
-                if (interfaces.size > 2) {
-                    ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
+            }
+        } else {
+            val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
+            shownIfaces.forEachIndexed { i, iface ->
+                if (i > 0) HorizontalDivider(color = hairline)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        painterResource(iface.type.iconRes()),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${stringResource(iface.type.labelRes())} · ${iface.name}",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            iface.cidr,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Switch(
+                        checked = iface.id in ui.settings.selectedInterfaceIds,
+                        onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
+                        colors = stdSwitchColors(),
+                    )
                 }
+            }
+            if (interfaces.size > 2) {
+                ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
             }
         }
     }
 }
 
-/** 出口网络选择卡（与入口 InterfacesCard 对称）：选代理出站走哪张网；离线物理网络置灰，VPN 冲突警示。 */
+/** 出口网络卡：5 FilterChip 页内直选；离线物理网络置灰，VPN 冲突黄警示（行为原样保留）。 */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun EgressCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainViewModel) {
+private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val choice = ui.settings.egressChoice
     val st = ui.share.egressStatus
     val vpnActive = ui.share.vpn.detected
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.egress_title), style = MaterialTheme.typography.titleMedium)
-            Text(
-                stringResource(R.string.egress_sub),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 6.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(
+                painterResource(R.drawable.ic_b_egress),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
             )
-            val opts = listOf(
-                Triple(EgressNetworkChoice.AUTO, R.string.egress_auto, true),
-                Triple(EgressNetworkChoice.VPN, R.string.egress_vpn, st.vpn),
-                Triple(EgressNetworkChoice.WIFI, R.string.egress_wifi, st.wifi),
-                Triple(EgressNetworkChoice.CELLULAR, R.string.egress_cellular, st.cellular),
-                Triple(EgressNetworkChoice.ETHERNET, R.string.egress_ethernet, st.ethernet),
-            )
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                opts.forEach { (c, labelRes, online) ->
-                    val isAuto = c == EgressNetworkChoice.AUTO
-                    // 离线的物理/ VPN 出口置灰不可选；已选中项即便离线仍可点（供切走）。
-                    androidx.compose.material3.FilterChip(
-                        selected = choice == c,
-                        onClick = { viewModel.setEgressChoice(c) },
-                        enabled = online || isAuto || c == choice,
-                        label = {
-                            Text(
-                                if (!online && !isAuto) "${stringResource(labelRes)} · ${stringResource(R.string.egress_offline)}"
-                                else stringResource(labelRes),
+            StatLabel(stringResource(R.string.egress_title))
+        }
+        Text(
+            stringResource(R.string.egress_sub),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val opts = listOf(
+            Triple(EgressNetworkChoice.AUTO, R.string.egress_auto, true),
+            Triple(EgressNetworkChoice.VPN, R.string.egress_vpn, st.vpn),
+            Triple(EgressNetworkChoice.WIFI, R.string.egress_wifi, st.wifi),
+            Triple(EgressNetworkChoice.CELLULAR, R.string.egress_cellular, st.cellular),
+            Triple(EgressNetworkChoice.ETHERNET, R.string.egress_ethernet, st.ethernet),
+        )
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            opts.forEach { (c, labelRes, online) ->
+                val isAuto = c == EgressNetworkChoice.AUTO
+                // 离线的物理/ VPN 出口置灰不可选；已选中项即便离线仍可点（供切走）。
+                FilterChip(
+                    selected = choice == c,
+                    onClick = { viewModel.setEgressChoice(c) },
+                    enabled = online || isAuto || c == choice,
+                    colors = stdFilterChipColors(),
+                    leadingIcon = if (choice == c) {
+                        {
+                            Icon(
+                                painterResource(R.drawable.ic_b_check),
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
                             )
-                        },
-                    )
-                }
-            }
-            if (choice == EgressNetworkChoice.AUTO) {
-                Text(
-                    stringResource(R.string.egress_auto_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        }
+                    } else null,
+                    label = {
+                        Text(
+                            if (!online && !isAuto) "${stringResource(labelRes)} · ${stringResource(R.string.egress_offline)}"
+                            else stringResource(labelRes),
+                        )
+                    },
                 )
             }
-            val boundPhysical = choice == EgressNetworkChoice.WIFI || choice == EgressNetworkChoice.CELLULAR || choice == EgressNetworkChoice.ETHERNET
-            if (vpnActive && boundPhysical) {
+        }
+        if (choice == EgressNetworkChoice.AUTO) {
+            Text(
+                stringResource(R.string.egress_auto_desc),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val boundPhysical = choice == EgressNetworkChoice.WIFI || choice == EgressNetworkChoice.CELLULAR || choice == EgressNetworkChoice.ETHERNET
+        if (vpnActive && boundPhysical) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_b_alert),
+                    contentDescription = null,
+                    tint = StatusColors.warn(),
+                    modifier = Modifier.padding(top = 2.dp).size(13.dp),
+                )
                 Text(
                     stringResource(R.string.egress_vpn_warn),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = StatusColors.warn(),
                 )
             }
@@ -579,54 +1055,12 @@ private fun EgressCard(ui: MainUiState, viewModel: com.mzstd.hxmyproxy.ui.MainVi
     }
 }
 
-/** 状态 tile：点(红绿/警示黄) + 标签 + 值 + 可选警示行。统一走 [com.mzstd.hxmyproxy.ui.components.TileCard] 立体外壳。 */
-@Composable
-private fun StatusTile(
-    modifier: Modifier,
-    on: Boolean,
-    label: String,
-    value: String,
-    subs: List<String> = emptyList(),
-    /** 非 null 时点变警示黄、该文案以警示色显示在值下方（如运行中但拒绝所有连接）。 */
-    warnText: String? = null,
-    onClick: (() -> Unit)? = null,
-) {
-    com.mzstd.hxmyproxy.ui.components.TileCard(modifier, onClick = onClick, spacing = 6.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val dot = when {
-                warnText != null -> StatusColors.warn()
-                on -> StatusColors.good()
-                else -> StatusColors.stoppedDot()
-            }
-            Surface(Modifier.size(12.dp), shape = CircleShape, color = dot) {}
-            Text(label, style = MaterialTheme.typography.titleSmall)
-        }
-        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-        if (warnText != null) {
-            Text(
-                warnText,
-                style = MaterialTheme.typography.bodySmall,
-                color = StatusColors.warn(),
-                maxLines = 2,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            )
-        }
-        subs.forEach {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
+// ══════════ 横屏启停（保持原结构） ══════════
 
 /**
  * 横屏竖向主按钮：窄长条填满高度，贴导航 rail 右侧不占内容区、不在滚动区内避免误触。
  * 内容用 ▶/■ 图标而非文字——逐字竖排只适合中文，英文 "Stop sharing" 逐字母竖排不可读
- * （双语检查原则，用户决策改图标）。颜色状态与水平版一致（蓝=开始 ↔ 浅红=停止,弹簧过渡）。
+ * （双语检查原则，用户决策改图标）。颜色状态与 hero 圆钮一致（蓝=开始 ↔ 浅红=停止,色彩过渡）。
  */
 @Composable
 private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifier: Modifier = Modifier) {
@@ -640,10 +1074,10 @@ private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifi
         modifier = modifier.width(64.dp),
         shape = MaterialTheme.shapes.large,
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp),
+        contentPadding = PaddingValues(4.dp),
     ) {
-        androidx.compose.material3.Icon(
-            androidx.compose.ui.res.painterResource(if (running) R.drawable.ic_stop else R.drawable.ic_play),
+        Icon(
+            painterResource(if (running) R.drawable.ic_stop else R.drawable.ic_play),
             contentDescription = stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
             modifier = Modifier.size(28.dp),
         )
@@ -651,36 +1085,7 @@ private fun VerticalStartStopButton(ui: MainUiState, onStart: () -> Unit, modifi
 }
 
 /**
- * 固定底部主按钮：形状+颜色双编码（学 Pixel VPN）——停止=蓝填充全圆 pill（邀请开始），
- * 运行=错误容器色+圆角收紧（读作「停止」）；弹簧动效过渡（Expressive 方向，稳定 API 实现）。
- */
-@Composable
-private fun StartStopButton(ui: MainUiState, onStart: () -> Unit) {
-    val context = LocalContext.current
-    val running = ui.share.running
-    // 两态都是「亮/浅底 + 深字」青春 tonal（对比 7:1）：开始=蓝、停止=红。
-    // 浅色用 container(浅蓝/浅红底);深色用亮实色 primary/error(亮蓝/亮红底)——深色下 container 会变闷深块,故切亮实色。
-    val (bg, fg) = startStopColors(running)
-    val container by animateColorAsState(targetValue = bg, label = "btnColor")
-    val content by animateColorAsState(targetValue = fg, label = "btnContent")
-    Button(
-        onClick = { if (running) ProxyForegroundService.stop(context) else onStart() },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .height(56.dp),
-        shape = MaterialTheme.shapes.large,
-        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
-    ) {
-        Text(
-            stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
-            style = MaterialTheme.typography.titleMedium,
-        )
-    }
-}
-
-/**
- * 启停按钮配色：两态都「亮/浅底 + 深字」。浅色用 container（浅蓝/浅红底），
+ * 横屏启停按钮配色：两态都「亮/浅底 + 深字」。浅色用 container（浅蓝/浅红底），
  * 深色用亮实色 primary/error（亮蓝/亮红底）——深色下 container 是 tone30 深块,发闷发脏,故切亮实色。
  */
 @Composable
