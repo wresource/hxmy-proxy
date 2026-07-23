@@ -160,16 +160,13 @@ fun SettingsScreen(
             trailing = { StatLabel(stringResource(R.string.settings_mode_line)) },
         )
 
+        // 卡片按理论使用频率高→低排列：核心代理配置 → 日常外观/语言 → 安全（认证/隐私）→
+        // 高级调优（性能）→ 个性化（导航栏）→ 帮助。性能/通用不再并排双列（窄卡挤字），各自全宽。
         ProtoPortsCard(ui, viewModel)
+        GeneralCard(s.language, s.themeMode, viewModel, Modifier.fillMaxWidth())
         AuthCard(ui, viewModel)
         PrivacyCard(ui, viewModel)
-
-        // 性能预设 | 通用 双列 bento（HTML 1fr:1.1fr）。高度各自随内容（自定义滑块只撑左卡）。
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PresetCard(s.preset, s.limits, viewModel, Modifier.weight(1f))
-            GeneralCard(s.language, s.themeMode, viewModel, Modifier.weight(1.1f))
-        }
-
+        PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
         NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
 
         // 帮助 / 重看引导 双联入口卡。
@@ -320,7 +317,8 @@ private fun ProtoPortRow(
                     sub,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // 副文案允许换行：中文短(1 行)，英文即便精简仍偏长——被端口框挤窄的列里换 2 行显示全，不损信息。
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
