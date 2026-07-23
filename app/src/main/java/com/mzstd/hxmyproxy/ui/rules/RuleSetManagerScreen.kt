@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -541,7 +542,7 @@ private fun BuiltinGroupRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            CountBadge(preview?.let { stringResource(R.string.log_count, it.first) } ?: "…")
+            CountBadge(preview?.let { pluralStringResource(R.plurals.count_entries, it.first, it.first) } ?: "…")
             if (group.editable) {
                 IconButton(onClick = { onEdit("builtin", group.id) }, modifier = Modifier.size(34.dp)) {
                     Icon(

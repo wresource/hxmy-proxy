@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +93,7 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                     val err = entries.count { it.level == "E" }
                     val warn = entries.count { it.level == "W" }
                     Text(
-                        stringResource(R.string.log_count, entries.size) +
+                        pluralStringResource(R.plurals.count_entries, entries.size, entries.size) +
                             if (err + warn > 0) "  ·  E $err · W $warn" else "",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

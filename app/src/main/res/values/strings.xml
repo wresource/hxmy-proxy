@@ -55,7 +55,7 @@
     <string name="copied">Copied</string>
     <string name="start_sharing">Start sharing</string>
     <string name="stop_sharing">Stop sharing</string>
-    <string name="shareable_interfaces">Shareable interfaces</string>
+    <string name="shareable_interfaces">Interfaces</string>
     <string name="no_interfaces">No interfaces found</string>
     <string name="hint_enable_hotspot">Using mobile data — turn on the personal hotspot, then other devices can connect and share.</string>
 
@@ -110,7 +110,7 @@
     <string name="rules_history_empty">No removed domains yet</string>
     <string name="rules_user_direct_hint">Exits via the phone\'s real network — still shown in Monitor, tagged \"Direct\".</string>
     <string name="route_direct">Direct</string>
-    <string name="rules_app_sets_hint">Route whole apps / services as sets — tap ⇄ to move one between Allow and Block.</string>
+    <string name="rules_app_sets_hint">Tap − to disable · ⇄ to switch row</string>
     <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
     <string name="cat_social">Social &amp; messaging</string>
     <string name="cat_video">Video</string>
@@ -184,13 +184,12 @@
     <string name="rg_mihoyo">miHoYo / HoYoverse</string>
     <string name="rg_steam">Steam</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
-    <string name="log_count">%1$d entries</string>
     <string name="log_show_more">Expand</string>
     <string name="log_show_less">Collapse</string>
     <string name="rules_remove">Remove</string>
 
     <!-- Diagnostics -->
-    <string name="diag_local_net_perm">Local network permission</string>
+    <string name="diag_local_net_perm">Local network</string>
     <string name="diag_notif_perm">Notification permission</string>
     <string name="diag_http_port">HTTP port</string>
     <string name="diag_socks_port">SOCKS5 port</string>
@@ -218,10 +217,11 @@
     <string name="status_idle">Not ready</string>
     <string name="warn_no_port_up">No port is listening</string>
     <string name="backup_dns">Backup DNS (DoH)</string>
-    <string name="backup_dns_sub">When DNS fails, retry via encrypted 8.8.8.8 / 1.1.1.1</string>
+    <string name="backup_dns_sub">Retries over encrypted DNS on failure</string>
     <string name="override_adjust">Adjust</string>
-    <string name="rules_row_empty">None yet — tap the ⇄ badge on a set in the other row to move it here.</string>
+    <string name="rules_row_empty">None yet</string>
     <string name="rules_swap_a11y">Switch %1$s between allow and block</string>
+    <string name="rules_disable_a11y">Disable %1$s</string>
     <string name="mode_gateway_plain">Filtering gateway</string>
     <string name="protect_works_always">Works with or without a VPN</string>
     <string name="rules_manage_all">Manage all (%1$d)</string>
@@ -271,9 +271,9 @@
     <string name="pac_needs_backend">PAC is on but HTTP and SOCKS are both off — it only returns DIRECT (no proxying). Enable HTTP or SOCKS.</string>
     <string name="qr_http_only">This QR/setup configures the HTTP proxy only. For SOCKS5 or PAC, copy the address from the entry card and set them up manually.</string>
     <string name="start_to_show_entries">Start sharing to see proxy addresses here.</string>
-    <string name="proto_http_sub">Most compatible — works with system proxy settings and browsers</string>
-    <string name="proto_socks_sub">For terminals, games and other TCP apps</string>
-    <string name="proto_pac_sub">Serves an auto-config file; clients proxy only when needed</string>
+    <string name="proto_http_sub">Works with browsers &amp; system proxy</string>
+    <string name="proto_socks_sub">Terminals, games, TCP apps</string>
+    <string name="proto_pac_sub">Clients proxy only when needed</string>
     <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
     <string name="settings_privacy">Privacy &amp; security</string>
     <string name="settings_nav">Navigation bar</string>
@@ -304,13 +304,13 @@
     <string name="theme_dark">Dark</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
-    <string name="settings_preset">Performance preset</string>
+    <string name="settings_preset">Performance</string>
     <string name="preset_battery">Low</string>
     <string name="preset_balanced">Balanced</string>
     <string name="preset_high">High</string>
     <string name="preset_custom">Custom</string>
     <string name="settings_protocols">Protocols</string>
-    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_http">HTTP / HTTPS</string>
     <string name="proto_socks">SOCKS5</string>
     <string name="proto_pac">PAC</string>
     <string name="settings_ports">Ports</string>
@@ -441,7 +441,7 @@
     <!-- 01 Dashboard -->
     <string name="dash_brand_mode">Gateway · dual mode</string>
     <string name="dash_gateway_foot">Filtering gateway mode</string>
-    <string name="dash_selected_count">%1$d/%2$d selected</string>
+    <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>
     <!-- 02 Monitor -->
@@ -460,8 +460,8 @@
     <string name="protection_how_4">Tap a mis-blocked domain to allow it</string>
     <!-- 04 Rules -->
     <string name="rules_mode_line">Routing · block &amp; allow</string>
-    <string name="rules_reject_zone_sub">Refuses connections · with or without a VPN</string>
-    <string name="rules_bypass_zone_sub">Direct via phone network · bypasses shared egress</string>
+    <string name="rules_reject_zone_sub">Refuses connections, VPN or not</string>
+    <string name="rules_bypass_zone_sub">Direct via the phone\'s network</string>
     <string name="rules_type_domain">Domain</string>
     <string name="rules_type_ip">CIDR</string>
     <string name="rules_enabled_count">%1$d enabled</string>
@@ -485,4 +485,8 @@
     <string name="ruleset_domain_preview">Domain preview · %1$d entries</string>
     <string name="protection_hero_label_off">Ad &amp; tracker blocking · off</string>
     <string name="rules_manage_all_plain">Manage all</string>
+    <plurals name="count_entries">
+        <item quantity="one">%1$d entry</item>
+        <item quantity="other">%1$d entries</item>
+    </plurals>
 </resources>

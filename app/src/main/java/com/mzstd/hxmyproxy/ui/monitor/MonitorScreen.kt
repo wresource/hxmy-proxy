@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -545,7 +546,7 @@ fun MonitorScreen(
                     Modifier.weight(1f),
                     icon = painterResource(R.drawable.ic_b_history),
                     title = stringResource(R.string.monitor_open_history),
-                    count = stringResource(R.string.log_count, ui.history.size),
+                    count = pluralStringResource(R.plurals.count_entries, ui.history.size, ui.history.size),
                     onClick = onOpenHistory,
                 )
                 EntryCard(

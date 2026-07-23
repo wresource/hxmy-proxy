@@ -110,7 +110,7 @@
     <string name="rules_history_empty">还没有移除过的域名</string>
     <string name="rules_user_direct_hint">走手机真实网络直连出口，监控中仍显示并标注「直连」</string>
     <string name="route_direct">直连</string>
-    <string name="rules_app_sets_hint">按 App / 服务整组分流，点 ⇄ 在放行与拦截两行间移动</string>
+    <string name="rules_app_sets_hint">点 − 停用 · 点 ⇄ 换行</string>
     <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
     <string name="cat_social">社交与通讯</string>
     <string name="cat_video">视频</string>
@@ -184,7 +184,6 @@
     <string name="rg_mihoyo">米哈游</string>
     <string name="rg_steam">Steam</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
-    <string name="log_count">%1$d 条</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>
     <string name="rules_remove">移除</string>
@@ -220,8 +219,9 @@
     <string name="backup_dns">备用 DNS（DoH）</string>
     <string name="backup_dns_sub">解析失败时改走 8.8.8.8 / 1.1.1.1 加密重试</string>
     <string name="override_adjust">调整</string>
-    <string name="rules_row_empty">暂无——点另一行集合右上角的 ⇄ 移入</string>
+    <string name="rules_row_empty">暂无</string>
     <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>
+    <string name="rules_disable_a11y">停用 %1$s</string>
     <string name="mode_gateway_plain">过滤网关模式</string>
     <string name="protect_works_always">有没有 VPN 都生效</string>
     <string name="rules_manage_all">管理全部（%1$d）</string>
@@ -271,9 +271,9 @@
     <string name="pac_needs_backend">PAC 已开启但 HTTP 和 SOCKS 都关了，只会直连、不代理。请至少开启 HTTP 或 SOCKS。</string>
     <string name="qr_http_only">此扫码/配置仅用于 HTTP 代理；SOCKS5、PAC 请在入口卡复制地址手动配置。</string>
     <string name="start_to_show_entries">开始共享后，这里会显示代理地址。</string>
-    <string name="proto_http_sub">最通用：系统代理、浏览器都支持</string>
+    <string name="proto_http_sub">浏览器、系统代理通用</string>
     <string name="proto_socks_sub">终端、游戏等 TCP 应用常用</string>
-    <string name="proto_pac_sub">下发自动配置文件，客户端按需走代理</string>
+    <string name="proto_pac_sub">客户端按需走代理</string>
     <string name="block_private_sub">阻止客户端借代理访问你手机所在内网的其他设备</string>
     <string name="settings_privacy">隐私与安全</string>
     <string name="settings_nav">导航栏</string>
@@ -310,7 +310,7 @@
     <string name="preset_high">高</string>
     <string name="preset_custom">自定义</string>
     <string name="settings_protocols">协议</string>
-    <string name="proto_http">HTTP / HTTPS CONNECT</string>
+    <string name="proto_http">HTTP / HTTPS</string>
     <string name="proto_socks">SOCKS5</string>
     <string name="proto_pac">PAC</string>
     <string name="settings_ports">端口</string>
@@ -485,4 +485,7 @@
     <string name="ruleset_domain_preview">域名预览 · 共 %1$d 条</string>
     <string name="protection_hero_label_off">广告与追踪拦截 · 已关闭</string>
     <string name="rules_manage_all_plain">管理全部</string>
+    <plurals name="count_entries">
+        <item quantity="other">%1$d 条</item>
+    </plurals>
 </resources>
