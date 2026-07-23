@@ -69,7 +69,6 @@
     <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
 
     <!-- 规则 -->
-    <string name="rules_wip">按域名分流(直连 / 代理 / 拦截)与广告拦截即将上线。</string>
     <string name="rules_module_list">IP / 域名白名单</string>
     <string name="rules_module_apps">App 与服务规则集</string>
     <string name="rules_module_ads">广告拦截</string>
@@ -111,7 +110,6 @@
     <string name="rules_user_direct_hint">走手机真实网络直连出口，监控中仍显示并标注「直连」</string>
     <string name="route_direct">直连</string>
     <string name="rules_app_sets_hint">点 − 停用 · 点 ⇄ 换行</string>
-    <string name="rules_apps_wip">按应用的规则集(网易云、微信…)即将上线。</string>
     <string name="cat_social">社交与通讯</string>
     <string name="cat_video">视频</string>
     <string name="cat_music">音乐与音频</string>

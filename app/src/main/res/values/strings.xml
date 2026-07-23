@@ -69,7 +69,6 @@
     <string name="interfaces_hint">Select which networks may connect to the proxy.</string>
 
     <!-- Rules -->
-    <string name="rules_wip">Per-domain direct / proxy / block routing and ad-blocking are coming soon.</string>
     <string name="rules_module_list">IP / domain allowlist</string>
     <string name="rules_module_apps">App &amp; service rule sets</string>
     <string name="rules_module_ads">Ad blocking</string>
@@ -111,7 +110,6 @@
     <string name="rules_user_direct_hint">Exits via the phone\'s real network — still shown in Monitor, tagged \"Direct\".</string>
     <string name="route_direct">Direct</string>
     <string name="rules_app_sets_hint">Tap − to disable · ⇄ to switch row</string>
-    <string name="rules_apps_wip">Per-app rule sets (NetEase Music, WeChat, …) coming next.</string>
     <string name="cat_social">Social &amp; messaging</string>
     <string name="cat_video">Video</string>
     <string name="cat_music">Music &amp; audio</string>
