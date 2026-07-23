@@ -6,9 +6,10 @@ package com.mzstd.hxmyproxy.core.proxy
 object ProxyTuning {
     /**
      * 上游 TCP 连接建立超时（**单个地址**）。Happy Eyeballs 下各地址并行，总耗时≈最快者，不再逐个累加。
-     * 经 VPN 出口跨 CDN（如 Cloudflare）建连可能需数秒，故给 8s 余量避免误杀慢建连；超时即换下一地址。
+     * 2.5s：DNS 污染/被墙环境下解析出的死 IP 要快速放弃（旧 8s 会让 Claude CLI 等每个死 IP 干等 8s，
+     * 换网络才恢复——性能大忌）。正常 TCP 握手 <1s、经 VPN 跨 CDN 也罕见 >2s，2.5s 足够且不误杀。
      */
-    const val CONNECT_TIMEOUT_MS = 8_000
+    const val CONNECT_TIMEOUT_MS = 2_500
     /** Happy Eyeballs（RFC 8305）连接尝试间隔：起一个地址后等这么久仍未成功，就并行起下一个。 */
     const val HE_ATTEMPT_DELAY_MS = 250
     /** 握手阶段（SOCKS 协商 / HTTP 请求行+头）读超时，防慢速攻击挂死。 */

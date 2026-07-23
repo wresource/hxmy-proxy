@@ -5,6 +5,7 @@ import com.mzstd.hxmyproxy.core.security.EgressGuard
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -125,15 +126,31 @@ class OutboundConnector(
         val addrs = try {
             withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
         } catch (e: UnknownHostException) {
-            throttledFileLog("dns-default:$host", "DNS fail $host on default network (${e.message}); retry underlying")
+            throttledFileLog("dns-default:$host", "DNS fail $host on default network (${e.message}); retry underlying+DoH")
+            // 主路失败（境外域名常被运营商 DNS 污染成 NXDOMAIN）→ 互援与 DoH **并行**，合并全部 IP 进
+            // Happy Eyeballs 竞速池：互援可能返回污染死 IP（连不上→CONNECT_TIMEOUT 超时），DoH（8.8.8.8/
+            // 1.1.1.1）返回未污染正确 IP；连接层竞速让能连上的先赢。修旧「互援解析成功即用污染 IP、
+            // 干等连接超时」的性能坑（DoH 原是互援失败后才走的「最后一搏」，互援返回污染 IP 就轮不到它）。
             val alt = underlyingNetworkProvider?.current()
-            val rescued = if (alt == null) null else try {
-                withContext(dnsDispatcher) { alt.getAllByName(host).toList() }
-                    .also { throttledFileLog("dns-default-rescued:$host", "DNS rescued $host via underlying network") }
-            } catch (e2: UnknownHostException) {
-                null
+            val merged = coroutineScope {
+                val altD = async(dnsDispatcher) {
+                    if (alt == null) emptyList()
+                    else runCatching { alt.getAllByName(host).toList() }.getOrDefault(emptyList())
+                }
+                val dohD = async(dnsDispatcher) {
+                    if (backupDnsEnabled) runCatching { dohResolve(host) }.getOrDefault(emptyList()) else emptyList()
+                }
+                val a = altD.await()
+                val d = dohD.await()
+                if (a.isNotEmpty()) throttledFileLog("dns-default-rescued:$host", "DNS rescued $host via underlying network")
+                if (d.isNotEmpty()) throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup")
+                (a + d).distinct()
             }
-            rescued ?: resolveLastResort(host, e)
+            if (merged.isEmpty()) {
+                throttledFileLog("doh-fail:$host", "both underlying and DoH failed for $host")
+                throw ProxyException(ProxyError.DnsFailure)
+            }
+            merged
         }
         dnsCache[host] = CachedAddrs(addrs, now)
         return addrs
