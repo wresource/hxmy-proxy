@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +81,7 @@ import com.mzstd.hxmyproxy.ui.theme.AvatarBgLight
 import com.mzstd.hxmyproxy.ui.theme.AvatarFgDark
 import com.mzstd.hxmyproxy.ui.theme.AvatarFgLight
 import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
+import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
 /**
  * 规则页（Bento 重设计，规格=images/html/04-rules.html）：
@@ -136,7 +138,7 @@ fun RulesScreen(
                 sub = stringResource(R.string.rules_reject_zone_sub),
             ) {
                 CountBadge(
-                    stringResource(R.string.log_count, s.userRejectRules.size),
+                    pluralStringResource(R.plurals.count_entries, s.userRejectRules.size, s.userRejectRules.size),
                     fg = rejectAcc.onContainer,
                     bg = rejectAcc.container,
                 )
@@ -162,7 +164,7 @@ fun RulesScreen(
                 sub = stringResource(R.string.rules_bypass_zone_sub),
             ) {
                 CountBadge(
-                    stringResource(R.string.log_count, s.userDirectRules.size),
+                    pluralStringResource(R.plurals.count_entries, s.userDirectRules.size, s.userDirectRules.size),
                     fg = allowAcc.onContainer,
                     bg = allowAcc.container,
                 )
@@ -240,33 +242,13 @@ fun RulesScreen(
                     )
                 }
 
-                // —— 放行行：蓝点行头 + 蓝 ring 网格 ——
+                // —— 放行行：蓝点行头 + 蓝 ring 网格（末尾「+」添加占位格）——
                 GridRowLabel(allowAcc, stringResource(R.string.rules_group_bypass), bypassDescs.size)
-                if (bypassDescs.isEmpty()) {
-                    Text(
-                        stringResource(R.string.rules_row_empty),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    CardGrid(items = bypassDescs.withIndex().toList(), collapsedRows = 2) { m, iv ->
-                        RuleSetGridCell(m, iv.value, ring = allowAcc.main, idx = iv.index)
-                    }
-                }
+                RuleSetRowGrid(bypassDescs, ring = allowAcc.main, onAdd = onManage)
 
-                // —— 拦截行：粉点行头 + 粉 ring 网格 ——
+                // —— 拦截行：粉点行头 + 粉 ring 网格（末尾「+」添加占位格）——
                 GridRowLabel(rejectAcc, stringResource(R.string.rules_group_reject), rejectDescs.size)
-                if (rejectDescs.isEmpty()) {
-                    Text(
-                        stringResource(R.string.rules_row_empty),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    CardGrid(items = rejectDescs.withIndex().toList(), collapsedRows = 2) { m, iv ->
-                        RuleSetGridCell(m, iv.value, ring = rejectAcc.main, idx = iv.index)
-                    }
-                }
+                RuleSetRowGrid(rejectDescs, ring = rejectAcc.main, onAdd = onManage)
 
                 // 管理入口 + 「自建 N」「内置 64 组」徽章。
                 OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
@@ -574,10 +556,11 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc, ring: Color, id
     val name = d.titleRes?.let { stringResource(it) } ?: d.titleStr ?: ""
     val avBg = if (d.enabled) (if (dark) AvatarBgDark else AvatarBgLight)[idx % 6] else MaterialTheme.colorScheme.surfaceContainerHighest
     val avFg = if (d.enabled) (if (dark) AvatarFgDark else AvatarFgLight)[idx % 6] else MaterialTheme.colorScheme.onSurfaceVariant
-    // 外层 Box 不裁剪、留出顶部空间——⇄ 徽标挂外层右上角，不被点击区 clip 切掉（同 NavTabCell 方案）。
+    // 外层 Box 不裁剪、留出顶部空间——两个徽标挂外层左右上角，不被点击区 clip 切掉（同 NavTabCell 方案）。
+    // 主体不再整格可点停用（旧交互隐蔽/易误触）：停用改由左上红「−」徽标专司，点图标本身无操作。
     Box(modifier.padding(top = 6.dp)) {
         Column(
-            Modifier.fillMaxWidth().clickable { d.onToggle() }.padding(horizontal = 4.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             AvatarCircle(
@@ -602,6 +585,21 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc, ring: Color, id
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // 红「−」徽标：暂不应用（停用）此规则集。悬于左上角（上移 4dp 进预留区），独立可点——
+        // 照导航栏红「−」样式（红底白符 + 描边浮出），把隐蔽的「点格子停用」显性化为明确入口。
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .offset(y = (-4).dp)
+                .size(19.dp)
+                .clip(CircleShape)
+                .background(StatusColors.bad())
+                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .clickable(onClickLabel = stringResource(R.string.rules_disable_a11y, name)) { d.onToggle() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("−", color = MaterialTheme.colorScheme.surface, style = MaterialTheme.typography.labelLarge)
+        }
         // ⇄ 徽标：把该集移到另一行（放行↔拦截）。悬于右上角（上移 4dp 进预留区），独立可点。
         if (d.onSwap != null) {
             Box(
@@ -622,6 +620,56 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc, ring: Color, id
                     modifier = Modifier.size(11.dp),
                 )
             }
+        }
+    }
+}
+
+/** App 规则集行网格：已启用组格子 + 末尾「+」添加占位格；空行也只显 + 格（引导添加，替代旧「暂无」）。 */
+@Composable
+private fun RuleSetRowGrid(descs: List<RuleCellDesc>, ring: Color, onAdd: () -> Unit) {
+    // null 哨兵 = 末尾「+」格。CardGrid 折叠仍生效（组多时超 2 行折叠，+ 格随最后一页出现）。
+    val cells: List<RuleCellDesc?> = descs + listOf(null)
+    CardGrid(items = cells.withIndex().toList(), collapsedRows = 2) { m, iv ->
+        val d = iv.value
+        if (d == null) AddRuleSetCell(m, onAdd)
+        else RuleSetGridCell(m, d, ring = ring, idx = iv.index)
+    }
+}
+
+/** 「+」添加规则集占位格：浅描边圆 + 号 + 「添加」，点击进管理页启用内置组 / 新建自建集。 */
+@Composable
+private fun AddRuleSetCell(modifier: Modifier, onAdd: () -> Unit) {
+    Box(modifier.padding(top = 6.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(onClickLabel = stringResource(R.string.rules_manage), onClick = onAdd)
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_b_plus),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Spacer(Modifier.size(5.dp))
+            Text(
+                stringResource(R.string.rules_add),
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
