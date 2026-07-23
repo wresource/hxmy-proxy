@@ -414,9 +414,16 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         value = input,
         onValueChange = { input = it },
         singleLine = true,
+        // 输入/提示文字用 bodyMedium(14sp)：TextField 默认 16sp 在紧凑卡里偏大、与 bento 不协调。
+        textStyle = MaterialTheme.typography.bodyMedium,
         // placeholder 而非 label：label 上浮的顶部预留会顶歪整行（既有结论，见 Compose UI 设计规范）。
         placeholder = {
-            Text(stringResource(R.string.rules_add_domain), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                stringResource(R.string.rules_add_domain),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         },
         leadingIcon = {
             Icon(
@@ -429,13 +436,14 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         trailingIcon = {
             Button(
                 onClick = { if (input.isNotBlank()) { onAdd(input); input = "" } },
-                shape = RoundedCornerShape(50),
+                shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent.main, contentColor = accent.onMain),
                 contentPadding = PaddingValues(horizontal = 14.dp),
                 modifier = Modifier.padding(end = 6.dp).height(36.dp),
             ) { Text(stringResource(R.string.rules_add), style = MaterialTheme.typography.labelLarge) }
         },
-        shape = RoundedCornerShape(50),
+        // 圆角对齐 app 体系(卡 24 / medium 16 / small 12)——原全圆角胶囊(50)在方正 bento 卡里突兀、圆角对不上。
+        shape = MaterialTheme.shapes.small,
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = field,
             unfocusedContainerColor = field,

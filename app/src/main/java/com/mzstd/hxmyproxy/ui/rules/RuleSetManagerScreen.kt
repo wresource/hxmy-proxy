@@ -272,8 +272,10 @@ private fun RuleSetSearchField(query: String, onChange: (String) -> Unit) {
         onValueChange = onChange,
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
-        shape = MaterialTheme.shapes.large,
-        placeholder = { Text(stringResource(R.string.ruleset_search_hint)) },
+        textStyle = MaterialTheme.typography.bodyMedium,
+        // 圆角/字号与规则页添加框统一(shapes.small 12dp + bodyMedium)——原 large(24dp)+默认 16sp 与添加框对不上。
+        shape = MaterialTheme.shapes.small,
+        placeholder = { Text(stringResource(R.string.ruleset_search_hint), style = MaterialTheme.typography.bodyMedium) },
         leadingIcon = {
             Icon(
                 painterResource(R.drawable.ic_b_search),
