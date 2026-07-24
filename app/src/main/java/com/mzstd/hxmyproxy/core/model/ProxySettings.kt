@@ -16,6 +16,10 @@ data class ProxySettings(
     val selectedInterfaceIds: Set<String> = emptySet(),
     /** 出站出口网络：AUTO 跟随系统默认（含 VPN）；否则把 PROXY 出站绑到选定 transport 的网络。 */
     val egressChoice: EgressNetworkChoice = EgressNetworkChoice.AUTO,
+    /** 直连(DIRECT)出口。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；其余手动指定。独立于 [egressChoice]。 */
+    val directEgressChoice: DirectEgressChoice = DirectEgressChoice.AUTO,
+    /** 是否已确认「蜂窝出口产生移动流量」——首次选蜂窝出口弹确认后置 true，不再打扰。 */
+    val cellularEgressConfirmed: Boolean = false,
     // mDNS 默认关:hxmyproxy.local 系统 API 无法注册(解析不到)、DNS-SD 普通用户用不到,已从 UI 移除、后端不发布。
     val mdnsEnabled: Boolean = false,
     /** 备用 DNS（DoH）：系统解析双路全败后经 8.8.8.8/1.1.1.1 的 DoH 端点兜底重试（IP 直连 443）。 */
@@ -37,6 +41,8 @@ data class ProxySettings(
     val enabledRuleGroups: Set<String> = emptySet(),
     /** IP/域名白名单整体开关；关掉则整组临时失效（域名走默认 PROXY），列表数据保留。 */
     val userDirectEnabled: Boolean = true,
+    /** 快速拦截名单整体开关（对称白名单 [userDirectEnabled]）；关掉则 userReject 整组临时失效。 */
+    val userRejectEnabled: Boolean = true,
     /** 用户自定义直连白名单（域名后缀；优先级最高，防误杀）。规则页第一模块的快速白名单。 */
     val userDirectRules: Set<String> = emptySet(),
     /** 用户自定义快速拦截名单（域名/IP/CIDR）；进 userReject 表，优先级次于白名单、高于内置。 */

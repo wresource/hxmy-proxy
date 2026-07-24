@@ -24,6 +24,10 @@ data class EgressStatus(
     val cellular: Boolean = false,
     val ethernet: Boolean = false,
     val vpn: Boolean = false,
+    // 「有能力」位(区别于上面「已激活/在线」位):蜂窝=有 SIM 且就绪(WiFi 在线时蜂窝虽休眠但仍可拉起当出口)、
+    // 以太网=网卡已插入(≈ethernet 在线)。出口 chip 可选性依「有能力」,避免蜂窝休眠被误置灰(死锁)。
+    val cellularCapable: Boolean = false,
+    val ethernetCapable: Boolean = false,
 )
 
 /**

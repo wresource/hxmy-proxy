@@ -157,8 +157,21 @@ class MainViewModel @Inject constructor(
         it.copy(enabledRuleGroups = if (on) it.enabledRuleGroups + id else it.enabledRuleGroups - id)
     }
 
+    /** 一键开/关某一分类下的全部内置组。 */
+    fun setCategoryEnabled(cat: com.mzstd.hxmyproxy.core.rules.RuleCategory, on: Boolean) = update {
+        val ids = com.mzstd.hxmyproxy.core.rules.RuleCatalog.all.filter { g -> g.category == cat }.map { g -> g.id }.toSet()
+        it.copy(enabledRuleGroups = if (on) it.enabledRuleGroups + ids else it.enabledRuleGroups - ids)
+    }
+
+    /** 一键开/关全部内置规则集（所有分类所有组）。 */
+    fun setAllBuiltinEnabled(on: Boolean) = update {
+        val ids = com.mzstd.hxmyproxy.core.rules.RuleCatalog.all.map { g -> g.id }.toSet()
+        it.copy(enabledRuleGroups = if (on) it.enabledRuleGroups + ids else it.enabledRuleGroups - ids)
+    }
+
     /** IP/域名白名单整体开关（关掉则整组临时失效、数据保留）。 */
     fun toggleUserDirectEnabled(on: Boolean) = update { it.copy(userDirectEnabled = on) }
+    fun toggleUserRejectEnabled(on: Boolean) = update { it.copy(userRejectEnabled = on) }
 
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
@@ -259,6 +272,8 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { credentialStore.update(username.trim(), password) }
     }
     fun setEgressChoice(c: EgressNetworkChoice) = update { it.copy(egressChoice = c) }
+    fun setDirectEgressChoice(c: com.mzstd.hxmyproxy.core.model.DirectEgressChoice) = update { it.copy(directEgressChoice = c) }
+    fun confirmCellularEgress() = update { it.copy(cellularEgressConfirmed = true) }
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
 
     fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }

@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
@@ -74,6 +76,7 @@ import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.BannerLevel
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.BigStat
+import com.mzstd.hxmyproxy.ui.components.IconDisc
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.CountBadge
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
@@ -232,7 +235,10 @@ private fun DashboardContent(
     if (heroState == HeroState.Running) RateRow(ui, viewModel)
     PortBindBanner(ui)
     EntryCard(ui)
-    DuoRow(ui, viewModel)
+    FlowDiagram()
+    InterfacesCard(ui, viewModel, Modifier.fillMaxWidth())
+    EgressCard(ui, viewModel, Modifier.fillMaxWidth())
+    DirectEgressCard(ui, viewModel, Modifier.fillMaxWidth())
 }
 
 // ══════════ 行1：共享 hero + 防护竖卡 ══════════
@@ -405,10 +411,11 @@ private fun HeroRoundButton(running: Boolean, onStart: () -> Unit) {
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                stringResource(if (running) R.string.stop_sharing else R.string.start_sharing),
+                stringResource(if (running) R.string.stop_short else R.string.start_short),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 textAlign = TextAlign.Center,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -434,8 +441,8 @@ private fun GuardCard(ui: MainUiState, onOpenProtection: () -> Unit, modifier: M
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             GlowDot(if (adBlockOn) StatusColors.runningDot() else StatusColors.stoppedDot())
             Spacer(Modifier.width(5.dp))
-            StatLabel(stringResource(R.string.protection_title))
-            Spacer(Modifier.weight(1f))
+            StatLabel(stringResource(R.string.protection_title), Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
             Icon(
                 painterResource(R.drawable.ic_b_chevron_right),
                 contentDescription = null,
@@ -853,15 +860,54 @@ private fun EntryCard(ui: MainUiState) {
 
 // ══════════ 行4：可分享入口 + 出口网络 ══════════
 
-/** 行4 bento：可分享入口(1.16) + 出口网络(1)，等高对齐。 */
+/**
+ * 数据流示意图：设备 ─接入→ 本机 ─出口→ 网络。帮用户理清「入口 vs 出口」——
+ * 下面 DuoRow 的两张卡（接入网络 / 出口网络）正好对应流向图的左右两端。
+ */
 @Composable
-private fun DuoRow(ui: MainUiState, viewModel: MainViewModel) {
-    Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        InterfacesCard(ui, viewModel, Modifier.weight(1.16f).fillMaxHeight())
-        EgressCard(ui, viewModel, Modifier.weight(1f).fillMaxHeight())
+private fun FlowDiagram() {
+    BentoCard(tier = CardTier.Sunken, contentPadding = 12.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            FlowNode(R.drawable.ic_b_devices, R.string.flow_device, Modifier.weight(1f))
+            FlowArrow(R.string.flow_in)
+            FlowNode(R.drawable.ic_b_phone, R.string.flow_phone, Modifier.weight(1f))
+            FlowArrow(R.string.flow_out)
+            FlowNode(R.drawable.ic_b_globe, R.string.flow_net, Modifier.weight(1f))
+        }
+    }
+}
+
+/** 流向节点：图标圆盘 + 名称（设备 / 本机 / 网络）。 */
+@Composable
+private fun FlowNode(iconRes: Int, labelRes: Int, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        IconDisc(painterResource(iconRes), size = 34.dp, iconSize = 18.dp)
+        Text(
+            stringResource(labelRes),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 流向箭头段：上方小标签（接入 / 出口，primary 色）+ 箭头图标。 */
+@Composable
+private fun FlowArrow(labelRes: Int) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            stringResource(labelRes),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+        Icon(
+            painterResource(R.drawable.ic_b_arrow_right),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 2.dp).size(18.dp),
+        )
     }
 }
 
@@ -980,6 +1026,7 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
     val choice = ui.settings.egressChoice
     val st = ui.share.egressStatus
     val vpnActive = ui.share.vpn.detected
+    var showCellularConfirm by remember { mutableStateOf(false) }
     BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 6.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(
@@ -999,8 +1046,8 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
             Triple(EgressNetworkChoice.AUTO, R.string.egress_auto, true),
             Triple(EgressNetworkChoice.VPN, R.string.egress_vpn, st.vpn),
             Triple(EgressNetworkChoice.WIFI, R.string.egress_wifi, st.wifi),
-            Triple(EgressNetworkChoice.CELLULAR, R.string.egress_cellular, st.cellular),
-            Triple(EgressNetworkChoice.ETHERNET, R.string.egress_ethernet, st.ethernet),
+            Triple(EgressNetworkChoice.CELLULAR, R.string.egress_cellular, st.cellularCapable),
+            Triple(EgressNetworkChoice.ETHERNET, R.string.egress_ethernet, st.ethernetCapable),
         )
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             opts.forEach { (c, labelRes, online) ->
@@ -1008,7 +1055,10 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
                 // 离线的物理/ VPN 出口置灰不可选；已选中项即便离线仍可点（供切走）。
                 FilterChip(
                     selected = choice == c,
-                    onClick = { viewModel.setEgressChoice(c) },
+                    onClick = {
+                        if (c == EgressNetworkChoice.CELLULAR && !ui.settings.cellularEgressConfirmed) showCellularConfirm = true
+                        else viewModel.setEgressChoice(c)
+                    },
                     enabled = online || isAuto || c == choice,
                     colors = stdFilterChipColors(),
                     leadingIcon = if (choice == c) {
@@ -1021,9 +1071,11 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
                         }
                     } else null,
                     label = {
+                        // 离线不再拼「· offline」文字（英文超窄卡宽把 chip 撑爆/裁字）——靠 enabled=false 置灰表达。
                         Text(
-                            if (!online && !isAuto) "${stringResource(labelRes)} · ${stringResource(R.string.egress_offline)}"
-                            else stringResource(labelRes),
+                            stringResource(labelRes),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     },
                 )
@@ -1032,6 +1084,13 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
         if (choice == EgressNetworkChoice.AUTO) {
             Text(
                 stringResource(R.string.egress_auto_desc),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (choice == EgressNetworkChoice.CELLULAR) {
+            Text(
+                stringResource(R.string.egress_cellular_metered),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1053,6 +1112,105 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
             }
         }
     }
+    if (showCellularConfirm) CellularConfirmDialog(
+        onConfirm = {
+            viewModel.confirmCellularEgress()
+            viewModel.setEgressChoice(EgressNetworkChoice.CELLULAR)
+            showCellularConfirm = false
+        },
+        onDismiss = { showCellularConfirm = false },
+    )
+}
+
+/** 直连出口卡：DIRECT(bypass) 流量走哪张物理网。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；可手动指定。 */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    val choice = ui.settings.directEgressChoice
+    val st = ui.share.egressStatus
+    var showCellularConfirm by remember { mutableStateOf(false) }
+    BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 6.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(
+                painterResource(R.drawable.ic_b_egress),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp),
+            )
+            StatLabel(stringResource(R.string.direct_egress_title))
+        }
+        Text(
+            stringResource(R.string.direct_egress_sub),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val opts = listOf(
+            Triple(DirectEgressChoice.AUTO, R.string.egress_auto, true),
+            Triple(DirectEgressChoice.ETHERNET, R.string.egress_ethernet, st.ethernetCapable),
+            Triple(DirectEgressChoice.WIFI, R.string.egress_wifi, st.wifi),
+            Triple(DirectEgressChoice.CELLULAR, R.string.egress_cellular, st.cellularCapable),
+        )
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            opts.forEach { (c, labelRes, online) ->
+                val isAuto = c == DirectEgressChoice.AUTO
+                FilterChip(
+                    selected = choice == c,
+                    onClick = {
+                        if (c == DirectEgressChoice.CELLULAR && !ui.settings.cellularEgressConfirmed) showCellularConfirm = true
+                        else viewModel.setDirectEgressChoice(c)
+                    },
+                    enabled = online || isAuto || c == choice,
+                    colors = stdFilterChipColors(),
+                    leadingIcon = if (choice == c) {
+                        {
+                            Icon(
+                                painterResource(R.drawable.ic_b_check),
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        }
+                    } else null,
+                    label = {
+                        Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                )
+            }
+        }
+        if (choice == DirectEgressChoice.AUTO) {
+            Text(
+                stringResource(R.string.direct_egress_auto_desc),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (choice == DirectEgressChoice.CELLULAR) {
+            Text(
+                stringResource(R.string.egress_cellular_metered),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    if (showCellularConfirm) CellularConfirmDialog(
+        onConfirm = {
+            viewModel.confirmCellularEgress()
+            viewModel.setDirectEgressChoice(DirectEgressChoice.CELLULAR)
+            showCellularConfirm = false
+        },
+        onDismiss = { showCellularConfirm = false },
+    )
+}
+
+/** 蜂窝出口首次确认弹窗：提示会消耗移动数据/资费（首次选蜂窝出口时弹一次）。 */
+@Composable
+private fun CellularConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.cellular_confirm_title)) },
+        text = { Text(stringResource(R.string.cellular_confirm_msg)) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.cellular_confirm_ok)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+    )
 }
 
 // ══════════ 横屏启停（保持原结构） ══════════

@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.EgressStatus
 
@@ -26,6 +27,8 @@ import com.mzstd.hxmyproxy.core.model.EgressStatus
  */
 class UnderlyingNetworkProvider(context: Context) {
     private val cm = context.getSystemService(ConnectivityManager::class.java)
+    private val tm = context.getSystemService(android.telephony.TelephonyManager::class.java)
+    private val pm: android.content.pm.PackageManager? = context.packageManager
 
     @Volatile private var wifiNet: Network? = null
     @Volatile private var cellularNet: Network? = null
@@ -38,9 +41,19 @@ class UnderlyingNetworkProvider(context: Context) {
         private set
 
     @Volatile private var choice: EgressNetworkChoice = EgressNetworkChoice.AUTO
+    @Volatile private var directChoice: DirectEgressChoice = DirectEgressChoice.AUTO
 
-    /** DIRECT 分流用的底层物理网络（绕过共享 VPN）：优先 WiFi，其次以太网/蜂窝。 */
-    fun current(): Network? = wifiNet ?: ethernetNet ?: cellularNet
+    /**
+     * DIRECT 分流用的底层物理网络（绕过共享 VPN），按用户的 [directChoice]：
+     * AUTO=以太网/USB → WiFi → 蜂窝（**有线优先**，用户要求）；手动指定则取对应句柄。
+     * 拿不到返回 null，交由 OutboundConnector fail-closed 断开（绝不回落默认路由=VPN）。
+     */
+    fun current(): Network? = when (directChoice) {
+        DirectEgressChoice.AUTO -> ethernetNet ?: wifiNet ?: cellularNet
+        DirectEgressChoice.ETHERNET -> ethernetNet
+        DirectEgressChoice.WIFI -> wifiNet
+        DirectEgressChoice.CELLULAR -> cellularNet
+    }
 
     /** PROXY 出站按用户选择的出口网络；AUTO 返回 null（走系统默认，含 VPN）。 */
     fun egressNetwork(): Network? = when (choice) {
@@ -51,13 +64,36 @@ class UnderlyingNetworkProvider(context: Context) {
         EgressNetworkChoice.ETHERNET -> ethernetNet
     }
 
-    /** 各出口在线状态快照（UI 置灰不可用项）。 */
+    /** 各出口在线状态快照（UI 置灰不可用项）。*Capable=「有能力」位（见 EgressStatus）。 */
     fun status(): EgressStatus = EgressStatus(
         wifi = wifiNet != null,
         cellular = cellularNet != null,
         ethernet = ethernetNet != null,
         vpn = vpnNet != null,
+        cellularCapable = cellularCapable(),
+        ethernetCapable = ethernetNet != null,   // 以太网不像蜂窝会休眠，被动句柄即可靠（没插=正确置灰）
     )
+
+    /**
+     * 蜂窝「有能力」判据（**免权限**）：设备有蜂窝无线电 + SIM 就绪。用于让「WiFi 在线时也能选蜂窝出口」——
+     * 蜂窝在 WiFi 为默认网时被系统休眠、被动回调不 fire（cellularNet 恒 null），但只要有 SIM 就该可选，
+     * 选中后由 reconcileDirectRequest/reconcileRequest 的 requestNetwork 主动拉起。必须**先 hasSystemFeature
+     * 再调 getSimState**：API33 telephony feature-split 下非蜂窝设备裸调 getSimState 会抛
+     * UnsupportedOperationException。getSimState 源码仅 @RequiresFeature，无 @RequiresPermission → 免权限。
+     */
+    private fun cellularCapable(): Boolean {
+        val p = pm ?: return false
+        if (!p.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)) return false
+        val t = tm ?: return false
+        if (t.simState == android.telephony.TelephonyManager.SIM_STATE_READY) return true
+        // 双卡/eSIM 兜底：遍历各槽（activeModemCount API30 + getSimState(slot) API26，SDK 守卫）。
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            for (i in 0 until t.activeModemCount) {
+                if (t.getSimState(i) == android.telephony.TelephonyManager.SIM_STATE_READY) return true
+            }
+        }
+        return false
+    }
 
     private fun physReq(transport: Int) = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -113,6 +149,10 @@ class UnderlyingNetworkProvider(context: Context) {
     /** 当前 requestNetwork 保活的 transport（null=未请求，对应 AUTO/VPN）。 */
     @Volatile private var pendingChoice: EgressNetworkChoice? = null
 
+    /** DIRECT 出口的**独立**保活槽（手动指定物理网时用；AUTO 不拉起）。与 PROXY 槽分开，互不干扰。 */
+    @Volatile private var directPendingReqCb: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var directPendingChoice: DirectEgressChoice? = null
+
     /** 由 applyTunables 推入用户的出口选择；物理出口按需 requestNetwork 拉起并保持（幂等）。 */
     fun setEgressChoice(c: EgressNetworkChoice) {
         choice = c
@@ -145,6 +185,38 @@ class UnderlyingNetworkProvider(context: Context) {
         }
     }
 
+    /** 由 applyTunables 推入用户的直连出口选择；手动指定物理网时 requestNetwork 拉起保活（幂等）。 */
+    fun setDirectEgressChoice(c: DirectEgressChoice) {
+        directChoice = c
+        reconcileDirectRequest()
+    }
+
+    /** DIRECT 手动指定物理出口时拉起并保活对应网络；AUTO 只用被动句柄不主动拉起（省电，见耗电边界）。幂等。 */
+    private fun reconcileDirectRequest() {
+        val want = when (directChoice) {
+            DirectEgressChoice.WIFI, DirectEgressChoice.CELLULAR, DirectEgressChoice.ETHERNET -> directChoice
+            else -> null   // AUTO 不主动拉起，只用被动句柄 + fail-closed
+        }
+        if (want == directPendingChoice) return
+        directPendingReqCb?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        directPendingReqCb = null
+        directPendingChoice = null
+        val req = when (want) {
+            DirectEgressChoice.WIFI -> wifiReq
+            DirectEgressChoice.CELLULAR -> cellularReq
+            DirectEgressChoice.ETHERNET -> ethernetReq
+            else -> return
+        }
+        val cb = object : ConnectivityManager.NetworkCallback() {}
+        try {
+            cm.requestNetwork(req, cb)   // 拉起并保持该物理网（如 WiFi 在时点亮蜂窝）
+            directPendingReqCb = cb
+            directPendingChoice = want
+        } catch (e: Exception) {
+            FileLog.w(TAG, "direct egress requestNetwork($want) failed: ${e.message}")
+        }
+    }
+
     fun start() {
         if (registered) return
         try {
@@ -165,16 +237,21 @@ class UnderlyingNetworkProvider(context: Context) {
         pendingReqCb?.let { runCatching { cm.unregisterNetworkCallback(it) } }
         pendingReqCb = null
         pendingChoice = null
+        directPendingReqCb?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+        directPendingReqCb = null
+        directPendingChoice = null
     }
 
     fun stop() {
         if (!registered) return
-        listOf(wifiCb, cellularCb, ethernetCb, vpnCb, pendingReqCb).forEach {
+        listOf(wifiCb, cellularCb, ethernetCb, vpnCb, pendingReqCb, directPendingReqCb).forEach {
             it ?: return@forEach
             runCatching { cm.unregisterNetworkCallback(it) }
         }
         pendingReqCb = null
         pendingChoice = null
+        directPendingReqCb = null
+        directPendingChoice = null
         registered = false
         wifiNet = null; cellularNet = null; ethernetNet = null; vpnNet = null
         validated = false

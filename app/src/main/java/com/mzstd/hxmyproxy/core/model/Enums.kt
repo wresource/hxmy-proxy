@@ -21,5 +21,13 @@ enum class InterfaceStatus { UP, DOWN }
  */
 enum class EgressNetworkChoice { AUTO, VPN, WIFI, CELLULAR, ETHERNET }
 
+/**
+ * 直连(DIRECT 规则)出口选择——独立于 PROXY 的 [EgressNetworkChoice]。DIRECT 语义即「绕过共享 VPN 走真实
+ * 物理网络」，故无 VPN 选项。[AUTO]=按优先级链 以太网/USB → WiFi → 蜂窝，都拿不到即 fail-closed 断开
+ * （绝不回落默认路由=VPN，防地理敏感直连泄漏）；其余为手动钉死某张物理网。手动指定蜂窝/以太网时
+ * requestNetwork 拉起保活，AUTO 只用被动句柄不主动拉起（省电，见 UnderlyingNetworkProvider）。
+ */
+enum class DirectEgressChoice { AUTO, ETHERNET, WIFI, CELLULAR }
+
 /** 外观（深浅色）。默认 [SYSTEM] 跟随系统。 */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
