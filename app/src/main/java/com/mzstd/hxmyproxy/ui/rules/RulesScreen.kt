@@ -45,7 +45,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -57,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.RuleEntry
+import com.mzstd.hxmyproxy.core.model.RuleEntry.Companion.sortedForDisplay
 import com.mzstd.hxmyproxy.core.rules.IpCidrSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
@@ -147,7 +151,7 @@ fun RulesScreen(
             QuickRuleCard(
                 title = stringResource(R.string.rules_reject_quick),
                 hint = stringResource(R.string.rules_reject_quick_hint),
-                rules = s.userRejectRules.sorted(),
+                rules = s.userRejectRules,
                 accent = rejectAcc,
                 trailing = {
                     Switch(
@@ -157,6 +161,7 @@ fun RulesScreen(
                     )
                 },
                 onAdd = { viewModel.addUserRejectRule(it) },
+                onToggle = { viewModel.toggleUserRejectRule(it) },
                 onRemove = { viewModel.removeUserRejectRule(it) },
                 onOpenDetail = onOpenRejectDetail,
             )
@@ -180,7 +185,7 @@ fun RulesScreen(
             QuickRuleCard(
                 title = stringResource(R.string.rules_module_list),
                 hint = stringResource(R.string.rules_user_direct_hint),
-                rules = s.userDirectRules.sorted(),
+                rules = s.userDirectRules,
                 accent = allowAcc,
                 trailing = {
                     Switch(
@@ -190,6 +195,7 @@ fun RulesScreen(
                     )
                 },
                 onAdd = { viewModel.addUserDirectRule(it) },
+                onToggle = { viewModel.toggleUserDirectRule(it) },
                 onRemove = { viewModel.removeUserDirectRule(it) },
                 onOpenDetail = onOpenDirectDetail,
             )
@@ -362,10 +368,11 @@ private fun ZoneHeader(
 private fun QuickRuleCard(
     title: String,
     hint: String,
-    rules: List<String>,
+    rules: List<RuleEntry>,
     accent: RuleAccent,
     trailing: (@Composable () -> Unit)? = null,
     onAdd: (String) -> Unit,
+    onToggle: (String) -> Unit,
     onRemove: (String) -> Unit,
     onOpenDetail: () -> Unit,
 ) {
@@ -378,9 +385,9 @@ private fun QuickRuleCard(
         Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         RulePillInputRow(accent, onAdd)
         RuleFormatHint()
-        rules.take(2).forEach { rule ->
+        rules.sortedForDisplay().take(2).forEach { entry ->
             HorizontalDivider(color = ruleHairline())
-            RuleEntryRow(rule, accent) { onRemove(rule) }
+            RuleEntryRow(entry, accent, onToggle = { onToggle(entry.value) }, onRemove = { onRemove(entry.value) })
         }
         HorizontalDivider(color = ruleHairline())
         // 「管理全部」行：语义色文字 + 计数徽章 + 右进入尖角。
@@ -480,19 +487,37 @@ internal fun RuleFormatHint() {
 
 /** 条目行（HTML .prow）：类型小徽章（域名/IP 段）+ 等宽地址 + 删除图标。 */
 @Composable
-internal fun RuleEntryRow(rule: String, accent: RuleAccent, onRemove: () -> Unit) {
+internal fun RuleEntryRow(entry: RuleEntry, accent: RuleAccent, onToggle: () -> Unit, onRemove: () -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        RuleTypeChip(rule, accent)
+        RuleTypeChip(entry.value, accent)
         Text(
-            rule,
-            modifier = Modifier.weight(1f),
+            entry.value,
+            modifier = Modifier.weight(1f).alpha(if (entry.enabled) 1f else 0.4f),
             style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+        // 状态标签（只显示，不可点）：生效=语义色实底，停用=灰底。开关才是操作。
+        Text(
+            stringResource(if (entry.enabled) R.string.rule_active else R.string.rule_disabled),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = if (entry.enabled) accent.onContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (entry.enabled) accent.container else MaterialTheme.colorScheme.surfaceContainerHighest)
+                .padding(horizontal = 7.dp, vertical = 3.dp),
+        )
+        // 小开关控制启用/停用（缩到小尺寸）：开关=操作，左侧标签=状态。
+        Switch(
+            checked = entry.enabled,
+            onCheckedChange = { onToggle() },
+            modifier = Modifier.scale(0.72f),
+            colors = stdSwitchColors(),
         )
         // 删除用图标按钮：Remove/移除 文字宽度随语言变化导致一列参差（双语检查原则）。
         IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {

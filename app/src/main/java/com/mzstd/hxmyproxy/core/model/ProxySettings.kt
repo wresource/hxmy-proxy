@@ -44,9 +44,9 @@ data class ProxySettings(
     /** 快速拦截名单整体开关（对称白名单 [userDirectEnabled]）；关掉则 userReject 整组临时失效。 */
     val userRejectEnabled: Boolean = true,
     /** 用户自定义直连白名单（域名后缀；优先级最高，防误杀）。规则页第一模块的快速白名单。 */
-    val userDirectRules: Set<String> = emptySet(),
-    /** 用户自定义快速拦截名单（域名/IP/CIDR）；进 userReject 表，优先级次于白名单、高于内置。 */
-    val userRejectRules: Set<String> = emptySet(),
+    val userDirectRules: List<RuleEntry> = emptyList(),
+    /** 用户自定义快速拦截名单（域名/IP/CIDR）；进 userReject 表，优先级次于白名单、高于内置。带启用状态。 */
+    val userRejectRules: List<RuleEntry> = emptyList(),
     /** 被切成「拦截」动作的内置 app/服务组 id（规则页两行式：位于拦截行的内置组）。 */
     val rejectedGroups: Set<String> = emptySet(),
     /** 用户自建命名规则集（规则集管理界面创建/编辑）。 */

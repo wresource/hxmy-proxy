@@ -11,6 +11,7 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
+import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
@@ -38,6 +39,7 @@ class MainViewModel @Inject constructor(
     private val proxyServerRepository: ProxyServerRepository,
     private val endpointHistoryRepository: EndpointHistoryRepository,
     private val credentialStore: CredentialStore,
+    private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainUiState> =
@@ -49,6 +51,13 @@ class MainViewModel @Inject constructor(
         ) { share, settings, history, credentials ->
             MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
+
+    /** 某 host 的**实时完整判定**（含内置组，按引擎优先级：你的覆盖/列表 > 内置广告 > 内置直连 > 兜底代理）。
+     *  top domain 标据此显示，配合 [ruleVersion] 规则一变即重判——不再用运行时缓存（修「移除规则还显示直连」）。 */
+    fun decideHost(host: String): com.mzstd.hxmyproxy.core.rules.RuleAction = ruleEngine.decide(host)
+
+    /** 规则版本信号：规则一变 +1，供 top domain 标订阅刷新（触发重判所有域名）。 */
+    val ruleVersion: kotlinx.coroutines.flow.StateFlow<Int> = ruleEngine.version
 
     /** 速率历史（最近 60 个 1s 样本，字节/秒），监控/首页 sparkline 用；停止即清空。 */
     data class RateHistory(val down: List<Float> = emptyList(), val up: List<Float> = emptyList())
@@ -176,19 +185,67 @@ class MainViewModel @Inject constructor(
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
         val d = domain.trim().lowercase().removePrefix("*.")
-        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。
-        if (!d.contains('.') && !d.contains(':')) it else it.copy(userDirectRules = it.userDirectRules + d)
+        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。已存在则不重复加。
+        if ((!d.contains('.') && !d.contains(':')) || it.userDirectRules.any { e -> e.value == d }) it
+        else it.copy(userDirectRules = it.userDirectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
     }
 
     /** 添加快速拦截名单（域名/IP/CIDR/IPv6）；进 userReject 表，命中即拒绝连接。 */
     fun addUserRejectRule(rule: String) = update {
         val d = rule.trim().lowercase().removePrefix("*.")
-        if (!d.contains('.') && !d.contains(':')) it else it.copy(userRejectRules = it.userRejectRules + d)
+        if ((!d.contains('.') && !d.contains(':')) || it.userRejectRules.any { e -> e.value == d }) it
+        else it.copy(userRejectRules = it.userRejectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
     }
 
     /** 移除快速拦截名单。 */
     fun removeUserRejectRule(rule: String) = update {
-        it.copy(userRejectRules = it.userRejectRules - rule)
+        it.copy(userRejectRules = it.userRejectRules.filterNot { e -> e.value == rule })
+    }
+
+    /** 切换单条快速拦截的启用/停用（停用=不参与判定、走默认，**不切到反面**）。停用时记停用时间用于排序。 */
+    fun toggleUserRejectRule(value: String) = update {
+        val now = System.currentTimeMillis()
+        it.copy(userRejectRules = it.userRejectRules.map { e ->
+            if (e.value == value) e.copy(enabled = !e.enabled, disabledAt = if (e.enabled) now else e.disabledAt) else e
+        })
+    }
+
+    /** 切换单条白名单的启用/停用（同上，对称）。 */
+    fun toggleUserDirectRule(value: String) = update {
+        val now = System.currentTimeMillis()
+        it.copy(userDirectRules = it.userDirectRules.map { e ->
+            if (e.value == value) e.copy(enabled = !e.enabled, disabledAt = if (e.enabled) now else e.disabledAt) else e
+        })
+    }
+
+    // —— top domain 便捷设规则：统一写入 block/allow 列表（免手输），互斥（一个域名同刻只在一个列表）——
+    /** 直连：进 allow 列表 + 从 block 互斥移除。 */
+    fun setDomainDirect(host: String) = update {
+        val h = host.trim().lowercase().removePrefix("*.")
+        if (h.isEmpty()) it else it.copy(
+            userRejectRules = it.userRejectRules.filterNot { e -> e.value == h },
+            userDirectRules = if (it.userDirectRules.any { e -> e.value == h }) it.userDirectRules
+            else it.userDirectRules + RuleEntry(h, addedAt = System.currentTimeMillis()),
+        )
+    }
+
+    /** 拦截：进 block 列表 + 从 allow 互斥移除。 */
+    fun setDomainReject(host: String) = update {
+        val h = host.trim().lowercase().removePrefix("*.")
+        if (h.isEmpty()) it else it.copy(
+            userDirectRules = it.userDirectRules.filterNot { e -> e.value == h },
+            userRejectRules = if (it.userRejectRules.any { e -> e.value == h }) it.userRejectRules
+            else it.userRejectRules + RuleEntry(h, addedAt = System.currentTimeMillis()),
+        )
+    }
+
+    /** 清除：从 block/allow 两列表都移除该域名（回默认判定）。 */
+    fun clearDomainRule(host: String) = update {
+        val h = host.trim().lowercase().removePrefix("*.")
+        it.copy(
+            userDirectRules = it.userDirectRules.filterNot { e -> e.value == h },
+            userRejectRules = it.userRejectRules.filterNot { e -> e.value == h },
+        )
     }
 
     /** 把内置 app/服务组在规则页「放行 ↔ 拦截」两行间移动（拦截行=该组域名进 reject 表）。 */
@@ -202,7 +259,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun removeUserDirectRule(domain: String) {
-        update { it.copy(userDirectRules = it.userDirectRules - domain) }
+        update { it.copy(userDirectRules = it.userDirectRules.filterNot { e -> e.value == domain }) }
         // 记入「移除历史」,供「从历史添加」快速加回(只记加过又删的、量小且精准)
         viewModelScope.launch { settingsRepository.addDomainHistory(listOf(domain)) }
     }

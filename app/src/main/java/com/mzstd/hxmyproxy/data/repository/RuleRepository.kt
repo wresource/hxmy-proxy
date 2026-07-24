@@ -43,9 +43,9 @@ class RuleRepository @Inject constructor(
         val userDirect = RuleMatcher()
         val userReject = RuleMatcher()
         // 第一模块快速白名单 → 直连（受整体开关控制；关掉则整组临时失效）
-        if (settings.userDirectEnabled) settings.userDirectRules.forEach { userDirect.add(it) }
-        // 快速拦截名单 → userReject（受整体开关控制；关掉则整组临时失效，对称白名单）
-        if (settings.userRejectEnabled) settings.userRejectRules.forEach { userReject.add(it) }
+        if (settings.userDirectEnabled) settings.userDirectRules.filter { it.enabled }.forEach { userDirect.add(it.value) }
+        // 快速拦截名单 → userReject（受整体开关控制；关掉则整组临时失效，对称白名单）。**停用条目不装载=不参与判定**。
+        if (settings.userRejectEnabled) settings.userRejectRules.filter { it.enabled }.forEach { userReject.add(it.value) }
         // 用户自建命名集（按动作进 direct/reject;优先级高于内置）
         settings.userRuleSets.filter { it.enabled }.forEach { set ->
             val into = if (set.action == RuleAction.REJECT) userReject else userDirect

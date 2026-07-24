@@ -22,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.model.RuleEntry.Companion.sortedForDisplay
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
@@ -39,13 +40,14 @@ fun QuickRulesDetailScreen(
     onBack: () -> Unit,
 ) {
     val s = ui.settings
-    val rules = (if (reject) s.userRejectRules else s.userDirectRules).sorted()
+    val rules = (if (reject) s.userRejectRules else s.userDirectRules).sortedForDisplay()
     val history by viewModel.domainHistory.collectAsStateWithLifecycle()
     var showHistory by remember { mutableStateOf(false) }
     // 语义配色与规则页两卡一致：拦截=粉 tertiary / 放行=蓝 primary。
     val accent = if (reject) rejectAccent() else allowAccent()
     fun add(rule: String) = if (reject) viewModel.addUserRejectRule(rule) else viewModel.addUserDirectRule(rule)
     fun remove(rule: String) = if (reject) viewModel.removeUserRejectRule(rule) else viewModel.removeUserDirectRule(rule)
+    fun toggle(value: String) = if (reject) viewModel.toggleUserRejectRule(value) else viewModel.toggleUserDirectRule(value)
 
     DetailScaffold(
         title = stringResource(if (reject) R.string.rules_reject_quick else R.string.rules_module_list),
@@ -76,15 +78,15 @@ fun QuickRulesDetailScreen(
                 )
             }
             // 完整列表：发丝线分隔，条目=类型徽章 + 等宽地址 + 删除（与规则页预览行同款）。
-            rules.forEach { rule ->
+            rules.forEach { entry ->
                 HorizontalDivider(color = ruleHairline())
-                RuleEntryRow(rule, accent) { remove(rule) }
+                RuleEntryRow(entry, accent, onToggle = { toggle(entry.value) }, onRemove = { remove(entry.value) })
             }
         }
     }
     if (showHistory) {
         HistoryAddDialog(
-            history = history.filter { it !in rules }.sorted(),
+            history = history.filter { h -> rules.none { e -> e.value == h } }.sorted(),
             onAdd = { add(it) },
             onDismiss = { showHistory = false },
         )

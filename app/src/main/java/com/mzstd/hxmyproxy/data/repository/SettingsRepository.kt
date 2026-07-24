@@ -15,6 +15,7 @@ import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ThemeMode
 import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
+import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
@@ -83,8 +84,10 @@ class SettingsRepository @Inject constructor(
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
         val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
-        val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")
-        val USER_REJECT = stringSetPreferencesKey("user_reject_rules")
+        val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")           // 旧格式:仅迁移读
+        val USER_REJECT = stringSetPreferencesKey("user_reject_rules")           // 旧格式:仅迁移读
+        val USER_DIRECT_JSON = stringPreferencesKey("user_direct_rules_json")    // 带启用状态的条目列表
+        val USER_REJECT_JSON = stringPreferencesKey("user_reject_rules_json")
         val BACKUP_DNS = booleanPreferencesKey("backup_dns_enabled")
         val REJECTED_GROUPS = stringSetPreferencesKey("rejected_groups")
         val RULE_SUBS = stringSetPreferencesKey("rule_subscription_urls")
@@ -129,8 +132,9 @@ class SettingsRepository @Inject constructor(
             enabledRuleGroups = this[RULE_GROUPS] ?: d.enabledRuleGroups,
             userDirectEnabled = this[USER_DIRECT_ENABLED] ?: d.userDirectEnabled,
             userRejectEnabled = this[USER_REJECT_ENABLED] ?: d.userRejectEnabled,
-            userDirectRules = this[USER_DIRECT] ?: d.userDirectRules,
-            userRejectRules = this[USER_REJECT] ?: d.userRejectRules,
+            // 优先读带状态的 JSON;无则回退旧 stringSet(升级迁移,当作全部已启用);再无则默认。
+            userDirectRules = decodeRuleEntries(this[USER_DIRECT_JSON]) ?: this[USER_DIRECT]?.map { RuleEntry(it) } ?: d.userDirectRules,
+            userRejectRules = decodeRuleEntries(this[USER_REJECT_JSON]) ?: this[USER_REJECT]?.map { RuleEntry(it) } ?: d.userRejectRules,
             rejectedGroups = this[REJECTED_GROUPS] ?: d.rejectedGroups,
             userRuleSets = decodeRuleSets(this[USER_RULE_SETS]),
             ruleSetOverrides = decodeOverrides(this[RULE_OVERRIDES]),
@@ -167,8 +171,8 @@ class SettingsRepository @Inject constructor(
         prefs[RULE_GROUPS] = enabledRuleGroups
         prefs[USER_DIRECT_ENABLED] = userDirectEnabled
         prefs[USER_REJECT_ENABLED] = userRejectEnabled
-        prefs[USER_DIRECT] = userDirectRules
-        prefs[USER_REJECT] = userRejectRules
+        prefs[USER_DIRECT_JSON] = encodeRuleEntries(userDirectRules)
+        prefs[USER_REJECT_JSON] = encodeRuleEntries(userRejectRules)
         prefs[REJECTED_GROUPS] = rejectedGroups
         prefs[USER_RULE_SETS] = encodeRuleSets(userRuleSets)
         prefs[RULE_OVERRIDES] = encodeOverrides(ruleSetOverrides)
@@ -242,6 +246,29 @@ class SettingsRepository @Inject constructor(
             }.toMap()
         } catch (e: Exception) {
             emptyMap()
+        }
+    }
+
+    private fun encodeRuleEntries(list: List<RuleEntry>): String {
+        val arr = org.json.JSONArray()
+        list.forEach { e ->
+            arr.put(org.json.JSONObject().put("v", e.value).put("e", e.enabled).put("a", e.addedAt).put("d", e.disabledAt))
+        }
+        return arr.toString()
+    }
+
+    /** 解析带状态的规则条目；返回 null 表示无 JSON（交由调用方回退旧 stringSet 迁移）。 */
+    private fun decodeRuleEntries(json: String?): List<RuleEntry>? {
+        if (json.isNullOrBlank()) return null
+        return try {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val v = o.optString("v").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                RuleEntry(v, o.optBoolean("e", true), o.optLong("a", 0L), o.optLong("d", 0L))
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 }
