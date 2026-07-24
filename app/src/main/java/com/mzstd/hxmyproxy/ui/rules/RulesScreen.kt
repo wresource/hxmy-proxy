@@ -149,6 +149,13 @@ fun RulesScreen(
                 hint = stringResource(R.string.rules_reject_quick_hint),
                 rules = s.userRejectRules.sorted(),
                 accent = rejectAcc,
+                trailing = {
+                    Switch(
+                        checked = s.userRejectEnabled,
+                        onCheckedChange = { viewModel.toggleUserRejectEnabled(it) },
+                        colors = stdSwitchColors(),
+                    )
+                },
                 onAdd = { viewModel.addUserRejectRule(it) },
                 onRemove = { viewModel.removeUserRejectRule(it) },
                 onOpenDetail = onOpenRejectDetail,
@@ -252,7 +259,12 @@ fun RulesScreen(
 
                 // 管理入口 + 「自建 N」「内置 64 组」徽章。
                 OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
-                    Text(stringResource(R.string.rules_manage))
+                    Text(
+                        stringResource(R.string.rules_manage),
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Spacer(Modifier.size(8.dp))
                     CountBadge(
                         stringResource(R.string.ruleset_custom_count, s.userRuleSets.size),
@@ -324,7 +336,7 @@ private fun ZoneHeader(
             tint = accent?.main ?: MaterialTheme.colorScheme.onSurfaceVariant,
             iconSize = 15.dp,
         )
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (sub != null) {
             Text(
                 sub,
@@ -461,7 +473,7 @@ internal fun RuleFormatHint() {
         stringResource(R.string.rules_format_hint),
         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
+        maxLines = 2,
         overflow = TextOverflow.Ellipsis,
     )
 }

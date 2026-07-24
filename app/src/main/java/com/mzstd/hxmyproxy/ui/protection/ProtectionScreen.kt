@@ -56,6 +56,7 @@ import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
 import com.mzstd.hxmyproxy.ui.components.IconDisc
+import com.mzstd.hxmyproxy.ui.components.OverrideBadge
 import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.RatioBar
 import com.mzstd.hxmyproxy.ui.components.StatLabel
@@ -110,6 +111,7 @@ fun ProtectionScreen(
                     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(
                             NumberFormat.getIntegerInstance().format(blocked),
+                            modifier = Modifier.weight(1f, fill = false),
                             style = MaterialTheme.typography.displayLarge.copy(
                                 fontSize = 56.sp,
                                 lineHeight = 58.sp,
@@ -119,6 +121,7 @@ fun ProtectionScreen(
                             color = if (adBlockOn && blocked > 0) MaterialTheme.colorScheme.tertiary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             stringResource(R.string.protection_unit_times),
@@ -379,27 +382,6 @@ private fun TopBlockedRow(
             height = 6.dp,
         )
     }
-}
-
-/** 已设覆盖徽章（防护卡/拦截明细页共用）：直连=「已设直连」，其余直接标注覆盖动作。 */
-@Composable
-internal fun OverrideBadge(action: RuleAction) {
-    Text(
-        stringResource(
-            when (action) {
-                RuleAction.DIRECT -> R.string.protection_set_direct
-                RuleAction.PROXY -> R.string.override_proxy
-                RuleAction.REJECT -> R.string.override_reject
-            },
-        ),
-        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-        color = MaterialTheme.colorScheme.onPrimaryContainer,
-        maxLines = 1,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
 }
 
 /** 「防护如何工作」微网格单元：小图标 + 短句（EN 较长，允许两行）。 */

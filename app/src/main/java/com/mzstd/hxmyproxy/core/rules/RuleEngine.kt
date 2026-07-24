@@ -1,6 +1,11 @@
 package com.mzstd.hxmyproxy.core.rules
 
-/** 规则判定结果。DIRECT=客户端直连绕过（仅对 PAC 客户端有效）、PROXY=走 hxmy 代理、REJECT=拦截。 */
+/**
+ * 规则判定结果。
+ * DIRECT=代理出站绑到底层物理网络、绕开共享 VPN（egress=VPN 时拿不到物理网则 fail-closed 断开，不泄漏进 VPN）；
+ *   注意 HTTP/SOCKS 客户端流量**仍经本代理转发**，DIRECT 只改变代理自己的出站网络，并非「客户端不走代理」。
+ * PROXY=走 hxmy 代理的默认/用户选定出口；REJECT=拦截。
+ */
 enum class RuleAction { DIRECT, PROXY, REJECT }
 
 /**

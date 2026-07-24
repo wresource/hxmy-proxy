@@ -171,6 +171,12 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
                     label = stringResource(R.string.ruleset_builtin),
                     badge = stringResource(R.string.ruleset_groups_cats, totalGroups, byCategory.size),
                 ) {
+                    // 全部内置规则集总开关：一键开/关所有组（全开=on）。
+                    Switch(
+                        checked = totalGroups > 0 && enabledGroups.size == totalGroups,
+                        onCheckedChange = { viewModel.setAllBuiltinEnabled(it) },
+                        colors = stdSwitchColors(),
+                    )
                     // 搜索态强制展开，「全部收起」无意义则隐藏
                     if (q.isEmpty()) {
                         CollapseAllChip { expandedCats.clear() }
@@ -194,6 +200,8 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
                         CollapsedCategoryRow(
                             cat = cat, groups = visible,
                             onCount = visible.count { it.id in enabledIds },
+                            allOn = visible.isNotEmpty() && visible.all { it.id in enabledIds },
+                            onToggleAll = { viewModel.setCategoryEnabled(cat, it) },
                             onExpand = { expandedCats[cat.name] = true },
                         )
                     }
@@ -419,6 +427,8 @@ private fun CategoryHeaderRow(
     onCount: Int,
     expanded: Boolean,
     modifier: Modifier = Modifier,
+    allOn: Boolean = false,
+    onToggleAll: ((Boolean) -> Unit)? = null,
 ) {
     Row(
         modifier.fillMaxWidth(),
@@ -455,6 +465,10 @@ private fun CategoryHeaderRow(
                 bg = MaterialTheme.colorScheme.primaryContainer,
             )
         }
+        // 分类大开关：一键开/关本类全部组（全开=on）。
+        if (onToggleAll != null) {
+            Switch(checked = allOn, onCheckedChange = onToggleAll, colors = stdSwitchColors())
+        }
         Icon(
             painterResource(if (expanded) R.drawable.ic_b_chevron_up else R.drawable.ic_b_chevron_down),
             contentDescription = null,
@@ -466,9 +480,12 @@ private fun CategoryHeaderRow(
 
 /** 折叠态分类行：整卡可点展开。 */
 @Composable
-private fun CollapsedCategoryRow(cat: RuleCategory, groups: List<RuleGroup>, onCount: Int, onExpand: () -> Unit) {
+private fun CollapsedCategoryRow(
+    cat: RuleCategory, groups: List<RuleGroup>, onCount: Int,
+    allOn: Boolean, onToggleAll: (Boolean) -> Unit, onExpand: () -> Unit,
+) {
     BentoCard(tier = CardTier.Default, onClick = onExpand, contentPadding = 12.dp, spacing = 0.dp) {
-        CategoryHeaderRow(cat, groups, onCount, expanded = false)
+        CategoryHeaderRow(cat, groups, onCount, expanded = false, allOn = allOn, onToggleAll = onToggleAll)
     }
 }
 
@@ -490,6 +507,8 @@ private fun ExpandedCategoryCard(
                 .clip(MaterialTheme.shapes.small)
                 .clickable(onClick = onCollapse)
                 .padding(vertical = 2.dp),
+            allOn = groups.isNotEmpty() && groups.all { it.id in enabledIds },
+            onToggleAll = { viewModel.setCategoryEnabled(cat, it) },
         )
         groups.forEachIndexed { i, group ->
             if (i > 0) HorizontalDivider()

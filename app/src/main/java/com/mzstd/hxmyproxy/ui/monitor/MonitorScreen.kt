@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,6 +52,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.ClientSession
 import com.mzstd.hxmyproxy.core.model.DomainTraffic
 import com.mzstd.hxmyproxy.core.proxy.TrafficAccounting
+import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.AvatarCircle
@@ -64,6 +64,7 @@ import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.CountBadge
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
 import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
+import com.mzstd.hxmyproxy.ui.components.OverrideBadge
 import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.ProtoBadge
 import com.mzstd.hxmyproxy.ui.components.RatioBar
@@ -325,6 +326,8 @@ fun MonitorScreen(
                         if (entry != null) {
                             Text(
                                 entry.ipEndpoint,
+                                // 收缩优先给 IP：过长时先省略地址，保证「连接」「累计」两项始终不被顶出屏幕。
+                                Modifier.weight(1f, fill = false),
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -372,7 +375,7 @@ fun MonitorScreen(
                     trailing = {
                         if (issueCount > 0) {
                             CountBadge(
-                                stringResource(R.string.monitor_issue_count, issueCount),
+                                pluralStringResource(R.plurals.count_issues, issueCount, issueCount),
                                 fg = MaterialTheme.colorScheme.onErrorContainer,
                                 bg = MaterialTheme.colorScheme.errorContainer,
                             )
@@ -474,21 +477,19 @@ fun MonitorScreen(
             }
         }
 
-        // —— 客户端 | 目标域名：bento 双卡并排（0.86 : 1.14,HTML duo 比例）——
+        // —— 客户端 / 目标域名：上下单列（各占满整行宽，域名/客户端行不再被挤窄）——
         item {
-            Row(
-                Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ClientsCard(
-                    Modifier.weight(0.86f).fillMaxHeight(),
+                    Modifier.fillMaxWidth(),
                     clients = ui.share.clients,
                     expanded = clientsExpanded,
                     onToggle = { clientsExpanded = !clientsExpanded },
                 )
                 DomainsCard(
-                    Modifier.weight(1.14f).fillMaxHeight(),
+                    Modifier.fillMaxWidth(),
                     domains = ui.share.topDomains,
+                    hostOverrides = ui.settings.hostOverrides,
                     expanded = domainsExpanded,
                     onToggle = { domainsExpanded = !domainsExpanded },
                     onEdit = { editHost = it },
@@ -677,7 +678,7 @@ private fun DiagCell(
         }
         Column(Modifier.weight(1f)) {
             Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(state, style = MaterialTheme.typography.labelSmall, color = stateColor, maxLines = 1)
+            Text(state, style = MaterialTheme.typography.labelSmall, color = stateColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -753,6 +754,7 @@ private fun ClientRow(c: ClientSession, maxDown: Long) {
 private fun DomainsCard(
     modifier: Modifier,
     domains: List<DomainTraffic>,
+    hostOverrides: Map<String, RuleAction>,
     expanded: Boolean,
     onToggle: () -> Unit,
     onEdit: (String) -> Unit,
@@ -769,7 +771,7 @@ private fun DomainsCard(
             val sorted = domains.sortedByDescending { it.lastSeenAtEpochMs }
             val shown = if (expanded) sorted else sorted.take(5)
             val maxBytes = shown.maxOf { it.uploadBytes + it.downloadBytes }.coerceAtLeast(1L)
-            shown.forEach { d -> DomainRow(d, maxBytes, onEdit) }
+            shown.forEach { d -> DomainRow(d, maxBytes, hostOverrides[d.host], onEdit) }
             if (sorted.size > 5) {
                 ExpandCollapseButton(expanded, sorted.size, onToggle)
             }
@@ -779,7 +781,7 @@ private fun DomainsCard(
 
 /** 目标域名行。"(其他)" 聚合桶：中性色、无徽章、不可点（不是真实 host）。 */
 @Composable
-private fun DomainRow(d: DomainTraffic, maxBytes: Long, onEdit: (String) -> Unit) {
+private fun DomainRow(d: DomainTraffic, maxBytes: Long, override: RuleAction?, onEdit: (String) -> Unit) {
     val others = d.host == TrafficAccounting.OTHERS
     // "(其他)" 聚合桶是运行时常量,显示时本地化(英文界面不冒中文,双语检查原则)。
     val hostLabel = if (others) stringResource(R.string.monitor_others) else d.host
@@ -807,9 +809,11 @@ private fun DomainRow(d: DomainTraffic, maxBytes: Long, onEdit: (String) -> Unit
             )
             if (!others) {
                 ProtoBadge(d.protocol)
-                // 「直连」标识:规则白名单命中的域名流量绕过 VPN 直连出口(仍经本代理转发,
-                // 故仍出现在监控)——有了标识,规则是否生效一眼可见。
-                if (d.direct) {
+                // 用户已设 per-host 覆盖 → **设置驱动**徽章,设完即时可见(与是否有运行时流量无关);
+                // 未设覆盖但运行时被判直连(命中内置/用户规则)→ 退回运行时「直连」小标。
+                if (override != null) {
+                    OverrideBadge(override)
+                } else if (d.direct) {
                     Text(stringResource(R.string.route_direct), style = MaterialTheme.typography.labelSmall, color = neutral)
                 }
             }

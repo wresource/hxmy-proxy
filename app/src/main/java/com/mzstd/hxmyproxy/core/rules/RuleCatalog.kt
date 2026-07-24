@@ -142,6 +142,7 @@ object RuleCatalog {
         g("wps", R.string.rg_wps, RuleCategory.TOOLS, editable = true),
         g("xunlei", R.string.rg_xunlei, RuleCategory.TOOLS, editable = true),
         g("evernote", R.string.rg_evernote, RuleCategory.TOOLS, editable = true),
+        g("apple", R.string.rg_apple, RuleCategory.TOOLS, editable = true),
         // —— 游戏 ——
         g("mihoyo", R.string.rg_mihoyo, RuleCategory.GAME, editable = true),
         g("steam", R.string.rg_steam, RuleCategory.GAME, editable = true),

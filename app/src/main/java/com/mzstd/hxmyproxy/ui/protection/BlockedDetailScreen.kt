@@ -39,6 +39,7 @@ import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
 import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
+import com.mzstd.hxmyproxy.ui.components.OverrideBadge
 import com.mzstd.hxmyproxy.ui.components.RatioBar
 
 /**
