@@ -182,6 +182,14 @@
     <string name="rg_mihoyo">miHoYo / HoYoverse</string>
     <string name="rg_steam">Steam</string>
     <string name="rg_apple">Apple / App Store</string>
+    <string name="rule_active">Active</string>
+    <string name="rule_disabled">Off</string>
+    <string name="monitor_view_all_domains">View all</string>
+    <string name="top_domain_rule_hint">Add to your rules (block / allow list):</string>
+    <string name="top_domain_direct">Direct (allow)</string>
+    <string name="top_domain_reject">Block</string>
+    <string name="top_domain_clear">Clear rule</string>
+    <string name="route_reject">Blocked</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
     <string name="log_show_more">Expand</string>
     <string name="log_show_less">Collapse</string>

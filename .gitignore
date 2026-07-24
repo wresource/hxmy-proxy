@@ -22,3 +22,8 @@ release-artifacts/
 /.claude/
 /release/
 /images/
+/*.txt/
+/7.24hxmyproxy-log.txt
+/0724-2hxmyproxy-log.txt
+/72456hxmyproxy-log.txt
+/hxmyproxy-log(1).txt
