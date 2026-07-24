@@ -19,7 +19,7 @@
 **两种模式（有没有 VPN 都成立）**：
 
 - **手机有 VPN → 共享出口**：其他设备借用手机当前的 VPN 通道，一处联网、多设备共享，不必每台单独配。
-- **手机没 VPN → 规则过滤网关**：出口是普通网络，但下游设备白赚一层规则引擎——广告/追踪拦截（64 组）、
+- **手机没 VPN → 规则过滤网关**：出口是普通网络，但下游设备白赚一层规则引擎——广告/追踪拦截、65 组 App/服务直连、
   白名单直连、域名分流、按连接监控。相当于一台免 root、免额外硬件的全屋广告拦截网关；且工作在
   **代理层**（HTTP CONNECT / SOCKS），拦的是真实连接目标，即使加密 DNS（DoH/DoT）也绕不过——
   这是它与 DNS 层拦截（如 Pi-hole）的本质区别。
@@ -36,10 +36,10 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 
 | 屏 | 内容 |
 |---|---|
-| **主页 Dashboard** | 第一排「共享 \| 防护」双状态 tile（三态：已停止/未就绪/分享中，红/黄/绿）；入口配置卡（HTTP/PAC 地址 + 复制 + 扫码 QR）；**可分享接口卡（入口，每接口一开关）**；**出口网络卡（出口选择器：Auto / VPN / Wi-Fi / 蜂窝 / 以太网-USB，离线置灰、VPN 冲突警示）**；开始/停止按钮（竖屏悬浮、横屏竖排 rail）。 |
+| **主页 Dashboard** | 第一排「共享 \| 防护」双状态 tile（三态：已停止/未就绪/分享中，红/黄/绿）；入口配置卡（HTTP/PAC 地址 + 复制 + 扫码 QR）；**接入网络卡（入口，每接口一开关）**；**出口网络卡**（PROXY 出口：Auto / VPN / Wi-Fi / 蜂窝 / 以太网-USB）+ **直连出口卡**（DIRECT 出口独立配置：Auto=以太网/USB→Wi-Fi→蜂窝 或手动指定，蜂窝首次弹移动流量确认）；开始/停止按钮（竖屏悬浮、横屏竖排 rail）。 |
 | **防护 Protection** | 独立 tab：本会话拦截总数大字 + 广告拦截开关 + 拦截明细入口；**拦截明细页按命中次数降序**（排查误封）；点任一域名弹**三态救济弹窗**（走代理/直连/拦截，最高优先级覆盖）。有无 VPN 都生效。 |
 | **监控 Monitor** | 诊断三态网格（本地网络权限/VPN 出口/通知/电池/HTTP/SOCKS5/PAC 端口）；服务延迟测量；客户端列表；目标域名 Top N（协议色圆点 + 直连标识）；历史/错误日志入口。 |
-| **规则 Rules** | 语义重组为 **🛡️拦截(Reject) / 🌐放行(Bypass)** 两大模块：快速拦截（域名/IP/CIDR）、白名单直连、App/服务规则集两行式（一键在放行/拦截间移）。内置 64 组 5437 域名；per-host 三态覆盖。 |
+| **规则 Rules** | 语义重组为 **🛡️拦截(Reject) / 🌐放行(Bypass)** 两大模块：快速拦截（域名/IP/CIDR，带整体开关）、白名单直连、App/服务规则集两行式（一键在放行/拦截间移）+ **分类/全部一键批量开关**。内置 **65 组**（含 Apple / App Store 直连）；per-host 三态覆盖。 |
 | **设置 Settings** | 语言、外观、性能预设 + 连接上限/缓冲/超时；端口、协议开关、**备用 DNS（DoH）开关**、认证、诊断。 |
 
 ## 4. 技术架构
@@ -49,9 +49,10 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
   IPv4 优先 / dnsCache / Happy Eyeballs / TCP_NODELAY。
 - **规则引擎**：`RuleEngine.decide(host)` 短路优先级链——per-host 三态覆盖 > 用户白名单 > 快速拦截 >
   内置广告 > app 直连组 > 默认 PROXY。支持泛域名 / IP 字面量 / **CIDR**（`InetAddresses` 前缀匹配，不查 DNS）。
-- **出口选择器**：`UnderlyingNetworkProvider` 多网络句柄提供者（WiFi/蜂窝/以太网/VPN 各 `registerNetworkCallback`），
-  PROXY 出站按用户选择 **per-socket 绑定**（`Network.socketFactory` / `bindSocket` / `getAllByName`，官方推荐）；
-  选物理出口时 `requestNetwork` 拉起保活。DIRECT 分流仍绑底层物理网络绕 VPN。
+- **出口选择器（PROXY + DIRECT 双通道）**：`UnderlyingNetworkProvider` 多网络句柄提供者（WiFi/蜂窝/以太网/VPN 各 `registerNetworkCallback`），
+  按用户选择 **per-socket 绑定**（`Network.socketFactory` / `bindSocket`，官方推荐）；选物理出口时 `requestNetwork` 拉起保活。
+  **DIRECT 分流独立配置**（AUTO=以太网/USB→WiFi→蜂窝），拿不到物理网 **fail-closed 断开、绝不回落 VPN**（防地理敏感直连泄漏）；
+  蜂窝可选性依**免权限** SIM 能力（`FEATURE_TELEPHONY`+`getSimState`），WiFi 在线也能选蜂窝出口。
 - **DNS 三层防线**：系统解析双路互援（默认网络 ↔ 底层 WiFi，换 netId 绕负缓存）→ **DoH 备援**
   （8.8.8.8 / 1.1.1.1，IP 直连 443）；上游失败按路径分类落 FileLog（可导出自证）。
 - **网络与准入**：接口枚举/分类、VPN 检测、`0.0.0.0` 监听 + **fail-closed 来源准入**（不选网段=全拒 + 收缩即时清扫在途）。
@@ -75,8 +76,11 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 - **1.6–1.8.x**：规则系统 reject/bypass 双模块重构 + CIDR + per-host 三态覆盖；独立防护 tab（拦截明细 + 三态救济）；
   首页双状态 tile + 三态；全面中英双语打磨（扫码页/横屏按钮/图标）；
   **准入 fail-closed**（不选网段=全拒 + 在途清扫）；**DNS 三层防线 + DoH 备援**。
-- **1.9.0**：**出口网络选择器**（Auto/VPN/Wi-Fi/蜂窝/以太网-USB，代理出站可选走哪张网，per-socket 绑定）——
-  当前版本（versionCode 81）。
+- **1.9.0**：**出口网络选择器**（Auto/VPN/Wi-Fi/蜂窝/以太网-USB，代理出站可选走哪张网，per-socket 绑定）。
+- **1.10.x**：Bento UI 定稿 + 六页重构；换网每 3 秒 refresh 风暴消除；DNS 连接超时 8→2.5s + DoH 并入 Happy Eyeballs 竞速。
+- **1.11–1.13.0**：DIRECT **fail-closed** 防泄漏 VPN + arxiv 长连接卡顿修复；**Apple/App Store 直连组**（64→65 组）+
+  监控页 override 徽章即时显示；**多出口**（蜂窝免权限检测）+ **直连出口独立配置**（AUTO=以太网→WiFi→蜂窝）+ 出口卡全宽；
+  规则集**分类/全部一键批量开关** + 快速拦截总开关——当前版本（versionCode 92）。
 
 ## 7. 文档索引
 

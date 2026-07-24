@@ -14,7 +14,7 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Phone on a VPN → shared egress.** Other devices borrow the phone's VPN tunnel — connect once,
   share to many, no per-device VPN setup.
 - **Phone with no VPN → filtering gateway.** The uplink is a plain network, but downstream devices
-  get a free rule engine: ad/tracker blocking (64 built-in lists), whitelist direct-connect,
+  get a free rule engine: ad/tracker blocking, 65 built-in app/service rule sets, whitelist direct-connect,
   per-domain routing and per-connection monitoring. A root-free, hardware-free whole-home ad blocker
   that works at the **proxy layer** (HTTP CONNECT / SOCKS) — it blocks the real connection target,
   so encrypted DNS (DoH/DoT) can't slip past it. That's the fundamental difference from DNS-layer
@@ -22,8 +22,8 @@ it as turning your phone into a network relay — point a device's proxy at the 
 
 ## Highlights
 
-- **Egress network picker** — send proxied traffic out via Auto / VPN / Wi-Fi / Cellular / Ethernet-USB (per-socket bound).
-- **Rule engine** — Block / Allow modules; wildcard domains, IP literals and **CIDR**; per-host 3-state override (proxy / direct / block).
+- **Separate proxy & direct egress pickers** — route proxied traffic via Auto / VPN / Wi-Fi / Cellular / Ethernet-USB, and give DIRECT (bypass) traffic its own path (Auto: Ethernet/USB → Wi-Fi → Cellular, or pinned). Per-socket bound and **fail-closed** — DIRECT never leaks to the VPN. Cellular is selectable even while on Wi-Fi (permission-free SIM check).
+- **Rule engine** — Block / Allow modules; wildcard domains, IP literals and **CIDR**; per-host 3-state override (proxy / direct / block); **65 built-in groups** (incl. Apple / App Store direct) with one-tap category & master switches.
 - **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
@@ -34,10 +34,10 @@ it as turning your phone into a network relay — point a device's proxy at the 
 
 | Screen | What it does |
 |---|---|
-| **Dashboard** | Sharing \| Protection dual-status tiles (Stopped / Not ready / Sharing); entry config (HTTP/PAC address + copy + QR); shareable interfaces (ingress); egress network picker. |
+| **Dashboard** | Sharing \| Protection dual-status tiles (Stopped / Not ready / Sharing); proxy address (HTTP/PAC + copy + QR); inbound interfaces (ingress); **proxy egress** and **direct egress** pickers. |
 | **Protection** | Session block total, ad-block toggle, blocked-host detail by hit count, 3-state per-host override — works with or without a VPN. |
 | **Monitor** | Diagnostics grid, latency probes, client list, top domains, history & error logs. |
-| **Rules** | 🛡️ Block / 🌐 Allow modules — quick block (domain/IP/CIDR), whitelist, app/service rule sets. 64 built-in groups, 5437 domains. |
+| **Rules** | 🛡️ Block / 🌐 Allow modules — quick block (domain/IP/CIDR, master toggle), whitelist, app/service rule sets with per-category & master switches. **65 built-in groups** (incl. Apple / App Store). |
 | **Settings** | Language, theme, performance presets, ports, protocol toggles, backup DNS (DoH), auth, diagnostics. |
 
 ## Privacy
@@ -49,7 +49,7 @@ leave the device.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.9.0**.
+Latest release: **1.13.0**.
 
 ## More
 
