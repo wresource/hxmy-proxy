@@ -25,6 +25,7 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Separate proxy & direct egress pickers** — route proxied traffic via Auto / VPN / Wi-Fi / Cellular / Ethernet-USB, and give DIRECT (bypass) traffic its own path (Auto: Ethernet/USB → Wi-Fi → Cellular, or pinned). Per-socket bound and **fail-closed** — DIRECT never leaks to the VPN. Cellular is selectable even while on Wi-Fi (permission-free SIM check).
 - **Rule engine** — Block / Allow modules; wildcard domains, IP literals and **CIDR**; per-host 3-state override (proxy / direct / block); **65 built-in groups** (incl. Apple / App Store direct) with one-tap category & master switches.
 - **Toggle rules without deleting** — every block/allow entry has its own on/off switch and an Active/Off badge; disabled entries drop out of matching (they do *not* flip to the opposite action) and sort below the active ones.
+- **Survives updates and reboots** — if sharing was on, it comes back by itself after an app update or a device restart (and only then — stopping it yourself keeps it off), so clients don't hit a dead proxy port.
 - **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
@@ -50,7 +51,7 @@ leave the device.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.14.3**.
+Latest release: **1.14.4**.
 
 ## More
 
