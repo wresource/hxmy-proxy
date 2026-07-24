@@ -27,7 +27,9 @@ class ConnectivityObserver(context: Context) {
     val vpnState: StateFlow<VpnState> = _vpnState.asStateFlow()
 
     private val _networkChanges = MutableSharedFlow<Unit>(
-        replay = 0, extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        // 加固:换网瞬间多个回调(onLost+onAvailable+onLinkProps)密集 tryEmit,原 buffer=1 会把没来得及消费的
+        // 信号 DROP 掉,可能停在"接口还没稳定"的中间态;加大到 8 让密集信号都能排队,refresh 收到最终稳定态。
+        replay = 0, extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val networkChanges: SharedFlow<Unit> = _networkChanges.asSharedFlow()
 
@@ -43,8 +45,10 @@ class ConnectivityObserver(context: Context) {
         }
 
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            // 只更 VPN 状态,**不**触发 networkChanges:能力变化(信号强度/带宽估计/validated)极高频
+            // (实测每 ~3 秒一次),却不影响入口接口/准入/IP(那些由 onAvailable/onLost/onLinkProps 覆盖)。
+            // 若在此 tryEmit → refresh 每 3 秒空转 + evict 反复打断长连接(大文件下载变慢的根)。故不发信号。
             _vpnState.value = computeVpnState()
-            _networkChanges.tryEmit(Unit)
         }
     }
 
@@ -69,7 +73,7 @@ class ConnectivityObserver(context: Context) {
     private val vpnCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
         override fun onLost(network: Network) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { _vpnState.value = computeVpnState(); _networkChanges.tryEmit(Unit) }
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) { _vpnState.value = computeVpnState() } // 同上:能力变化不触发 refresh
     }
 
     /**

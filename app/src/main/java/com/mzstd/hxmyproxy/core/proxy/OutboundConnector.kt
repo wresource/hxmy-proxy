@@ -79,23 +79,38 @@ class OutboundConnector(
         com.mzstd.hxmyproxy.core.log.FileLog.w(TAG, msg)
     }
 
+    /**
+     * 出口网络选择。**bypass(DIRECT 规则)=严格物理网**：拿不到非 VPN 物理网(current() 为 null，即仅 VPN 在线)
+     * 就 **fail-closed** 抛 [ProxyError.AccessDenied]，**绝不回落默认路由**——因为 egress=VPN 或 always-on/lockdown
+     * VPN 下「默认路由」正是那条 VPN，回落等于把本要绕开 VPN 的直连流量又送进 VPN(豆包「国家不符合」根因)。
+     * 非 bypass(PROXY)：走用户选定出口(AUTO=null=系统默认)。current() 内部已按 WiFi→以太网→蜂窝 兜底。
+     */
+    private fun egressNetworkFor(bypassVpn: Boolean, host: String): Network? {
+        if (!bypassVpn) return underlyingNetworkProvider?.egressNetwork()
+        return underlyingNetworkProvider?.current() ?: run {
+            throttledFileLog("direct-noeg:$host",
+                "DIRECT $host: 无可用物理网络(仅 VPN 在线)，fail-closed 断开——拒绝泄漏到 VPN 出口")
+            throw ProxyException(ProxyError.AccessDenied)
+        }
+    }
+
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(host: String, port: Int, bypassVpn: Boolean = false): Socket {
-        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
-        if (bypassVpn && network == null) {
-            android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
-        }
+        val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAny(orderAddresses(resolve(host, network)), port, network)
         } catch (e: ProxyException) {
+            // DIRECT(bypass) fail-closed：建连失败也**不**降级默认网络(=VPN)，宁可断、不泄漏。
+            if (bypassVpn) {
+                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
+                throw e
+            }
             if (network == null) {
                 throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
                 throw e
             }
-            // DIRECT 出口建连失败（stale 句柄/该网络故障）→ 降级默认网络重试一次：
-            // 「能上网」优先于「严格绕过 VPN」；降级必落盘，用户可从日志发现分流路径在坏。
-            throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — degrading to default network")
+            // 非 bypass 的出口分流(指定 WiFi/蜂窝出口)失败 → 降级默认重试(PROXY 场景「能上网」优先)。
+            throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             connectAny(orderAddresses(resolve(host, null)), port, null)
         }
     }
@@ -210,8 +225,8 @@ class OutboundConnector(
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(addr: InetAddress, port: Int, bypassVpn: Boolean = false): Socket {
-        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
+        // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
+        val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
         return connectAny(listOf(addr), port, network)
     }
 
@@ -222,29 +237,29 @@ class OutboundConnector(
      * 调用方应回退到阻塞 [connect] + 阻塞 relay。
      */
     suspend fun connectChannel(host: String, port: Int, bypassVpn: Boolean = false): SocketChannel {
-        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
-        if (bypassVpn && network == null) {
-            android.util.Log.w(TAG, "bypass requested for $host but no non-VPN network; using default egress")
-        }
+        val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
         } catch (e: ProxyException) {
+            // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
+            // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
+            if (bypassVpn) {
+                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
+                throw e
+            }
             if (network == null) {
                 throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
                 throw e
             }
-            // 同阻塞版 connect：DIRECT 失败降级默认网络（仅捕 ProxyException——IOException 须继续
-            // 冒泡让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑）。
-            throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — degrading to default network")
+            throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
         }
     }
 
     /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
     suspend fun connectChannel(addr: InetAddress, port: Int, bypassVpn: Boolean = false): SocketChannel {
-        // bypassVpn(DIRECT 规则)→底层物理网络绕开共享 VPN；否则(PROXY 默认路径)→用户选定出口(AUTO=null=系统默认)。
-        val network = if (bypassVpn) underlyingNetworkProvider?.current() else underlyingNetworkProvider?.egressNetwork()
+        // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
+        val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
         return connectAnyChannel(listOf(addr), port, network)
     }
 

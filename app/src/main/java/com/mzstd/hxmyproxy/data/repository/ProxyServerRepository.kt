@@ -121,6 +121,8 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastRecordedEntryKey: String = ""
     /** 上次刷新时已选接口的 IP 集合；与本次比较，在 WiFi 切换/IP 变化时主动重发 mDNS（新 IP 的 A 记录）。 */
     @Volatile private var lastInterfaceIps: Set<String> = emptySet()
+    // 上次实际生效的准入网段(hostAddress 集)。①换网瞬间 scan 空时保留旧准入不清空;②evict 只在准入真变化时跑。
+    @Volatile private var lastAdmitKey: Set<String> = emptySet()
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -239,7 +241,10 @@ class ProxyServerRepository @Inject constructor(
         session.launch {
             while (isActive) {
                 delay(HOTSPOT_RESCAN_MS)
-                refresh()
+                // 仅「走蜂窝上网」时才需周期重扫捕捉热点(AP)接口(它不走网络回调);有 WiFi/以太网入口时
+                // 接口/IP 变化都由 ConnectivityObserver 回调驱动 refresh,无需每 3 秒空扫 —— 否则稳定态下
+                // scan+写盘 每 3 秒空转(实测每分钟 ~20 次),徒增 CPU/IO。加此条件后 WiFi 场景风暴归零。
+                if (connectivityObserver.uplinkIsCellular()) refresh()
             }
         }
         _state.update { it.copy(running = true) }
@@ -411,6 +416,7 @@ class ProxyServerRepository @Inject constructor(
         authenticator.enabled = s.authEnabled
         connector.backupDnsEnabled = s.backupDnsEnabled
         underlyingNetworkProvider.setEgressChoice(s.egressChoice)
+        underlyingNetworkProvider.setDirectEgressChoice(s.directEgressChoice)
     }
 
     /**
@@ -439,10 +445,20 @@ class ProxyServerRepository @Inject constructor(
         // 消失了,回退到「全部可共享接口」,让新出现的热点自动成为入口 + 准入放行,无需重启共享(换 WiFi→热点这类
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
         val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
-        accessController.update(effective.map { it.address }.toSet())
-        // 准入集收缩即时生效：清扫不再被允许的在途连接（关掉网段开关 → 该网段存量连接立刻断开，
-        // 而非苟到空闲超时）。判定复用 admit，与 accept 口径一致。
-        servers.forEach { it.evictNotAdmitted(accessController::admit) }
+        val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
+        // 【换网中断修复】scan 返回空(换网/换热点瞬间网卡短暂无接口)且曾有准入 → **保留上次 admit,不清空**，
+        // 否则瞬态空集 fail-closed 会把正在连的老客户端(如 192.168.50.65)拒掉,等新接口稳定后正常更新即可。
+        // 「没选=全拒」不受影响:那种情况 interfaces 非空(扫得到接口只是没选)→ 照常走下面更新为空。
+        if (interfaces.isNotEmpty() || lastAdmitKey.isEmpty()) {
+            // 【长连接卡顿/直连慢修复】evict 只在准入集**真的变化**时才跑。原来每次 refresh 都 evict,叠加每 3 秒
+            // 回调风暴 → 每 3 秒清扫一遍在途连接,大文件长连接(如 arxiv PDF 下载)被反复打断 → 又慢又卡。
+            val admitChanged = admitKey != lastAdmitKey
+            accessController.update(effective.map { it.address }.toSet())
+            lastAdmitKey = admitKey
+            if (admitChanged) servers.forEach { it.evictNotAdmitted(accessController::admit) }
+        }
+        // 【换网诊断】refresh 触发即落盘:扫到的接口(选中带*)、selectedIds 数、实际生效的准入(空=fail-closed)。
+        FileLog.w(TAG, "refresh: scan=[${interfaces.joinToString { (it.address.hostAddress ?: "?") + if (it.isSelected) "*" else "" }}] selIds=${s.selectedInterfaceIds.size} admit=[${lastAdmitKey.joinToString()}]")
         publishMdns(s)
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
