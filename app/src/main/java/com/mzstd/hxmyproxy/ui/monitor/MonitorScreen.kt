@@ -63,7 +63,7 @@ import com.mzstd.hxmyproxy.ui.components.CardHeader
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.CountBadge
 import com.mzstd.hxmyproxy.ui.components.ExpandCollapseButton
-import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
+import com.mzstd.hxmyproxy.ui.components.TopDomainRuleDialog
 import com.mzstd.hxmyproxy.ui.components.OverrideBadge
 import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.ProtoBadge
@@ -200,6 +200,7 @@ fun MonitorScreen(
     viewModel: com.mzstd.hxmyproxy.ui.MainViewModel,
     onOpenHistory: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenDomains: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val vm: MonitorViewModel = hiltViewModel()
@@ -207,20 +208,22 @@ fun MonitorScreen(
     val measuring by vm.measuring.collectAsStateWithLifecycle()
     // 最近 60s 速率历史（1s 采样），速率大卡 sparkline 用。
     val rates by viewModel.rateHistory.collectAsStateWithLifecycle()
-    var domainsExpanded by remember { mutableStateOf(false) }
     var clientsExpanded by remember { mutableStateOf(false) }
     var guideShown by remember { mutableStateOf<DiagGuide?>(null) }
     var showLocalNetInfo by remember { mutableStateOf(false) }
     // 监控 Top domains 点击 → 三态救济弹窗（看到某 host 慢/想直连/想拦，两下改成 per-host 覆盖）。
     var editHost by remember { mutableStateOf<String?>(null) }
+    // 规则版本信号：规则一变即触发重组，top domain 标据此重判（不再用运行时缓存 d.direct）。
+    val ruleVersion by viewModel.ruleVersion.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     editHost?.let { host ->
-        HostOverrideDialog(
+        TopDomainRuleDialog(
             host = host,
-            current = ui.settings.hostOverrides[host],
-            onSet = { action -> viewModel.setHostOverride(host, action); editHost = null },
-            onClear = { viewModel.clearHostOverride(host); editHost = null },
+            current = viewModel.decideHost(host).takeIf { it != RuleAction.PROXY },
+            onDirect = { viewModel.setDomainDirect(host); editHost = null },
+            onReject = { viewModel.setDomainReject(host); editHost = null },
+            onClear = { viewModel.clearDomainRule(host); editHost = null },
             onDismiss = { editHost = null },
         )
     }
@@ -489,9 +492,8 @@ fun MonitorScreen(
                 DomainsCard(
                     Modifier.fillMaxWidth(),
                     domains = ui.share.topDomains,
-                    hostOverrides = ui.settings.hostOverrides,
-                    expanded = domainsExpanded,
-                    onToggle = { domainsExpanded = !domainsExpanded },
+                    ruleOf = { host -> ruleVersion.let { viewModel.decideHost(host) }.takeIf { it != RuleAction.PROXY } },
+                    onOpenDomains = onOpenDomains,
                     onEdit = { editHost = it },
                 )
             }
@@ -754,9 +756,8 @@ private fun ClientRow(c: ClientSession, maxDown: Long) {
 private fun DomainsCard(
     modifier: Modifier,
     domains: List<DomainTraffic>,
-    hostOverrides: Map<String, RuleAction>,
-    expanded: Boolean,
-    onToggle: () -> Unit,
+    ruleOf: (String) -> RuleAction?,
+    onOpenDomains: () -> Unit,
     onEdit: (String) -> Unit,
 ) {
     BentoCard(modifier, tier = CardTier.Primary, contentPadding = 12.dp, spacing = 8.dp) {
@@ -769,11 +770,34 @@ private fun DomainsCard(
             )
         } else {
             val sorted = domains.sortedByDescending { it.lastSeenAtEpochMs }
-            val shown = if (expanded) sorted else sorted.take(5)
+            val shown = sorted.take(5)
             val maxBytes = shown.maxOf { it.uploadBytes + it.downloadBytes }.coerceAtLeast(1L)
-            shown.forEach { d -> DomainRow(d, maxBytes, hostOverrides[d.host], onEdit) }
+            shown.forEach { d -> DomainRow(d, maxBytes, ruleOf(d.host), onEdit) }
             if (sorted.size > 5) {
-                ExpandCollapseButton(expanded, sorted.size, onToggle)
+                // 「查看全部」→ 跳转独立详情页(与 rules manage all / protection view list 一致),而非页内展开。
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable(onClick = onOpenDomains)
+                        .padding(vertical = 6.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.monitor_view_all_domains),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    CountBadge(sorted.size.toString())
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        painterResource(R.drawable.ic_b_chevron_right),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         }
     }
@@ -781,7 +805,7 @@ private fun DomainsCard(
 
 /** 目标域名行。"(其他)" 聚合桶：中性色、无徽章、不可点（不是真实 host）。 */
 @Composable
-private fun DomainRow(d: DomainTraffic, maxBytes: Long, override: RuleAction?, onEdit: (String) -> Unit) {
+internal fun DomainRow(d: DomainTraffic, maxBytes: Long, override: RuleAction?, onEdit: (String) -> Unit) {
     val others = d.host == TrafficAccounting.OTHERS
     // "(其他)" 聚合桶是运行时常量,显示时本地化(英文界面不冒中文,双语检查原则)。
     val hostLabel = if (others) stringResource(R.string.monitor_others) else d.host
@@ -809,12 +833,12 @@ private fun DomainRow(d: DomainTraffic, maxBytes: Long, override: RuleAction?, o
             )
             if (!others) {
                 ProtoBadge(d.protocol)
-                // 用户已设 per-host 覆盖 → **设置驱动**徽章,设完即时可见(与是否有运行时流量无关);
-                // 未设覆盖但运行时被判直连(命中内置/用户规则)→ 退回运行时「直连」小标。
-                if (override != null) {
-                    OverrideBadge(override)
-                } else if (d.direct) {
-                    Text(stringResource(R.string.route_direct), style = MaterialTheme.typography.labelSmall, color = neutral)
+                // 当前规则的**实时完整判定**(含内置组,按引擎优先级):直连/拦截各一个标;走代理不标。
+                // 规则一变即重判(见 MainViewModel.ruleVersion),修「移除规则后还显示直连」的 stale 缓存。
+                when (override) {
+                    RuleAction.DIRECT -> Text(stringResource(R.string.route_direct), style = MaterialTheme.typography.labelSmall, color = neutral)
+                    RuleAction.REJECT -> Text(stringResource(R.string.route_reject), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    else -> {}
                 }
             }
             Text(

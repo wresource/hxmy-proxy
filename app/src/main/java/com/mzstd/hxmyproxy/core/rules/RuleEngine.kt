@@ -1,5 +1,9 @@
 package com.mzstd.hxmyproxy.core.rules
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * 规则判定结果。
  * DIRECT=代理出站绑到底层物理网络、绕开共享 VPN（egress=VPN 时拿不到物理网则 fail-closed 断开，不泄漏进 VPN）；
@@ -36,7 +40,11 @@ class RuleEngine {
     var snapshot: Snapshot = Snapshot()
         private set
 
-    fun update(newSnapshot: Snapshot) { snapshot = newSnapshot }
+    private val _version = MutableStateFlow(0)
+    /** 每次 [update] +1，供 UI 观察「规则已变、需重判」的刷新信号（decide 仍无锁读 snapshot）。 */
+    val version: StateFlow<Int> = _version.asStateFlow()
+
+    fun update(newSnapshot: Snapshot) { snapshot = newSnapshot; _version.value += 1 }
 
     /**
      * 判定 [host]（域名或 IP/CIDR 字面量）。未命中任何表 → 兜底 [RuleAction.PROXY]（决策②：其余走代理）。
