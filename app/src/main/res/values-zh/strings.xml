@@ -49,13 +49,13 @@
     <string name="history_unavailable">不可用（IP 或端口已变）</string>
     <string name="delete">删除</string>
     <string name="recommended_entry">推荐入口</string>
-    <string name="entry_config">入口配置</string>
-    <string name="no_entry">暂无入口——请先勾选一个接口</string>
+    <string name="entry_config">代理地址</string>
+    <string name="no_entry">暂无地址——请先勾选接入网络</string>
     <string name="copy">复制</string>
     <string name="copied">已复制</string>
     <string name="start_sharing">开始共享</string>
     <string name="stop_sharing">停止共享</string>
-    <string name="shareable_interfaces">可分享入口</string>
+    <string name="shareable_interfaces">接入网络</string>
     <string name="no_interfaces">未发现可用接口</string>
     <string name="hint_enable_hotspot">当前是移动网络，开启个人热点后其他设备才能连上共享</string>
 
@@ -181,6 +181,7 @@
     <string name="rg_evernote">印象笔记</string>
     <string name="rg_mihoyo">米哈游</string>
     <string name="rg_steam">Steam</string>
+    <string name="rg_apple">Apple / App Store</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>
@@ -336,6 +337,13 @@
     <string name="egress_wifi">Wi-Fi</string>
     <string name="egress_cellular">移动数据</string>
     <string name="egress_ethernet">以太网/USB</string>
+    <string name="direct_egress_title">直连出口</string>
+    <string name="direct_egress_sub">直连(绕过 VPN)流量从哪张网出去</string>
+    <string name="direct_egress_auto_desc">以太网/USB → Wi-Fi → 蜂窝；都没有则断开</string>
+    <string name="egress_cellular_metered">蜂窝出口会消耗移动数据</string>
+    <string name="cellular_confirm_title">使用蜂窝作为出口?</string>
+    <string name="cellular_confirm_msg">经蜂窝出口的流量会消耗你的移动数据,可能产生资费。</string>
+    <string name="cellular_confirm_ok">使用蜂窝</string>
     <string name="egress_offline">离线</string>
     <string name="egress_vpn_warn">系统 VPN 正开启——绑定物理出口可能失败（VPN lockdown/未允许绕过）。</string>
     <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
@@ -438,19 +446,18 @@
     <!-- Bento 重设计（images/html 01–06） -->
     <!-- 01 主页 -->
     <string name="dash_brand_mode">网关 · 双模式</string>
-    <string name="dash_gateway_foot">过滤网关模式 · 防护规则仍生效</string>
+    <string name="dash_gateway_foot">过滤网关 · 防护规则仍生效</string>
     <string name="dash_selected_count">已选 %1$d/%2$d</string>
     <string name="monitor_last_60s">最近 60 秒</string>
     <string name="stat_unit_devices">台设备</string>
     <!-- 02 监控 -->
-    <string name="monitor_issue_count">%1$d 项异常</string>
     <string name="diag_battery_warn_sub">后台可能被系统中断共享，建议改为无限制</string>
     <string name="monitor_blocked_tag">广告 · 追踪</string>
     <!-- 03 防护 -->
     <string name="protection_mode_line">本次会话 · 实时</string>
     <string name="protection_hero_label">广告与追踪拦截 · 运行中</string>
     <string name="protection_unit_times">次</string>
-    <string name="protection_set_direct">已设直连</string>
+    <string name="protection_set_direct">直连</string>
     <string name="protection_top_note">其他来源 ×%1$d · 误拦的域名点右侧调节可放行或直连</string>
     <string name="protection_how_1">代理层过滤，不占通道</string>
     <string name="protection_how_2">网络里每台设备都生效</string>
@@ -469,7 +476,7 @@
     <!-- 05 设置 -->
     <string name="settings_mode_line">改动即时生效</string>
     <string name="settings_proto_ports">协议与端口</string>
-    <string name="proto_pac_full">PAC 自动配置</string>
+    <string name="proto_pac_full">自动配置</string>
     <string name="settings_risk_tag">有风险</string>
     <string name="auth_enable_sub">客户端需凭用户名与密码接入</string>
     <string name="settings_nav_tap_hint">点击格子移动</string>
@@ -486,4 +493,14 @@
     <plurals name="count_entries">
         <item quantity="other">%1$d 条</item>
     </plurals>
+    <plurals name="count_issues">
+        <item quantity="other">%1$d 项异常</item>
+    </plurals>
+    <string name="flow_device">设备</string>
+    <string name="flow_phone">本机</string>
+    <string name="flow_net">网络</string>
+    <string name="flow_in">接入</string>
+    <string name="flow_out">出口</string>
+    <string name="start_short">开始</string>
+    <string name="stop_short">停止</string>
 </resources>

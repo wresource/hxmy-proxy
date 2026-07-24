@@ -140,7 +140,7 @@ fun PageHeader(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (icon != null) IconDisc(icon, size = 30.dp, bg = iconBg, tint = iconTint, iconSize = 17.dp)
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (trailing != null) trailing()
     }
 }

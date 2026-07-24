@@ -20,7 +20,7 @@
     <string name="mode_gateway_adblock_off">Filtering gateway · ad-block off</string>
     <string name="protection_title">Protection</string>
     <string name="protection_adblock_sub">Block ads &amp; trackers for every device on your network</string>
-    <string name="protection_blocked_count">Blocked %1$d requests this session</string>
+    <string name="protection_blocked_count">%1$d blocked</string>
     <string name="clients_count">Clients: %1$d</string>
     <string name="active_conns">Active connections: %1$d</string>
     <string name="rate_line">↓ %1$s · ↑ %2$s</string>
@@ -34,7 +34,7 @@
     <string name="monitor_no_history">(No history yet)</string>
     <string name="error_logs">Error logs</string>
     <string name="monitor_no_logs">(No logs)</string>
-    <string name="monitor_open_history">History IPs</string>
+    <string name="monitor_open_history">History</string>
     <string name="monitor_clients">Clients</string>
     <string name="monitor_client_conns">%1$d active</string>
     <string name="monitor_top_domains">Top domains</string>
@@ -49,13 +49,13 @@
     <string name="history_unavailable">Unavailable (IP or port changed)</string>
     <string name="delete">Delete</string>
     <string name="recommended_entry">Recommended entry</string>
-    <string name="entry_config">Entry configuration</string>
-    <string name="no_entry">No entry — select an interface</string>
+    <string name="entry_config">Proxy address</string>
+    <string name="no_entry">No address — pick an inbound network</string>
     <string name="copy">Copy</string>
     <string name="copied">Copied</string>
     <string name="start_sharing">Start sharing</string>
     <string name="stop_sharing">Stop sharing</string>
-    <string name="shareable_interfaces">Interfaces</string>
+    <string name="shareable_interfaces">Inbound</string>
     <string name="no_interfaces">No interfaces found</string>
     <string name="hint_enable_hotspot">Using mobile data — turn on the personal hotspot, then other devices can connect and share.</string>
 
@@ -70,7 +70,7 @@
 
     <!-- Rules -->
     <string name="rules_module_list">IP / domain allowlist</string>
-    <string name="rules_module_apps">App &amp; service rule sets</string>
+    <string name="rules_module_apps">App rule sets</string>
     <string name="rules_module_ads">Ad blocking</string>
     <string name="monitor_diagnostics">Diagnostics</string>
     <string name="rule_ads_oisd">OISD small (ads &amp; trackers)</string>
@@ -79,7 +79,7 @@
     <string name="rule_app_bilibili">Bilibili</string>
     <string name="rule_app_wechat">WeChat</string>
     <string name="rule_app_src">blackmatrix7 · GPL-2 · direct (bypass VPN)</string>
-    <string name="rules_manage">Manage rule sets</string>
+    <string name="rules_manage">Manage</string>
     <string name="ruleset_manager_title">Rule set manager</string>
     <string name="ruleset_my">My rule sets</string>
     <string name="ruleset_builtin">Built-in rule sets</string>
@@ -145,33 +145,33 @@
     <string name="rg_wise">Wise</string>
     <string name="rg_icbc">ICBC</string>
     <string name="rg_ccb">CCB</string>
-    <string name="rg_abc">ABC (AgBank)</string>
-    <string name="rg_boc">Bank of China</string>
+    <string name="rg_abc">ABC</string>
+    <string name="rg_boc">BOC</string>
     <string name="rg_bocom">BOCOM</string>
-    <string name="rg_cmb">China Merchants Bank</string>
+    <string name="rg_cmb">CMB</string>
     <string name="rg_psbc">PSBC</string>
     <string name="rg_ceb">CEB Bank</string>
     <string name="rg_cgb">CGB Bank</string>
     <string name="rg_pingan">Ping An</string>
     <string name="rg_citicbank">CITIC Bank</string>
-    <string name="rg_cmbc">Minsheng Bank</string>
+    <string name="rg_cmbc">Minsheng</string>
     <string name="rg_spdb">SPD Bank</string>
     <string name="rg_cib">CIB Bank</string>
-    <string name="rg_hxb">Huaxia Bank</string>
+    <string name="rg_hxb">Huaxia</string>
     <string name="rg_eastmoney">East Money</string>
     <string name="rg_xueqiu">Xueqiu</string>
     <string name="rg_tonghuashun">TongHuaShun</string>
-    <string name="rg_huatai">Huatai Securities</string>
+    <string name="rg_huatai">Huatai</string>
     <string name="rg_guotaijunan">Guotai Junan</string>
-    <string name="rg_citicsec">CITIC Securities</string>
-    <string name="rg_yinhe">Galaxy Securities</string>
-    <string name="rg_gfsec">GF Securities</string>
-    <string name="rg_cmsec">CMS Securities</string>
+    <string name="rg_citicsec">CITIC</string>
+    <string name="rg_yinhe">Galaxy</string>
+    <string name="rg_gfsec">GF</string>
+    <string name="rg_cmsec">CMS</string>
     <string name="rg_futu">Futubull / moomoo</string>
-    <string name="rg_tigerfintech">Tiger Brokers</string>
+    <string name="rg_tigerfintech">Tiger</string>
     <string name="rg_didi">DiDi</string>
     <string name="rg_amap">Amap</string>
-    <string name="rg_12306">Railway 12306</string>
+    <string name="rg_12306">12306</string>
     <string name="rg_ctrip">Ctrip / Trip.com</string>
     <string name="rg_baidu">Baidu</string>
     <string name="rg_xiaomi">Xiaomi</string>
@@ -181,6 +181,7 @@
     <string name="rg_evernote">Evernote / Yinxiang</string>
     <string name="rg_mihoyo">miHoYo / HoYoverse</string>
     <string name="rg_steam">Steam</string>
+    <string name="rg_apple">Apple / App Store</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
     <string name="log_show_more">Expand</string>
     <string name="log_show_less">Collapse</string>
@@ -188,13 +189,13 @@
 
     <!-- Diagnostics -->
     <string name="diag_local_net_perm">Local network</string>
-    <string name="diag_notif_perm">Notification permission</string>
+    <string name="diag_notif_perm">Notifications</string>
     <string name="diag_http_port">HTTP port</string>
     <string name="diag_socks_port">SOCKS5 port</string>
     <string name="diag_pac_port">PAC port</string>
     <string name="diag_vpn">VPN egress</string>
-    <string name="diag_vpn_sharing">Sharing egress</string>
-    <string name="diag_vpn_gateway">Filtering gateway</string>
+    <string name="diag_vpn_sharing">Sharing</string>
+    <string name="diag_vpn_gateway">Gateway</string>
     <!-- 防护 tab / 拦截明细 / per-host 三态覆盖 -->
     <string name="nav_protection">Protection</string>
     <string name="status_share">Sharing</string>
@@ -207,10 +208,10 @@
     <string name="rules_reject_quick">Quick block</string>
     <string name="rules_reject_quick_hint">Added domains / IPs are refused — ads and trackers go dark instantly.</string>
     <string name="rules_reject_sets">Block rule sets</string>
-    <string name="rules_format_hint">example.com (incl. subdomains) · 1.2.3.4 · 192.168.0.0/16</string>
+    <string name="rules_format_hint">example.com · 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
-    <string name="warn_no_iface">No network selected — refusing all connections</string>
-    <string name="warn_no_proto">No protocol enabled — nothing is listening</string>
+    <string name="warn_no_iface">No network selected — all refused</string>
+    <string name="warn_no_proto">No protocol enabled</string>
     <string name="entry_none_running">Running, but no usable entry — select a network below or enable a protocol.</string>
     <string name="status_idle">Not ready</string>
     <string name="warn_no_port_up">No port is listening</string>
@@ -221,7 +222,7 @@
     <string name="rules_swap_a11y">Switch %1$s between allow and block</string>
     <string name="rules_disable_a11y">Disable %1$s</string>
     <string name="mode_gateway_plain">Filtering gateway</string>
-    <string name="protect_works_always">Works with or without a VPN</string>
+    <string name="protect_works_always">With or without a VPN</string>
     <string name="rules_manage_all">Manage all (%1$d)</string>
     <string name="rules_list_empty">No entries yet</string>
     <string name="monitor_others">(others)</string>
@@ -233,8 +234,8 @@
     <string name="override_proxy">Via proxy</string>
     <string name="override_direct">Direct</string>
     <string name="override_reject">Block</string>
-    <string name="protection_hero_sub">Blocked this session · works with or without a VPN</string>
-    <string name="protection_view_blocked">View blocked list</string>
+    <string name="protection_hero_sub">Blocked this session</string>
+    <string name="protection_view_blocked">View list</string>
     <string name="protection_top_blocked">Most blocked</string>
     <string name="protection_how_title">How protection works</string>
     <string name="protection_how_body">Requests are filtered right at the proxy, so every device on your network gets ads &amp; trackers stripped — no per-device setup, and it works with or without a VPN. Tap any blocked host to allow it if it was caught by mistake.</string>
@@ -269,9 +270,9 @@
     <string name="pac_needs_backend">PAC is on but HTTP and SOCKS are both off — it only returns DIRECT (no proxying). Enable HTTP or SOCKS.</string>
     <string name="qr_http_only">This QR/setup configures the HTTP proxy only. For SOCKS5 or PAC, copy the address from the entry card and set them up manually.</string>
     <string name="start_to_show_entries">Start sharing to see proxy addresses here.</string>
-    <string name="proto_http_sub">Works with browsers &amp; system proxy</string>
+    <string name="proto_http_sub">Browsers &amp; system proxy</string>
     <string name="proto_socks_sub">Terminals, games, TCP apps</string>
-    <string name="proto_pac_sub">Clients proxy only when needed</string>
+    <string name="proto_pac_sub">Proxy only when needed</string>
     <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
     <string name="settings_privacy">Privacy &amp; security</string>
     <string name="settings_nav">Navigation bar</string>
@@ -284,7 +285,7 @@
     <string name="monitor_down">Download</string>
     <string name="monitor_up">Upload</string>
     <string name="monitor_more">More</string>
-    <string name="stat_conns">Connections</string>
+    <string name="stat_conns">Conns</string>
     <string name="stat_traffic">Total</string>
     <string name="stat_signal">Signal</string>
     <string name="diag_logs_title">Logs</string>
@@ -328,23 +329,30 @@
     <string name="auth_incomplete">Set a username and password — until then no client can authenticate.</string>
     <string name="auth_warning">Authentication is off. Devices on the same network may use your proxy. Use only on trusted networks.</string>
     <!-- 出口网络选择器 -->
-    <string name="egress_title">Egress network</string>
+    <string name="egress_title">Outbound</string>
     <string name="egress_sub">Where proxied traffic goes out</string>
     <string name="egress_auto">Auto</string>
     <string name="egress_auto_desc">Follow system default (VPN if on)</string>
     <string name="egress_vpn">VPN</string>
     <string name="egress_wifi">Wi-Fi</string>
     <string name="egress_cellular">Cellular</string>
-    <string name="egress_ethernet">Ethernet/USB</string>
-    <string name="egress_offline">offline</string>
-    <string name="egress_vpn_warn">A system VPN is active — binding a physical egress may fail (VPN lockdown/no bypass).</string>
+    <string name="egress_ethernet">Eth/USB</string>
+    <string name="direct_egress_title">Direct egress</string>
+    <string name="direct_egress_sub">Where DIRECT (bypass) traffic exits</string>
+    <string name="direct_egress_auto_desc">Ethernet/USB → Wi-Fi → Cellular; disconnect if none</string>
+    <string name="egress_cellular_metered">Cellular egress uses mobile data</string>
+    <string name="cellular_confirm_title">Use cellular as egress?</string>
+    <string name="cellular_confirm_msg">Traffic sent out via cellular consumes your mobile data and may incur charges.</string>
+    <string name="cellular_confirm_ok">Use cellular</string>
+    <string name="egress_offline">off</string>
+    <string name="egress_vpn_warn">System VPN active — binding a physical egress may fail.</string>
     <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
     <string name="settings_limits">Connection limits</string>
-    <string name="limit_global">Max connections</string>
-    <string name="limit_per_client">Per-client max</string>
+    <string name="limit_global">Max conns</string>
+    <string name="limit_per_client">Per client</string>
     <string name="limit_parallelism">Relay parallelism</string>
     <string name="limit_buffer">Buffer (KiB)</string>
-    <string name="limit_idle">Idle timeout (s)</string>
+    <string name="limit_idle">Idle (s)</string>
 
     <!-- Scan-to-setup -->
     <string name="qr_setup">Scan to set up</string>
@@ -438,41 +446,40 @@
     <!-- Bento redesign (images/html 01–06) -->
     <!-- 01 Dashboard -->
     <string name="dash_brand_mode">Gateway · dual mode</string>
-    <string name="dash_gateway_foot">Filtering gateway mode</string>
+    <string name="dash_gateway_foot">Filtering gateway · rules on</string>
     <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>
     <!-- 02 Monitor -->
-    <string name="monitor_issue_count">%1$d issue(s)</string>
     <string name="diag_battery_warn_sub">Sharing may be killed in the background — set battery to Unrestricted</string>
     <string name="monitor_blocked_tag">Ads · trackers</string>
     <!-- 03 Protection -->
-    <string name="protection_mode_line">This session · live</string>
-    <string name="protection_hero_label">Ad &amp; tracker blocking · active</string>
+    <string name="protection_mode_line">Live</string>
+    <string name="protection_hero_label">Ad &amp; tracker block · on</string>
     <string name="protection_unit_times">times</string>
-    <string name="protection_set_direct">Set to direct</string>
-    <string name="protection_top_note">Others ×%1$d · mis-blocked? Tap the tuner to allow or go direct</string>
-    <string name="protection_how_1">Filtered at the proxy — no tunnel used</string>
-    <string name="protection_how_2">Works for every device on the network</string>
+    <string name="protection_set_direct">Direct</string>
+    <string name="protection_top_note">Others ×%1$d · tap ⚙ to allow mis-blocks</string>
+    <string name="protection_how_1">Filtered at the proxy</string>
+    <string name="protection_how_2">Every device on the network</string>
     <string name="protection_how_3">Works without a VPN</string>
-    <string name="protection_how_4">Tap a mis-blocked domain to allow it</string>
+    <string name="protection_how_4">Tap a domain to allow it</string>
     <!-- 04 Rules -->
-    <string name="rules_mode_line">Routing · block &amp; allow</string>
-    <string name="rules_reject_zone_sub">Refuses connections, VPN or not</string>
-    <string name="rules_bypass_zone_sub">Direct via the phone\'s network</string>
+    <string name="rules_mode_line">Block &amp; allow</string>
+    <string name="rules_reject_zone_sub">Refused, VPN or not</string>
+    <string name="rules_bypass_zone_sub">Direct via phone network</string>
     <string name="rules_type_domain">Domain</string>
-    <string name="rules_type_ip">CIDR</string>
+    <string name="rules_type_ip">IP</string>
     <string name="rules_enabled_count">%1$d enabled</string>
     <string name="rules_groups_count">%1$d sets</string>
     <string name="ruleset_custom_count">%1$d custom</string>
     <string name="ruleset_builtin_count">%1$d built-in</string>
     <!-- 05 Settings -->
-    <string name="settings_mode_line">Changes apply instantly</string>
+    <string name="settings_mode_line">Auto-saved</string>
     <string name="settings_proto_ports">Protocols &amp; ports</string>
-    <string name="proto_pac_full">PAC auto-config</string>
+    <string name="proto_pac_full">Auto-config</string>
     <string name="settings_risk_tag">At risk</string>
     <string name="auth_enable_sub">Clients must sign in with a username and password</string>
-    <string name="settings_nav_tap_hint">Tap a tile to move it</string>
+    <string name="settings_nav_tap_hint">Tap to move</string>
     <!-- 06 Rule set manager -->
     <string name="ruleset_enabled_of_total">%1$d of %2$d sets enabled</string>
     <string name="ruleset_domains_total">%1$d domains total</string>
@@ -481,10 +488,22 @@
     <string name="ruleset_collapse_all">Collapse all</string>
     <string name="ruleset_on_count">%1$d on</string>
     <string name="ruleset_domain_preview">Domain preview · %1$d entries</string>
-    <string name="protection_hero_label_off">Ad &amp; tracker blocking · off</string>
+    <string name="protection_hero_label_off">Ad &amp; tracker block · off</string>
     <string name="rules_manage_all_plain">Manage all</string>
     <plurals name="count_entries">
         <item quantity="one">%1$d entry</item>
         <item quantity="other">%1$d entries</item>
     </plurals>
+    <plurals name="count_issues">
+        <item quantity="one">%1$d issue</item>
+        <item quantity="other">%1$d issues</item>
+    </plurals>
+    <!-- 数据流示意图 + hero 短按钮 -->
+    <string name="flow_device">Devices</string>
+    <string name="flow_phone">This phone</string>
+    <string name="flow_net">Internet</string>
+    <string name="flow_in">in</string>
+    <string name="flow_out">out</string>
+    <string name="start_short">Start</string>
+    <string name="stop_short">Stop</string>
 </resources>

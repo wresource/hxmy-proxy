@@ -808,6 +808,7 @@ private fun NavTabCell(
                 label,
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         // 徽标：红−/绿+，含符号（不只靠颜色）。悬于外层右上角（上移 6dp 进预留区），描 Sunken 底色边浮出。
