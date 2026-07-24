@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 电池优化白名单请求（诊断「电池优化」引导直接弹系统授权框；长时共享防后台冻结间断） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 开机后自动恢复共享（仅当上次在共享中；见 RestartReceiver）。normal 权限，不弹窗。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 电池优化白名单引导（Play 敏感权限，仅用于减少后台被杀） -->
     <uses-permission
@@ -59,6 +61,18 @@
             android:name=".service.ProxyForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- 开机 / app 更新后自动恢复共享：两者均在「后台启动前台服务」豁免内，且 connectedDevice
+             不在 Android 15 对 BOOT_COMPLETED 启动 FGS 的类型限制清单中。exported 必须为 true（系统广播）。 -->
+        <receiver
+            android:name=".service.RestartReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 导出日志文件的 FileProvider（share sheet 用 content:// 授权） -->
         <provider

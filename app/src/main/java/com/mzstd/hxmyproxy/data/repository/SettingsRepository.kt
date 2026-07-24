@@ -69,6 +69,7 @@ class SettingsRepository @Inject constructor(
         val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val DIRECT_EGRESS_CHOICE = stringPreferencesKey("direct_egress_choice")
         val CELLULAR_EGRESS_CONFIRMED = booleanPreferencesKey("cellular_egress_confirmed")
+        val WAS_SHARING = booleanPreferencesKey("was_sharing")
         val MDNS = booleanPreferencesKey("mdns_enabled")
         val AUTH = booleanPreferencesKey("auth_enabled")
         val BLOCK_PRIVATE = booleanPreferencesKey("block_private_lan")
@@ -119,6 +120,7 @@ class SettingsRepository @Inject constructor(
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
             cellularEgressConfirmed = this[CELLULAR_EGRESS_CONFIRMED] ?: d.cellularEgressConfirmed,
+            wasSharing = this[WAS_SHARING] ?: d.wasSharing,
             mdnsEnabled = this[MDNS] ?: d.mdnsEnabled,
             backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
             authEnabled = this[AUTH] ?: d.authEnabled,
@@ -154,6 +156,7 @@ class SettingsRepository @Inject constructor(
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
         prefs[CELLULAR_EGRESS_CONFIRMED] = cellularEgressConfirmed
+        prefs[WAS_SHARING] = wasSharing
         prefs[MDNS] = mdnsEnabled
         prefs[BACKUP_DNS] = backupDnsEnabled
         prefs[AUTH] = authEnabled
