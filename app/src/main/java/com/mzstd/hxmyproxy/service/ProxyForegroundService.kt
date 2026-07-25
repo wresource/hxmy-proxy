@@ -58,8 +58,9 @@ class ProxyForegroundService : Service() {
         )
         if (!started) {
             started = true
-            // 记「共享中」：开机 / app 更新后由 RestartReceiver 据此自动恢复（压缩重启空窗，见该类注释）。
-            scope.launch { settingsRepository.update { it.copy(wasSharing = true) } }
+            // 记「共享中」：开机 / app 更新后由 RestartReceiver 据此自动恢复。**同步写独立 SharedPreferences**，
+            // 绝不走 settings flow —— 那会触发 applyTunables/规则重建/serverKey 热重启/refresh，与引擎启动并发。
+            ServiceState.setWasSharing(this, true)
             scope.launch { repository.start(scope) }
             scope.launch { repository.state.collect { lastState = it; pushNotification() } }
             scope.launch { settingsRepository.settings.collect { language = it.language; pushNotification() } }
@@ -68,9 +69,8 @@ class ProxyForegroundService : Service() {
     }
 
     private fun shutdown() {
-        // 用户**主动**停止 → 清标记，开机/更新后不再自动恢复（绝不擅自开启共享）。
-        // NonCancellable：stopSelf → onDestroy 会 cancel scope，需保证这次写盘完成。
-        scope.launch(kotlinx.coroutines.NonCancellable) { settingsRepository.update { it.copy(wasSharing = false) } }
+        // 用户**主动**停止 → 清标记，开机/更新后不再自动恢复（绝不擅自开启共享）。同步写，不留悬挂协程。
+        ServiceState.setWasSharing(this, false)
         repository.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
