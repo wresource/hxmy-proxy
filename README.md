@@ -26,6 +26,9 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Rule engine** — Block / Allow modules; wildcard domains, IP literals and **CIDR**; per-host 3-state override (proxy / direct / block); **65 built-in groups** (incl. Apple / App Store direct) with one-tap category & master switches.
 - **Toggle rules without deleting** — every block/allow entry has its own on/off switch and an Active/Off badge; disabled entries drop out of matching (they do *not* flip to the opposite action) and sort below the active ones.
 - **Survives updates and reboots** — if sharing was on, it comes back by itself after an app update or a device restart (and only then — stopping it yourself keeps it off), so clients don't hit a dead proxy port.
+- **Client link latency** — measures the *client → phone* hop (the one that degrades first when the phone acts as a gateway, and the one nothing used to measure), shown as p50 with p95 alongside and colour-coded. Probed every 10 s, and only while a client is actually connected.
+- **Settings backup** — export/import your whole configuration as JSON, so nothing is lost on reinstall or a new phone (system cloud backup is deliberately off — see Privacy).
+- **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. One master switch in Settings.
 - **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
@@ -36,7 +39,7 @@ it as turning your phone into a network relay — point a device's proxy at the 
 
 | Screen | What it does |
 |---|---|
-| **Dashboard** | Sharing \| Protection dual-status tiles (Stopped / Not ready / Sharing); proxy address (HTTP/PAC + copy + QR); inbound interfaces (ingress); **proxy egress** and **direct egress** pickers. |
+| **Dashboard** | Sharing \| Protection dual-status tiles (Stopped / Not ready / Sharing); live speed + **client link latency**; proxy address (HTTP/PAC + copy + QR); inbound interfaces (ingress); **proxy egress** and **direct egress** pickers. |
 | **Protection** | Session block total, ad-block toggle, blocked-host detail by hit count, 3-state per-host override — works with or without a VPN. |
 | **Monitor** | Diagnostics grid, latency probes, client list, top domains (full list on its own page — tap any domain to add it straight to your block/allow rules, no typing), history & error logs. |
 | **Rules** | 🛡️ Block / 🌐 Allow modules — quick block (domain/IP/CIDR, master toggle), whitelist, per-entry on/off switches, app/service rule sets with per-category & master switches. **65 built-in groups** (incl. Apple / App Store). |
@@ -48,10 +51,16 @@ Runs entirely on-device — no account, no login, no cloud, no analytics/trackin
 traffic between local devices and the phone's network; settings, rules and diagnostic logs never
 leave the device.
 
+This is enforced, not just promised: logs live in `noBackupFilesDir` and **system cloud backup is
+disabled** (`allowBackup=false`), so nothing — not even via Android Auto Backup — is uploaded
+anywhere. Because that also removes cloud restore, **Settings → Settings backup** lets you export
+and re-import your configuration yourself. Release builds additionally strip verbose/debug/info
+logcat output, so no visited domain or client IP is written to the system log.
+
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.14.4**.
+Latest release: **1.18.0**.
 
 ## More
 
