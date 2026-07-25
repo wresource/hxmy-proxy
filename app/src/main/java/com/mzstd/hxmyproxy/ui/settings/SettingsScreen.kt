@@ -27,6 +27,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -168,11 +171,96 @@ fun SettingsScreen(
         PrivacyCard(ui, viewModel)
         PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
         NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
+        BackupCard(viewModel)
 
         // 帮助 / 重看引导 双联入口卡。
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LinkTile(R.drawable.ic_b_help, stringResource(R.string.help_open), onOpenHelp, Modifier.weight(1f))
             LinkTile(R.drawable.ic_b_replay, stringResource(R.string.replay_onboarding), onReplayOnboarding, Modifier.weight(1f))
+        }
+    }
+}
+
+// ---------- 设置备份（导出/导入 JSON） ----------
+
+/**
+ * 设置备份卡：导出/导入全部配置（含规则、接口选择、出口偏好等），用于换机与重装迁移。
+ *
+ * **为何必需**：日志与设置目录已从系统云备份中排除（隐私政策承诺「完全本地、不上云」），
+ * 因此云端恢复这条路被主动关掉了，手动导出是保住配置的唯一途径。
+ * 代理凭据单独加密存储，**不进这份明文备份**。
+ */
+@Composable
+private fun BackupCard(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    var pendingJson by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val json = pendingJson
+        pendingJson = null
+        if (uri == null || json == null) return@rememberLauncherForActivityResult
+        message = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+        }.fold(
+            { context.getString(R.string.settings_backup_exported) },
+            { context.getString(R.string.settings_backup_failed) },
+        )
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { r -> r.readText() }
+        }.getOrNull()
+        if (text.isNullOrBlank()) {
+            message = context.getString(R.string.settings_backup_failed)
+            return@rememberLauncherForActivityResult
+        }
+        viewModel.importSettings(text) { r ->
+            message = r.fold(
+                { context.getString(R.string.settings_backup_imported, it) },
+                { context.getString(R.string.settings_backup_failed) },
+            )
+        }
+    }
+
+    BentoCard(tier = CardTier.Primary, contentPadding = 13.dp, spacing = 8.dp) {
+        CardHeader(
+            title = stringResource(R.string.settings_backup),
+            icon = painterResource(R.drawable.ic_b_layers),
+        )
+        Text(
+            stringResource(R.string.settings_backup_sub),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LinkTile(
+                R.drawable.ic_b_arrow_up,
+                stringResource(R.string.settings_backup_export),
+                {
+                    viewModel.exportSettings { r ->
+                        r.onSuccess { json ->
+                            pendingJson = json
+                            runCatching { exportLauncher.launch("hxmy-settings.json") }
+                                .onFailure { message = context.getString(R.string.settings_backup_failed) }
+                        }.onFailure { message = context.getString(R.string.settings_backup_failed) }
+                    }
+                },
+                Modifier.weight(1f),
+            )
+            LinkTile(
+                R.drawable.ic_b_arrow_down,
+                stringResource(R.string.settings_backup_import),
+                {
+                    runCatching { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                        .onFailure { message = context.getString(R.string.settings_backup_failed) }
+                },
+                Modifier.weight(1f),
+            )
+        }
+        message?.let {
+            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

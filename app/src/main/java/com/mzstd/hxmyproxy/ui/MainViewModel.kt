@@ -331,6 +331,17 @@ class MainViewModel @Inject constructor(
     fun setEgressChoice(c: EgressNetworkChoice) = update { it.copy(egressChoice = c) }
     fun setDirectEgressChoice(c: com.mzstd.hxmyproxy.core.model.DirectEgressChoice) = update { it.copy(directEgressChoice = c) }
     fun confirmCellularEgress() = update { it.copy(cellularEgressConfirmed = true) }
+
+    // —— 设置备份：换机/重装迁移（关闭系统云备份后，这是保住配置的唯一途径）——
+    /** 导出全部设置为 JSON 文本（不含代理凭据）。 */
+    fun exportSettings(onDone: (Result<String>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { settingsRepository.exportJson() })
+    }
+
+    /** 从 JSON 恢复设置（整体替换）；回调返回恢复的条目数或失败原因。 */
+    fun importSettings(json: String, onDone: (Result<Int>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { settingsRepository.importJson(json) })
+    }
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
 
     fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }

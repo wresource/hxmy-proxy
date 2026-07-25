@@ -190,6 +190,13 @@
     <string name="top_domain_reject">Block</string>
     <string name="top_domain_clear">Clear rule</string>
     <string name="route_reject">Blocked</string>
+    <string name="settings_backup">Settings backup</string>
+    <string name="settings_backup_sub">Export your configuration to restore it after a reinstall or on a new phone. Proxy credentials are not included.</string>
+    <string name="settings_backup_export">Export</string>
+    <string name="settings_backup_import">Import</string>
+    <string name="settings_backup_exported">Settings exported</string>
+    <string name="settings_backup_imported">Restored %1$d items</string>
+    <string name="settings_backup_failed">Operation failed</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
     <string name="log_show_more">Expand</string>
     <string name="log_show_less">Collapse</string>

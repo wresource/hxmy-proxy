@@ -32,9 +32,11 @@
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
         tools:ignore="BatteryLife" />
 
+    <!-- allowBackup=false：DataStore 与日志含用户上网相关配置/记录，隐私政策承诺「完全本地、不上云」。
+         换机迁移改由「设置 → 设置备份」手动导出/导入 JSON 承担。 -->
     <application
         android:name=".HxmyProxyApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"

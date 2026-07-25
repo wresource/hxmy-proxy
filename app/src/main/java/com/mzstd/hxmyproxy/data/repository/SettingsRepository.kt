@@ -21,6 +21,7 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,6 +39,71 @@ class SettingsRepository @Inject constructor(
 
     suspend fun update(transform: (ProxySettings) -> ProxySettings) {
         ds.edit { prefs -> transform(prefs.toSettings()).writeTo(prefs) }
+    }
+
+    /**
+     * 导出全部设置为 JSON（换机/重装迁移用）。**不含代理凭据**——那是单独加密存储的，
+     * 不落进可分享的明文备份。
+     *
+     * 采用「遍历 DataStore 键值 + 带类型标记」的通用做法而非逐字段手写：新增设置项自动进备份，
+     * 不会因为漏改这里而静默丢配置。
+     */
+    suspend fun exportJson(): String {
+        val prefs = ds.data.first()
+        val items = org.json.JSONObject()
+        prefs.asMap().forEach { (k, v) ->
+            val o = org.json.JSONObject()
+            when (v) {
+                is Boolean -> { o.put("t", "b"); o.put("v", v) }
+                is Int -> { o.put("t", "i"); o.put("v", v) }
+                is Long -> { o.put("t", "l"); o.put("v", v) }
+                is Float -> { o.put("t", "f"); o.put("v", v.toDouble()) }
+                is Double -> { o.put("t", "d"); o.put("v", v) }
+                is String -> { o.put("t", "s"); o.put("v", v) }
+                is Set<*> -> { o.put("t", "ss"); o.put("v", org.json.JSONArray(v.toList())) }
+                else -> return@forEach
+            }
+            items.put(k.name, o)
+        }
+        return org.json.JSONObject()
+            .put("app", BACKUP_APP_ID)
+            .put("format", BACKUP_FORMAT)
+            .put("exportedAt", System.currentTimeMillis())
+            .put("settings", items)
+            .toString(2)
+    }
+
+    /**
+     * 从导出的 JSON 恢复设置（**整体替换**）。返回恢复的条目数；格式不符则抛异常由 UI 提示。
+     * 恢复后强制标记引导已完成——能导入备份的显然不是新用户。
+     */
+    suspend fun importJson(json: String): Int {
+        val root = org.json.JSONObject(json)
+        require(root.optString("app") == BACKUP_APP_ID) { "not a hxmy proxy settings backup" }
+        val items = root.getJSONObject("settings")
+        var n = 0
+        ds.edit { prefs ->
+            prefs.clear()
+            items.keys().forEach { name ->
+                val o = items.optJSONObject(name) ?: return@forEach
+                when (o.optString("t")) {
+                    "b" -> prefs[booleanPreferencesKey(name)] = o.getBoolean("v")
+                    "i" -> prefs[intPreferencesKey(name)] = o.getInt("v")
+                    "l" -> prefs[androidx.datastore.preferences.core.longPreferencesKey(name)] = o.getLong("v")
+                    "f" -> prefs[androidx.datastore.preferences.core.floatPreferencesKey(name)] = o.getDouble("v").toFloat()
+                    "d" -> prefs[androidx.datastore.preferences.core.doublePreferencesKey(name)] = o.getDouble("v")
+                    "s" -> prefs[stringPreferencesKey(name)] = o.getString("v")
+                    "ss" -> {
+                        val arr = o.getJSONArray("v")
+                        prefs[stringSetPreferencesKey(name)] = (0 until arr.length()).map { arr.getString(it) }.toSet()
+                    }
+                    else -> return@forEach
+                }
+                n++
+            }
+            prefs[ONBOARDING_DONE] = true
+        }
+        return n
     }
 
     /** 首次引导是否已完成（独立于代理配置的一次性标志）。 */
@@ -82,6 +148,10 @@ class SettingsRepository @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val HIDDEN_TABS = stringSetPreferencesKey("hidden_tabs")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
+
+        /** 设置备份文件的应用标识与格式版本（导入时校验，防止导错文件）。 */
+        const val BACKUP_APP_ID = "hxmy-proxy"
+        const val BACKUP_FORMAT = 1
         val RULE_ENABLED = booleanPreferencesKey("rule_engine_enabled")
         val RULE_GROUPS = stringSetPreferencesKey("enabled_rule_groups")
         val USER_DIRECT = stringSetPreferencesKey("user_direct_rules")           // 旧格式:仅迁移读
