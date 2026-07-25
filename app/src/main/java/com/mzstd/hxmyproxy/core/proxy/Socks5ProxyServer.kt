@@ -86,7 +86,9 @@ class Socks5ProxyServer(
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         val ruleHost = host ?: addr?.hostAddress
-        val action = if (ruleHost != null) ruleEngine?.decide(ruleHost) else null
+        val action = if (ruleHost != null) {
+            ruleEngine?.decideDetailed(ruleHost)?.also { logDecision("SOCKS5", ruleHost, it) }?.action
+        } else null
         Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {

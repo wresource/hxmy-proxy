@@ -1,7 +1,9 @@
 package com.mzstd.hxmyproxy
 
 import android.app.Application
+import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
 
@@ -25,10 +27,23 @@ class HxmyProxyApp : Application() {
         // Google 云 —— 与隐私政策「完全本地、不上云」冲突。同时清掉旧位置的残留，杜绝它继续被备份。
         FileLog.init(File(noBackupFilesDir, "logs"))
         runCatching { File(filesDir, "logs").deleteRecursively() }
-        // 只记录错误/崩溃，不记常规信息日志（保持日志精简、便于分析）
+        // 进程边界标记：此前只能靠「egress -> N (was null) 且无对应 lost」**推断** app 重启过，
+        // 排障时无法区分「进程重启」与「网络句柄变化」，也无法按会话切分跨天的日志。
+        runCatching {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            Ev.k(
+                LogCat.PROC, "session.start",
+                "ver" to pi.versionName,
+                "code" to pi.longVersionCode,
+                "sdk" to android.os.Build.VERSION.SDK_INT,
+                "dev" to "${android.os.Build.MANUFACTURER}/${android.os.Build.MODEL}",
+                "pid" to android.os.Process.myPid(),
+            )
+        }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
             FileLog.e("crash", "Uncaught in thread ${thread.name}", ex)
+            FileLog.flush()   // 常驻 BufferedWriter：崩溃前必须强制落盘，否则最关键的那几行会丢
             previous?.uncaughtException(thread, ex)
         }
     }

@@ -50,17 +50,38 @@ class RuleEngine {
      * 判定 [host]（域名或 IP/CIDR 字面量）。未命中任何表 → 兜底 [RuleAction.PROXY]（决策②：其余走代理）。
      * 域名走后缀匹配、IP 走 CIDR 网段匹配（见 [RuleMatcher]）。
      */
-    fun decide(host: String): RuleAction {
+    fun decide(host: String): RuleAction = decideDetailed(host).action
+
+    /**
+     * 同 [decide]，但**附带命中来源** —— 这是「某个域名为什么被拦/为什么走直连」的唯一答案来源。
+     * 排障时只知道结果（如 DIRECT）远远不够：用户移除了自己的规则后仍是 DIRECT，究竟是内置组还在管、
+     * 还是父域规则盖住了子域，只有来源能回答。
+     */
+    fun decideDetailed(host: String): RuleDecision {
         val s = snapshot
         // per-host 三态覆盖：最高优先级（误拦救济/手动指定），三态各一张表
-        if (s.ovrDirect.matches(host)) return RuleAction.DIRECT
-        if (s.ovrReject.matches(host)) return RuleAction.REJECT
-        if (s.ovrProxy.matches(host)) return RuleAction.PROXY
-        if (s.userDirect.matches(host)) return RuleAction.DIRECT  // 用户白名单/直连集，防误杀
-        if (s.userReject.matches(host)) return RuleAction.REJECT  // 用户拦截集
-        if (s.reject.matches(host)) return RuleAction.REJECT      // 内置广告拦截
-        if (s.direct.matches(host)) return RuleAction.DIRECT      // 内置 App/服务直连
-        if (s.proxy.matches(host)) return RuleAction.PROXY        // 内置代理
-        return RuleAction.PROXY                                    // 兜底：其余走代理
+        if (s.ovrDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.OVERRIDE)
+        if (s.ovrReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.OVERRIDE)
+        if (s.ovrProxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.OVERRIDE)
+        if (s.userDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.USER_ALLOW)
+        if (s.userReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.USER_BLOCK)
+        if (s.reject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.BUILTIN_ADS)
+        if (s.direct.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.BUILTIN_APP)
+        if (s.proxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.BUILTIN_PROXY)
+        return RuleDecision(RuleAction.PROXY, RuleSrc.DEFAULT)
     }
 }
+
+/** 判定命中的来源表（优先级由高到低，与 [RuleEngine.decideDetailed] 的短路顺序一致）。 */
+enum class RuleSrc {
+    /** per-host 三态覆盖（防护页误拦救济/手动指定） */ OVERRIDE,
+    /** 用户白名单（规则页「放行」） */ USER_ALLOW,
+    /** 用户快速拦截（规则页「拦截」） */ USER_BLOCK,
+    /** 内置广告/追踪表 */ BUILTIN_ADS,
+    /** 内置 App/服务直连组（如 Apple / App Store） */ BUILTIN_APP,
+    /** 内置代理组 */ BUILTIN_PROXY,
+    /** 未命中任何表，兜底走代理 */ DEFAULT,
+}
+
+/** [RuleEngine.decideDetailed] 的结果：动作 + 命中来源。 */
+data class RuleDecision(val action: RuleAction, val src: RuleSrc)

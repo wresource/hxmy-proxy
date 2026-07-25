@@ -57,4 +57,9 @@ data class ProxySettings(
     val hostOverrides: Map<String, com.mzstd.hxmyproxy.core.rules.RuleAction> = emptyMap(),
     /** 自定义规则订阅 URL。 */
     val ruleSubscriptionUrls: Set<String> = emptySet(),
+    /**
+     * 诊断日志总开关（默认开）。开启时记录运行事件到本地滚动文件（约 10MB 上限，仅本机、不上云），
+     * 供「监控 → 错误日志」查看与导出排障；关闭后不再写盘，已有日志保留。
+     */
+    val logEnabled: Boolean = true,
 )

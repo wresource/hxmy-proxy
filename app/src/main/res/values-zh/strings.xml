@@ -197,6 +197,8 @@
     <string name="settings_backup_exported">设置已导出</string>
     <string name="settings_backup_imported">已恢复 %1$d 项</string>
     <string name="settings_backup_failed">操作失败</string>
+    <string name="settings_log_enabled">诊断日志</string>
+    <string name="settings_log_enabled_sub">在本机记录运行事件(约 10MB,不上传),供「监控 → 错误日志」查看与排障</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>

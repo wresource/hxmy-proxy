@@ -86,7 +86,7 @@ class HttpProxyServer(
     private suspend fun handleConnect(channel: SocketChannel, output: OutputStream, target: String, tracker: TrafficAccounting.ConnTracker?) {
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
-        val action = ruleEngine?.decide(hp.first)
+        val action = ruleEngine?.decideDetailed(hp.first)?.also { logDecision("CONNECT", hp.first, it) }?.action
         Log.i("hxmyproxy", "RULE CONNECT ${hp.first} -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(hp.first, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
@@ -153,7 +153,7 @@ class HttpProxyServer(
             uri.rawQuery?.let { append('?').append(it) }
         }
 
-        val action = ruleEngine?.decide(host)
+        val action = ruleEngine?.decideDetailed(host)?.also { logDecision("HTTP", host, it) }?.action
         Log.i("hxmyproxy", "RULE HTTP $host -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {

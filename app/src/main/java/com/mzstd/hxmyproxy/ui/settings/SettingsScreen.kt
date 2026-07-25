@@ -590,6 +590,12 @@ private fun PrivacyCard(ui: MainUiState, viewModel: MainViewModel) {
             checked = ui.settings.blockPrivateLanEgress,
             onCheckedChange = viewModel::setBlockPrivateLan,
         )
+        LabeledSwitchRow(
+            title = stringResource(R.string.settings_log_enabled),
+            subtitle = stringResource(R.string.settings_log_enabled_sub),
+            checked = ui.settings.logEnabled,
+            onCheckedChange = viewModel::setLogEnabled,
+        )
     }
 }
 

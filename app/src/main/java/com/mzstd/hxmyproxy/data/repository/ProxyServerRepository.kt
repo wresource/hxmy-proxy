@@ -1,6 +1,8 @@
 package com.mzstd.hxmyproxy.data.repository
 
+import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
@@ -123,6 +125,8 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastInterfaceIps: Set<String> = emptySet()
     // 上次实际生效的准入网段(hostAddress 集)。①换网瞬间 scan 空时保留旧准入不清空;②evict 只在准入真变化时跑。
     @Volatile private var lastAdmitKey: Set<String> = emptySet()
+    /** 上次 refresh 的接口扫描快照（只在变化时落盘，避免刷屏淹没关键事件）。 */
+    @Volatile private var lastScanKey: String = ""
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -406,6 +410,8 @@ class ProxyServerRepository @Inject constructor(
     }
 
     private fun applyTunables(s: ProxySettings) {
+        // 诊断日志总开关：关闭后 FileLog/Ev 一律不写盘（已有文件保留，可继续查看/导出）。
+        com.mzstd.hxmyproxy.core.log.FileLog.enabled = s.logEnabled
         // 按系统 FD 预算反推安全上限：用户拉满 maxGlobal 时,2×FD/连接可能逼近 rlimit → EMFILE。
         val fdCap = fdSafeMaxGlobal()
         val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
@@ -450,6 +456,8 @@ class ProxyServerRepository @Inject constructor(
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
         val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
         val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
+        val scanKey = interfaces.joinToString(",") { (it.address.hostAddress ?: "?") + if (it.isSelected) "*" else "" }
+        val prevAllow = lastAdmitKey
         // 【换网中断修复】scan 返回空(换网/换热点瞬间网卡短暂无接口)且曾有准入 → **保留上次 admit,不清空**，
         // 否则瞬态空集 fail-closed 会把正在连的老客户端(如 192.168.50.65)拒掉,等新接口稳定后正常更新即可。
         // 「没选=全拒」不受影响:那种情况 interfaces 非空(扫得到接口只是没选)→ 照常走下面更新为空。
@@ -461,8 +469,21 @@ class ProxyServerRepository @Inject constructor(
             lastAdmitKey = admitKey
             if (admitChanged) servers.forEach { it.evictNotAdmitted(accessController::admit) }
         }
-        // 【换网诊断】refresh 触发即落盘:扫到的接口(选中带*)、selectedIds 数、实际生效的准入(空=fail-closed)。
-        FileLog.w(TAG, "refresh: scan=[${interfaces.joinToString { (it.address.hostAddress ?: "?") + if (it.isSelected) "*" else "" }}] selIds=${s.selectedInterfaceIds.size} admit=[${lastAdmitKey.joinToString()}]")
+        // **只在变化时落盘**：此前每次 refresh 无条件记一行，一次导出里 108 条一模一样的 refresh
+        // 把关键事件淹没（教训 7）；且只记快照不记「旧->新」，导致 selIds 的 4/5 变化被读反（教训 5）。
+        // 字段名 admit= 也改为 localAllow=：它是「允许连入的本机监听地址」，不是「允许的来源网段」——
+        // SubnetAccessController.admit 只看 local、remote 形参从未被引用，旧名把排查方向带偏过（教训 6）。
+        if (scanKey != lastScanKey || admitKey != prevAllow) {
+            Ev.k(
+                LogCat.IFACE, "refresh",
+                "scan" to scanKey,
+                "selIds" to s.selectedInterfaceIds.size,
+                "localAllow" to admitKey.joinToString("|").ifEmpty { "<empty:fail-closed>" },
+                "prevAllow" to (if (admitKey != prevAllow) prevAllow.joinToString("|").ifEmpty { "<empty>" } else null),
+                "srcCheck" to "none",
+            )
+        }
+        lastScanKey = scanKey
         publishMdns(s)
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。

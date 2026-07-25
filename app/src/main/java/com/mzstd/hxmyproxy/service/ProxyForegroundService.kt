@@ -11,6 +11,9 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.mzstd.hxmyproxy.MainActivity
 import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.AppLanguage
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ShareState
@@ -48,6 +51,7 @@ class ProxyForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Ev.k(LogCat.SVC, "fgs.stop", "by" to "user")
             shutdown()
             return START_NOT_STICKY
         }
@@ -58,6 +62,9 @@ class ProxyForegroundService : Service() {
         )
         if (!started) {
             started = true
+            // intent == null ⇒ 系统按 START_STICKY 重建服务，即**此前被系统杀过**——这是「服务意外停止」
+            // 这类故障唯一的直接证据（此前整个文件零落盘，只能靠旁证猜）。
+            Ev.k(LogCat.SVC, "fgs.start", "restart" to (intent == null), "startId" to startId, "flags" to flags)
             // 记「共享中」：开机 / app 更新后由 RestartReceiver 据此自动恢复。**同步写独立 SharedPreferences**，
             // 绝不走 settings flow —— 那会触发 applyTunables/规则重建/serverKey 热重启/refresh，与引擎启动并发。
             ServiceState.setWasSharing(this, true)
@@ -77,6 +84,8 @@ class ProxyForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        Ev.k(LogCat.SVC, "fgs.destroy")
+        FileLog.flush()   // 常驻 BufferedWriter：服务销毁前把缓冲落盘，否则末尾几行会丢
         repository.stop()
         scope.cancel()
         super.onDestroy()

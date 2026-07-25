@@ -197,6 +197,8 @@
     <string name="settings_backup_exported">Settings exported</string>
     <string name="settings_backup_imported">Restored %1$d items</string>
     <string name="settings_backup_failed">Operation failed</string>
+    <string name="settings_log_enabled">Diagnostic log</string>
+    <string name="settings_log_enabled_sub">Records events locally (about 10 MB, never uploaded) for troubleshooting via Monitor → Error log</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
     <string name="log_show_more">Expand</string>
     <string name="log_show_less">Collapse</string>

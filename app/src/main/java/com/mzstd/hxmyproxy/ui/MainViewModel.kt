@@ -332,6 +332,9 @@ class MainViewModel @Inject constructor(
     fun setDirectEgressChoice(c: com.mzstd.hxmyproxy.core.model.DirectEgressChoice) = update { it.copy(directEgressChoice = c) }
     fun confirmCellularEgress() = update { it.copy(cellularEgressConfirmed = true) }
 
+    /** 诊断日志总开关。关闭后不再写盘（已有日志保留，仍可查看/导出）。 */
+    fun setLogEnabled(on: Boolean) = update { it.copy(logEnabled = on) }
+
     // —— 设置备份：换机/重装迁移（关闭系统云备份后，这是保住配置的唯一途径）——
     /** 导出全部设置为 JSON 文本（不含代理凭据）。 */
     fun exportSettings(onDone: (Result<String>) -> Unit) = viewModelScope.launch {

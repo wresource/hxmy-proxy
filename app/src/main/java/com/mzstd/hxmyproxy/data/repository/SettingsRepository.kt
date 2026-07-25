@@ -148,6 +148,7 @@ class SettingsRepository @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val HIDDEN_TABS = stringSetPreferencesKey("hidden_tabs")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
+        val LOG_ENABLED = booleanPreferencesKey("log_enabled")
 
         /** 设置备份文件的应用标识与格式版本（导入时校验，防止导错文件）。 */
         const val BACKUP_APP_ID = "hxmy-proxy"
@@ -210,6 +211,7 @@ class SettingsRepository @Inject constructor(
             ruleSetOverrides = decodeOverrides(this[RULE_OVERRIDES]),
             hostOverrides = decodeHostOverrides(this[HOST_OVERRIDES]),
             ruleSubscriptionUrls = this[RULE_SUBS] ?: d.ruleSubscriptionUrls,
+            logEnabled = this[LOG_ENABLED] ?: d.logEnabled,
         )
     }
 
@@ -248,6 +250,7 @@ class SettingsRepository @Inject constructor(
         prefs[RULE_OVERRIDES] = encodeOverrides(ruleSetOverrides)
         prefs[HOST_OVERRIDES] = encodeHostOverrides(hostOverrides)
         prefs[RULE_SUBS] = ruleSubscriptionUrls
+        prefs[LOG_ENABLED] = logEnabled
     }
 
     private fun encodeRuleSets(sets: List<UserRuleSet>): String {
