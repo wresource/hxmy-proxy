@@ -15,7 +15,9 @@ import java.util.Locale
  * 任何写日志失败都被吞掉——日志绝不能影响主流程。线程安全。
  */
 object FileLog {
-    private const val DEFAULT_MAX_BYTES = 512 * 1024L
+    // 主文件 + 1 个备份，故磁盘占用上限约为本值的 2 倍 ≈ 10MB（用户拍板：保持在 10MB 左右，滚动淘汰旧日志）。
+    // 原 512KB 太小：实测行均 ~112B ⇒ 保底仅约 4600 行，一次 DNS/DIRECT 失败风暴几小时就把崩溃栈冲掉。
+    private const val DEFAULT_MAX_BYTES = 5 * 1024 * 1024L
     private const val MAIN = "app.log"
     private const val BACKUP = "app.log.1"
     private val fmt = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)

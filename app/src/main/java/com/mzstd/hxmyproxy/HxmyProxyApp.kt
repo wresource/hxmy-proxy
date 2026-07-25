@@ -20,7 +20,11 @@ class HxmyProxyApp : Application() {
         // 必须先于任何 Dispatchers.IO 使用（进程最早期，代理引擎到前台服务才启动）。
         System.setProperty("kotlinx.coroutines.io.parallelism", "192")
         super.onCreate()
-        FileLog.init(File(filesDir, "logs"))
+        // 日志放 noBackupFilesDir：该目录被 Android Auto Backup **明确排除**，绝不上云。
+        // 此前放在 filesDir/logs（Auto Backup 默认包含范围），含用户访问域名的 app.log 会被备份到
+        // Google 云 —— 与隐私政策「完全本地、不上云」冲突。同时清掉旧位置的残留，杜绝它继续被备份。
+        FileLog.init(File(noBackupFilesDir, "logs"))
+        runCatching { File(filesDir, "logs").deleteRecursively() }
         // 只记录错误/崩溃，不记常规信息日志（保持日志精简、便于分析）
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, ex ->

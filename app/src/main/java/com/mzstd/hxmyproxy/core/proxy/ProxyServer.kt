@@ -35,6 +35,9 @@ private const val ACCEPT_ERROR_BACKOFF_MS = 100L
 /** 拒连日志节流窗口：同一「原因+来源 IP」每这么久最多落一条。 */
 private const val REJECT_LOG_INTERVAL_MS = 10_000L
 
+/** 节流表键数上限（来源 IP 可被扫描器灌爆，必须有界）。超限即清空。 */
+private const val REJECT_LOG_MAX_KEYS = 512
+
 /**
  * 对端正常关闭类异常(客户端断开 / keep-alive 空闲取消 / 网站关连接):
  * 连接重置、管道断开、socket 关闭、协程取消。这些是 HTTP 代理的常态,不是 App 故障,
@@ -103,6 +106,9 @@ abstract class TcpProxyServerBase(
         val now = System.currentTimeMillis()
         val prev = lastRejectLogAt[key]
         if (prev == null || now - prev > REJECT_LOG_INTERVAL_MS) {
+            // **必须有界**：key 含来源 IP，被端口扫描器或大量客户端打时会无限增长（内存泄漏）。
+            // 超上限直接清空（与 OutboundConnector.throttledFileLog 同口径）。
+            if (lastRejectLogAt.size > REJECT_LOG_MAX_KEYS) lastRejectLogAt.clear()
             lastRejectLogAt[key] = now
             FileLog.w(TAG, msg)
         }
