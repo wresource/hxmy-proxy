@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.data.repository
 
 import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.network.LinkProbe
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
@@ -209,8 +210,10 @@ class ProxyServerRepository @Inject constructor(
         session.launch {
             var lastUp = 0L
             var lastDown = 0L
+            var tick = 0L
             while (isActive) {
                 delay(1000)
+                tick++
                 val up = totalUp.get()
                 val down = totalDown.get()
                 val upRate = (up - lastUp).coerceAtLeast(0)
@@ -220,6 +223,12 @@ class ProxyServerRepository @Inject constructor(
                 val sig = signalProvider.current()
                 accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
                 val snap = accounting.snapshot(TOP_DOMAINS)
+                // 段①（客户端→本机）链路时延：每 LINK_PROBE_TICKS 秒探一次在线客户端。
+                // 独立协程跑，绝不阻塞这个 1s 速率 ticker；没有客户端就不探（省电、不对着空气发包）。
+                if (tick % LINK_PROBE_TICKS == 0L && snap.clients.isNotEmpty()) {
+                    val ips = snap.clients.map { it.clientIp }
+                    session.launch(Dispatchers.IO) { runCatching { LinkProbe.sample(ips) } }
+                }
                 _state.update {
                     it.copy(
                         activeConnections = registry.activeGlobal,
@@ -228,6 +237,7 @@ class ProxyServerRepository @Inject constructor(
                         totalBytes = up + down,
                         signalLevel = sig.level,
                         signalDbm = sig.dbm,
+                        linkStats = LinkProbe.stats() ?: com.mzstd.hxmyproxy.core.model.LinkStats(),
                         clients = snap.clients,
                         topDomains = snap.topDomains,
                         blockedTotal = snap.blockedTotal,
@@ -279,6 +289,7 @@ class ProxyServerRepository @Inject constructor(
         lastInterfaceIps = emptySet()
         registry.reset()
         accounting.reset()
+        LinkProbe.reset()   // 会话边界：上次会话的链路样本不带到这次
         _state.value = ShareState()
     }
 
@@ -581,5 +592,7 @@ class ProxyServerRepository @Inject constructor(
         const val ACCOUNTING_AGE_OUT_MS = 5 * 60 * 1000L
         /** 热点接口出现无网络回调,周期重扫捕捉的间隔(秒级足够快、又不至于耗电)。 */
         const val HOTSPOT_RESCAN_MS = 3000L
+        /** 段① 链路探测间隔（以 1s ticker 计数）：10 秒一次，仅在有在线客户端时执行。 */
+        const val LINK_PROBE_TICKS = 10L
     }
 }

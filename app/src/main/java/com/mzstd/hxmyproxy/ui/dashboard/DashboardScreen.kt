@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
+import com.mzstd.hxmyproxy.core.model.LinkStats
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
@@ -573,6 +574,24 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
             HorizontalDivider(color = hairline)
             StatCell(Modifier.weight(1f), stringResource(R.string.stat_signal), "${share.signalDbm}", "dBm")
         }
+        // 段①（客户端 → 本机）链路时延：手机当代理时，这一段最先劣化，而此前 UI 上完全看不到
+        // ——监控页的「服务延迟」测的是本机→互联网（段②），所以「手机自己正常、客户端却卡死」时毫无线索。
+        val ls = share.linkStats
+        if (ls.samples > 0) {
+            HorizontalDivider(color = hairline)
+            StatCell(
+                Modifier.weight(1f),
+                stringResource(R.string.stat_link),
+                "${ls.p50Ms}",
+                "ms",
+                valueColor = when {
+                    ls.p50Ms < LinkStats.GOOD_MS -> StatusColors.good()
+                    ls.p50Ms < LinkStats.WARN_MS -> StatusColors.warn()
+                    else -> MaterialTheme.colorScheme.error
+                },
+                extra = "p95 ${ls.p95Ms}",
+            )
+        }
         HorizontalDivider(color = hairline)
         val total = com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes)
         StatCell(
@@ -586,13 +605,21 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
 
 /** 统计竖条单格：小标签 + tnum 值 + 单位。 */
 @Composable
-private fun StatCell(modifier: Modifier, label: String, value: String, unit: String) {
+private fun StatCell(
+    modifier: Modifier,
+    label: String,
+    value: String,
+    unit: String,
+    valueColor: Color? = null,
+    extra: String? = null,
+) {
     Column(modifier.padding(vertical = 3.dp), verticalArrangement = Arrangement.Center) {
         StatLabel(label)
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 value,
                 style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum", fontWeight = FontWeight.Bold),
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
             )
             Text(
@@ -602,6 +629,17 @@ private fun StatCell(modifier: Modifier, label: String, value: String, unit: Str
                 modifier = Modifier.padding(bottom = 2.dp),
                 maxLines = 1,
             )
+            // 次要数字（如 p95）：窄列里优先保证主数字完整，放不下就省略。
+            if (extra != null) {
+                Text(
+                    extra,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

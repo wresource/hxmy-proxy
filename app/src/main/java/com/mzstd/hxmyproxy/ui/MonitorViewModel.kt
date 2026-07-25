@@ -19,7 +19,9 @@ import javax.inject.Inject
  * 监控页延迟状态。防崩：**按需测**（开页 + 手动刷新），不持续轮询。
  */
 @HiltViewModel
-class MonitorViewModel @Inject constructor() : ViewModel() {
+class MonitorViewModel @Inject constructor(
+    private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider,
+) : ViewModel() {
 
     private val _latency = MutableStateFlow(DEFAULT_MONITORED_SERVICES.map { LatencyResult(it, null) })
     val latency: StateFlow<List<LatencyResult>> = _latency.asStateFlow()
@@ -44,10 +46,13 @@ class MonitorViewModel @Inject constructor() : ViewModel() {
         viewModelScope.launch {
             _measuring.value = true
             try {
+                // 绑到代理**实际使用的出口**：用户手选 WIFI/CELLULAR/ETHERNET 后，
+                // 不绑网的探针量的不是代理真实走的那条路（AUTO 时为 null＝跟随系统默认，行为同旧版）。
+                val egress = runCatching { underlyingNetworkProvider.egressNetwork() }.getOrNull()
                 coroutineScope {
                     DEFAULT_MONITORED_SERVICES.forEach { svc ->
                         launch(Dispatchers.IO) {
-                            val ms = LatencyProbe.measureMillis(svc.host, svc.port)
+                            val ms = LatencyProbe.measureMillis(svc.host, svc.port, network = egress)
                             _latency.update { list ->
                                 list.map { if (it.service == svc) LatencyResult(svc, ms) else it }
                             }

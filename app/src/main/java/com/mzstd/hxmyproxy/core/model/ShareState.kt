@@ -31,6 +31,23 @@ data class EgressStatus(
 )
 
 /**
+ * 段①（客户端 → 本机）链路时延统计。p50 做主数字（抗尾延迟、反映当前常态），
+ * p95 反映「最坏时刻」；[samples] 为窗口内有效样本数，为 0 时 UI 应显示占位而非 0ms。
+ */
+data class LinkStats(
+    val p50Ms: Long = 0,
+    val p95Ms: Long = 0,
+    val samples: Int = 0,
+) {
+    companion object {
+        /** 绿：空载同网段的正常范围上沿（实测量级 4~15ms）。 */
+        const val GOOD_MS = 20L
+        /** 黄：已明显退化，网页会有顿挫感；超过 [WARN_MS] 转红（TCP+TLS 要 2~3 个 RTT，页面大概率打不开）。 */
+        const val WARN_MS = 60L
+    }
+}
+
+/**
  * 应用对外暴露的聚合状态（单一数据源在 Core，节流后以不可变快照流向 UI）。
  */
 data class ShareState(
@@ -59,6 +76,8 @@ data class ShareState(
     /** 当前上行 Wi-Fi 信号等级 0..4；-1 表示无 Wi-Fi。 */
     val signalLevel: Int = -1,
     val signalDbm: Int = 0,
+    /** 段①（客户端 → 本机）链路时延；samples=0 表示尚无样本（无客户端或探测未回）。 */
+    val linkStats: LinkStats = LinkStats(),
     /** bind 失败的协议（端口被占用/无效）。运行时改到坏端口会在此提示而非崩溃。 */
     val portBindErrors: Set<ProxyProtocol> = emptySet(),
     /** 疑似系统 VPN lockdown（「阻止无 VPN 连接」）拦了出口分流：底层网络连不通但 VPN 能连。 */
