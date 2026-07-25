@@ -185,6 +185,10 @@ class ProxyServerRepository @Inject constructor(
                 if (running && serverKey(ns) != lastServerKey) {
                     // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
                     stopServers()
+                    // 与 start()/stop() 一致地清零计数：stopServers 会 shutdownNow 掉 dispatcher，
+                    // 在途连接 finally 里的 registry.release() 恢复时机不可控 → 计数可能残留，
+                    // 表现为某个客户端 IP 卡在 maxPerClient、之后新连接被静默拒绝（唯一按来源 IP 的闸门）。
+                    registry.reset()
                     startServers(session, ns)
                 }
                 refresh()

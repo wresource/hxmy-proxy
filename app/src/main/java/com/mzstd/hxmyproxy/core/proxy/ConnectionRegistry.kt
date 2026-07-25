@@ -44,7 +44,10 @@ class ConnectionRegistry(
     fun release(client: InetAddress) {
         val now = global.updateAndGet { if (it > 0) it - 1 else 0 }
         perClient[client]?.let { counter ->
-            if (counter.decrementAndGet() <= 0) perClient.remove(client, counter)
+            // perClient 与 global 一样要有下限保护：裸 decrementAndGet 可能被重复 release 打成负数，
+            // 掩盖真实的计数泄漏（泄漏会让某个客户端 IP 永久卡在上限、之后所有新连接被静默拒绝）。
+            val c = counter.updateAndGet { if (it > 0) it - 1 else 0 }
+            if (c <= 0) perClient.remove(client, counter)
         }
         onChange(now)
     }

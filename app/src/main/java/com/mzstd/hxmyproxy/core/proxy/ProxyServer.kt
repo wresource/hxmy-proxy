@@ -32,6 +32,9 @@ private const val BIND_RETRY_DELAY_MS = 150L
 /** accept 抛系统错误（如 EMFILE 文件描述符耗尽）时的退避：避免错误持续期间 100% CPU 紧凑自旋。 */
 private const val ACCEPT_ERROR_BACKOFF_MS = 100L
 
+/** 拒连日志节流窗口：同一「原因+来源 IP」每这么久最多落一条。 */
+private const val REJECT_LOG_INTERVAL_MS = 10_000L
+
 /**
  * 对端正常关闭类异常(客户端断开 / keep-alive 空闲取消 / 网站关连接):
  * 连接重置、管道断开、socket 关闭、协程取消。这些是 HTTP 代理的常态,不是 App 故障,
@@ -93,6 +96,18 @@ abstract class TcpProxyServerBase(
      */
     private val inFlight = ConcurrentHashMap.newKeySet<SocketChannel>()
 
+    /** 拒连日志节流：同一「原因+来源 IP」每 10s 最多落一条（被拒的客户端通常会疯狂重试，不节流会刷爆日志）。 */
+    private val lastRejectLogAt = ConcurrentHashMap<String, Long>()
+
+    private fun throttledReject(key: String, msg: String) {
+        val now = System.currentTimeMillis()
+        val prev = lastRejectLogAt[key]
+        if (prev == null || now - prev > REJECT_LOG_INTERVAL_MS) {
+            lastRejectLogAt[key] = now
+            FileLog.w(TAG, msg)
+        }
+    }
+
     override fun start(scope: CoroutineScope, port: Int) {
         _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
@@ -126,6 +141,8 @@ abstract class TcpProxyServerBase(
             serverChannel = server
             _boundPort.value = (server.localAddress as InetSocketAddress).port
             _bindError.value = null
+            // 以前只有 bind **失败**落盘，成功不落——导致「监听到底起没起来」在导出日志里无法判定。
+            FileLog.w(TAG, "$protocol listening :${_boundPort.value}")
             try {
                 while (isActive) {
                     val client = try {
@@ -147,10 +164,18 @@ abstract class TcpProxyServerBase(
                     val remote = (sock.remoteSocketAddress as? InetSocketAddress)?.address
                     val local = (sock.localSocketAddress as? InetSocketAddress)?.address
                     if (remote == null || local == null || !accessController.admit(local, remote)) {
+                        // 准入拒绝以前是**完全静默**的(只 closeQuietly)，导出日志里查不到任何痕迹，
+                        // 排障时无法区分「没连上来」与「连上来被拒」。节流落盘。
+                        throttledReject("admit:${remote?.hostAddress}", "$protocol reject not-admitted local=${local?.hostAddress} remote=${remote?.hostAddress}")
                         client.closeQuietly(); continue
                     }
                     if (!registry.tryAcquire(remote)) {
-                        Log.i(TAG, "$protocol reject ${remote.hostAddress} (limit; active=${registry.activeGlobal})")
+                        // 这是全链路**唯一按来源 IP 区分**的闸门——只拒某一台客户端而放行其它的现象只可能出自这里。
+                        // 以前只有 Log.i(仅 logcat、不进导出日志)，等于排障黑箱；改为节流落盘并带上四个计数。
+                        throttledReject(
+                            "limit:${remote.hostAddress}",
+                            "$protocol reject ${remote.hostAddress} (limit) perClient=${registry.activeFor(remote)}/${registry.maxPerClient} global=${registry.activeGlobal}/${registry.maxGlobal}",
+                        )
                         client.closeQuietly(); continue
                     }
                     runCatching { sock.tcpNoDelay = true }
