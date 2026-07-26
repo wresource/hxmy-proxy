@@ -22,5 +22,9 @@ class SubnetAccessController : AccessController {
     }
 
     override fun admit(localAddress: InetAddress, remoteAddress: InetAddress): Boolean =
+        // 不放行 loopback：曾为自探短路过（1.18.1 开发中），review 推翻——「本机进程」包含全部
+        // 第三方 app 与 adb forward，等于免认证暴露面，且直接打破「不开=全拒」与 UI 黄警示的
+        // 一一对应。自探也**不需要**它：准入拒绝发生在 accept 之后，探针的 connect() 在内核
+        // backlog 层就握手成功并返回，拒绝只表现为随后连接被关，不影响探测结果。
         localAddress in allowedLocalAddresses
 }

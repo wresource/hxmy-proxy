@@ -128,9 +128,22 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastAdmitKey: Set<String> = emptySet()
     /** 上次 refresh 的接口扫描快照（只在变化时落盘，避免刷屏淹没关键事件）。 */
     @Volatile private var lastScanKey: String = ""
+    /** 最近见过的客户端地址（ticker 里在线时更新）：手动刷新的段② 探测目标——客户端断连后
+     *  accounting 里就没有它了,而那恰是最需要探它的时刻。stop() 清空。 */
+    @Volatile private var lastSeenClients: List<java.net.InetAddress> = emptyList()
+    /** 最近一次配对自探结果 "loop/lan"（ok/fail/-）；心跳带上，UI 不展示。 */
+    @Volatile private var lastSelfProbe: String = "-"
+    /** 上次落盘过的自探状态（只记变化：正常运行期零噪音）。 */
+    @Volatile private var lastSelfProbeLogged: String? = null
+    /** 心跳序号（会话内），每 HEARTBEAT_KEY_EVERY 条镜像一条进 key.log。 */
+    private var heartbeatN = 0L
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
+
+    /** 手动刷新服务的进行/结果状态（见 [manualReset]）。 */
+    private val _resetState = MutableStateFlow(ManualResetPhase.IDLE)
+    val resetState: StateFlow<ManualResetPhase> = _resetState.asStateFlow()
 
     fun isRunning(): Boolean = running
 
@@ -225,10 +238,17 @@ class ProxyServerRepository @Inject constructor(
                 val snap = accounting.snapshot(TOP_DOMAINS)
                 // 段①（客户端→本机）链路时延：每 LINK_PROBE_TICKS 秒探一次在线客户端。
                 // 独立协程跑，绝不阻塞这个 1s 速率 ticker；没有客户端就不探（省电、不对着空气发包）。
+                if (snap.clients.isNotEmpty()) lastSeenClients = snap.clients.map { it.clientIp }
                 if (tick % LINK_PROBE_TICKS == 0L && snap.clients.isNotEmpty()) {
                     val ips = snap.clients.map { it.clientIp }
                     session.launch(Dispatchers.IO) { runCatching { LinkProbe.sample(ips) } }
                 }
+                // 配对自探（30s）：127.0.0.1 与本机 LAN IP 各连一次本机监听端口，状态变化才落盘。
+                if (tick % SELF_PROBE_TICKS == 0L) {
+                    session.launch(Dispatchers.IO) { runCatching { selfProbe() } }
+                }
+                // PERF 心跳（60s）：静默期也有一句话现状。放在 ticker 协程里直接调（本就在 IO 上）。
+                if (tick % HEARTBEAT_TICKS == 0L) heartbeat(snap.clients.size, sig)
                 _state.update {
                     it.copy(
                         activeConnections = registry.activeGlobal,
@@ -273,6 +293,107 @@ class ProxyServerRepository @Inject constructor(
         connector.connect("223.5.5.5", 53, bypassVpn = bypass).use { true }
     }.getOrDefault(false)
 
+    /**
+     * 「手动刷新服务」（用户明确要的手动操作，不做自动）。三段：
+     * ① app 层全量重置——清 DNS 缓存、重启监听（含全新 NIO reactor）、清连接计数、
+     *   重注册网络回调、重申请出口网络句柄、重算准入；
+     * ② 主动向最近见过的客户端发探测包（ICMP/TCP-RST）——手机主动出站的每个单播帧都携带
+     *   sender IP+MAC，有机会刷新客户端与 AP 侧的 ARP/转发表项，不用飞行模式就打通；
+     * ③ 探测全失败 → [ManualResetPhase.DONE_LINK_DEAD]，UI 提示陈旧状态在系统 WiFi 层
+     *   （app 无权开关 WiFi，Android 10 起 setWifiEnabled 已失效）并引导拉起系统网络面板。
+     */
+    fun manualReset() {
+        val session = sessionScope ?: return
+        if (!running || !_resetState.compareAndSet(ManualResetPhase.IDLE, ManualResetPhase.RUNNING)) return
+        session.launch(Dispatchers.IO) {
+            val result = runCatching {
+                Ev.k(LogCat.SVC, "manual.reset", "by" to "user")
+                // 段①：全量重置 app 层。
+                connector.clearDnsCache()
+                stopServers()
+                registry.reset()
+                connectivityObserver.stop()
+                connectivityObserver.start()
+                underlyingNetworkProvider.pause()
+                underlyingNetworkProvider.start()
+                startServers(session, currentSettings)
+                refresh()
+                // 段②：主动探测最近客户端（每个目标最多 3 发；发包本身就是目的——刷沿路表项）。
+                val targets = lastSeenClients
+                if (targets.isEmpty()) return@runCatching ManualResetPhase.DONE_NO_CLIENT
+                val reachable = targets.any { addr ->
+                    (1..MANUAL_PROBE_ATTEMPTS).any { LinkProbe.probe(addr) != null }
+                }
+                if (reachable) ManualResetPhase.DONE_OK else ManualResetPhase.DONE_LINK_DEAD
+            }.getOrElse { ManualResetPhase.DONE_LINK_DEAD }
+            Ev.k(LogCat.SVC, "manual.reset.done", "result" to result, "targets" to lastSeenClients.size)
+            _resetState.value = result
+        }
+    }
+
+    /** UI 消费完结果提示后回位（RUNNING 期间不允许清，防止把进行中的状态吞掉）。 */
+    fun ackManualReset() {
+        if (_resetState.value != ManualResetPhase.RUNNING) _resetState.value = ManualResetPhase.IDLE
+    }
+
+    /**
+     * 配对自探：分别经 loopback（127.0.0.1）与本机 LAN IP 连一次本机监听端口。
+     * 判读：loop=ok + lan=fail ⇒ 内核对 LAN IP 的入站路径被拦；双 ok 而客户端仍连不上
+     * ⇒ SYN 根本没到手机（app 无罪的铁证——7-26 排障里「SYN 没到」与「accept 了」同形的盲区，
+     * 这一对探针把它从外面切开）。注意 LAN 自探同样走内核本机路径、不经无线，所以它**不能**
+     * 证明无线层可达——它的价值恰恰是把「app/内核」与「无线/对端」两个世界分开。
+     * 只在状态变化时落 key.log（正常运行零噪音）；最近结果随心跳可见。
+     */
+    private fun selfProbe() {
+        val port = servers.firstNotNullOfOrNull { it.boundPort.value } ?: return
+        val lan = lastAdmitKey.firstOrNull()
+        val loopOk = tcpSelfProbe("127.0.0.1", port)
+        val lanOk = lan?.let { tcpSelfProbe(it, port) }
+        val state = (if (loopOk) "ok" else "fail") + "/" + (lanOk?.let { if (it) "ok" else "fail" } ?: "-")
+        lastSelfProbe = state
+        if (state != lastSelfProbeLogged) {
+            Ev.kw(LogCat.CONN, "selfprobe", "state" to "${lastSelfProbeLogged ?: "-"}->$state", "port" to port)
+            lastSelfProbeLogged = state
+        }
+    }
+
+    /**
+     * 先 bind 拿本地源端口并登记到 [SelfProbeMarks]，再 connect——accept 侧凭源端口识别探针，
+     * 不误伤真实的本机自用连接。注意 127 腿会被准入拒（loopback 不放行），但 connect 的三次握手
+     * 在内核 backlog 层就已完成并成功返回，探测语义（端口活着、内核可达）不受影响。
+     */
+    private fun tcpSelfProbe(host: String, port: Int): Boolean = runCatching {
+        java.net.Socket().use { s ->
+            s.bind(java.net.InetSocketAddress(0))
+            com.mzstd.hxmyproxy.core.proxy.SelfProbeMarks.mark(s.localPort)
+            s.connect(java.net.InetSocketAddress(host, port), SELF_PROBE_TIMEOUT_MS)
+            true
+        }
+    }.getOrDefault(false)
+
+    /**
+     * PERF 心跳：60s 一条进主环、每 [HEARTBEAT_KEY_EVERY] 条镜像进 key.log，随后 flush。
+     * 7-26 排障的核心教训：正常流量不落盘 ⇒ 「故障起止时刻」在导出日志里不可定位，
+     * 所有以静默段为锚的推论全部作废。心跳给每分钟一个确定的存活断面。
+     * 纪律：localAllow 打**实际生效**的 lastAdmitKey，不打本轮算出的值。
+     */
+    private fun heartbeat(clients: Int, sig: com.mzstd.hxmyproxy.core.network.SignalInfo) {
+        heartbeatN++
+        val kv = arrayOf(
+            "ports" to servers.mapNotNull { s -> s.boundPort.value?.let { "${s.protocol}:$it" } }
+                .joinToString(",").ifEmpty { "none" },
+            "conn" to registry.activeGlobal,
+            "accept" to servers.sumOf { it.acceptCount },
+            "clients" to clients,
+            "localAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty>" },
+            "rssi" to sig.dbm,
+            "link" to (LinkProbe.stats()?.let { "${it.p50Ms}/${it.p95Ms}" } ?: "-"),
+            "probe" to lastSelfProbe,
+        )
+        if (heartbeatN % HEARTBEAT_KEY_EVERY == 0L) Ev.k(LogCat.PERF, "hb", *kv) else Ev.i(LogCat.PERF, "hb", *kv)
+        FileLog.flush()
+    }
+
     fun stop() {
         running = false
         stopServers()
@@ -287,9 +408,18 @@ class ProxyServerRepository @Inject constructor(
         totalDown.set(0)
         lastRecordedEntryKey = ""
         lastInterfaceIps = emptySet()
+        lastSeenClients = emptyList()
+        _resetState.value = ManualResetPhase.IDLE
+        // 会话边界必须清（曾漏清）：残留的 lastAdmitKey 会让新会话首次 refresh 在「接口扫描恰好为空」时
+        // 跳过准入更新（保护分支判据正是 lastAdmitKey.isEmpty()），准入停在上个会话的旧值。
+        lastAdmitKey = emptySet()
+        lastScanKey = ""
         registry.reset()
         accounting.reset()
         LinkProbe.reset()   // 会话边界：上次会话的链路样本不带到这次
+        heartbeatN = 0
+        lastSelfProbe = "-"
+        lastSelfProbeLogged = null   // 下个会话第一次自探必落一条基线（"-->ok/ok"）
         _state.value = ShareState()
     }
 
@@ -350,6 +480,8 @@ class ProxyServerRepository @Inject constructor(
         servers.forEach { it.stop() }
         servers = emptyList()
         // reactor 拆除全部在途隧道（resume 各 relay 协程）+ 关 selector；再回收阻塞池。
+        // stop() 内部会 join 等 worker 收尾完成——保证全部 resume 已发出后才走到下面的
+        // shutdownNow，消除「resume 分发撞上已关闭 dispatcher」的竞态。
         nioReactor?.stop()
         nioReactor = null
         acceptExecutor?.shutdownNow()
@@ -467,7 +599,11 @@ class ProxyServerRepository @Inject constructor(
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
         val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
         val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
-        val scanKey = interfaces.joinToString(",") { (it.address.hostAddress ?: "?") + if (it.isSelected) "*" else "" }
+        // 带接口名与类型：7-26 排障时 scan 里冒出过一个只有 IP 的 10.168.249.89，是什么接口至今无解
+        //（当时 scanKey 只拼 IP）。名字+类型是判定「陌生接口从哪来」的最起码信息。
+        val scanKey = interfaces.joinToString(",") {
+            "${it.name}(${it.type}):${it.address.hostAddress ?: "?"}" + if (it.isSelected) "*" else ""
+        }
         val prevAllow = lastAdmitKey
         // 【换网中断修复】scan 返回空(换网/换热点瞬间网卡短暂无接口)且曾有准入 → **保留上次 admit,不清空**，
         // 否则瞬态空集 fail-closed 会把正在连的老客户端(如 192.168.50.65)拒掉,等新接口稳定后正常更新即可。
@@ -484,13 +620,17 @@ class ProxyServerRepository @Inject constructor(
         // 把关键事件淹没（教训 7）；且只记快照不记「旧->新」，导致 selIds 的 4/5 变化被读反（教训 5）。
         // 字段名 admit= 也改为 localAllow=：它是「允许连入的本机监听地址」，不是「允许的来源网段」——
         // SubnetAccessController.admit 只看 local、remote 形参从未被引用，旧名把排查方向带偏过（教训 6）。
-        if (scanKey != lastScanKey || admitKey != prevAllow) {
+        // 日志必须打**实际生效**的 lastAdmitKey，不打本轮算出的 admitKey——保护分支未进入时两者不同，
+        // 打算出值会造出假的 <empty:fail-closed>（7-26 的 14:47:25 那条曾把根因判断带偏）。
+        // kept=true 显式标出「本次扫描为空、保留上次准入」，与真清空在日志里可区分。
+        if (scanKey != lastScanKey || lastAdmitKey != prevAllow) {
             Ev.k(
                 LogCat.IFACE, "refresh",
                 "scan" to scanKey,
                 "selIds" to s.selectedInterfaceIds.size,
-                "localAllow" to admitKey.joinToString("|").ifEmpty { "<empty:fail-closed>" },
-                "prevAllow" to (if (admitKey != prevAllow) prevAllow.joinToString("|").ifEmpty { "<empty>" } else null),
+                "localAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty:fail-closed>" },
+                "prevAllow" to (if (lastAdmitKey != prevAllow) prevAllow.joinToString("|").ifEmpty { "<empty>" } else null),
+                "kept" to (if (admitKey != lastAdmitKey) true else null),
                 "srcCheck" to "none",
             )
         }
@@ -594,5 +734,26 @@ class ProxyServerRepository @Inject constructor(
         const val HOTSPOT_RESCAN_MS = 3000L
         /** 段① 链路探测间隔（以 1s ticker 计数）：10 秒一次，仅在有在线客户端时执行。 */
         const val LINK_PROBE_TICKS = 10L
+        /** 配对自探间隔（1s ticker 计数）：127.0.0.1 与本机 LAN IP 各连一次本机监听端口。 */
+        const val SELF_PROBE_TICKS = 30L
+        /** PERF 心跳间隔（1s ticker 计数）。 */
+        const val HEARTBEAT_TICKS = 60L
+        /** 每几次心跳镜像一条进 key.log（60s×10=10 分钟一条，不挤占 256KB 关键环）。 */
+        const val HEARTBEAT_KEY_EVERY = 10L
+        /** 自探 TCP connect 超时。本机连本机走内核 loopback 路径，1.5s 足够宽裕。 */
+        const val SELF_PROBE_TIMEOUT_MS = 1500
+        /** 手动刷新段② 对每个目标客户端的最大探测次数。 */
+        const val MANUAL_PROBE_ATTEMPTS = 3
     }
+}
+
+/** 「手动刷新服务」的状态机：IDLE → RUNNING → DONE_*（UI 提示后 ack 回 IDLE）。 */
+enum class ManualResetPhase {
+    IDLE, RUNNING,
+    /** 重置完成，且至少一个最近客户端探测有响应。 */
+    DONE_OK,
+    /** 重置完成，但本会话还没见过任何客户端（无从探测）。 */
+    DONE_NO_CLIENT,
+    /** 重置完成，全部最近客户端探测无响应——陈旧状态大概率在系统 WiFi 层，引导用户开面板。 */
+    DONE_LINK_DEAD,
 }

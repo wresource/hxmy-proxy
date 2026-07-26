@@ -40,8 +40,12 @@ class TrafficAccounting(
     fun openConnection(clientIp: InetAddress, protocol: ProxyProtocol): ConnTracker = ConnTracker(clientIp, protocol)
 
     inner class ConnTracker(clientIp: InetAddress, private val protocol: ProxyProtocol) {
+        // lastSeen 必须在开连接时就打上：Acc 初始 lastSeen=0，而它原本只在 add()（有字节）时更新——
+        // 零计账字节的连接（如 204 无 body 的明文请求）关闭后 conns=0 且 lastSeen=0，
+        // 下一秒 ticker 的 ageOut 判 now-0>5min 恒真 → 条目秒删 → 监控页漏显瞬时客户端、
+        // 手动刷新的 lastSeenClients 也抓不住（模拟器验证时踩到）。
         private val clientAcc = perClient.computeIfAbsent(clientIp) { Acc(clientIp.hostAddress ?: "?") }
-            .also { it.conns.increment() }
+            .also { it.conns.increment(); it.lastSeen = clock() }
         @Volatile private var domainAcc: Acc? = null
 
         /** 目标解析出来后调用；按 (当前 host, 本连接协议) 归属。[direct]=规则决策为直连出口（绕过 VPN）。

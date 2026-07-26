@@ -1,5 +1,7 @@
 package com.mzstd.hxmyproxy.core.network
 
+import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.LinkStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,7 +28,15 @@ object LinkProbe {
     /** 滑动窗口容量。取 p50 做主数字（抗尾延迟），p95 反映「最坏时刻」。 */
     private const val WINDOW = 32
 
+    /** 连续这么多次探测失败 → 判定该客户端「手机→客户端」方向不通，落一条 key.log。 */
+    private const val LOST_THRESHOLD = 3
+    /** 失败状态表上限（客户端数天然个位数，防御性设界）。 */
+    private const val MAX_TRACKED = 64
+
     private val window = ArrayDeque<Long>()
+    /** 各客户端连续失败次数 / 最近一次成功时刻（ms）。会话边界随 [reset] 清空。 */
+    private val failStreak = HashMap<String, Int>()
+    private val lastOkAt = HashMap<String, Long>()
     private val lock = Any()
 
     /** 探单个客户端；返回往返毫秒，超时/不可达返回 null。 */
@@ -49,9 +59,44 @@ object LinkProbe {
         }
     }
 
-    /** 依次探测各客户端并入窗（调用方负责放到 IO 线程、控制频率）。 */
+    /**
+     * 依次探测各客户端并入窗（调用方负责放到 IO 线程、控制频率）。
+     * 失败**不再静默**（7-26 排障教训：故障期探针必然探过客户端，但结果没落盘，
+     * 「手机→客户端」方向通不通无从判定——那正是分辨「双向断/单向断」的关键一手）：
+     * 连续 [LOST_THRESHOLD] 次失败落 `linkprobe.lost`（带距最近成功的秒数），恢复落
+     * `linkprobe.recovered`。只在状态翻转时各记一条，持续失败/持续正常都零噪音。
+     */
     suspend fun sample(ips: List<InetAddress>) {
-        ips.forEach { ip -> probe(ip)?.let { add(it) } }
+        ips.forEach { ip ->
+            val ms = probe(ip)
+            if (ms != null) add(ms)
+            ip.hostAddress?.let { key -> if (ms != null) onOk(key) else onFail(key) }
+        }
+    }
+
+    private fun onOk(key: String) {
+        val streakBefore: Int
+        synchronized(lock) {
+            streakBefore = failStreak.remove(key) ?: 0
+            lastOkAt[key] = System.currentTimeMillis()
+        }
+        if (streakBefore >= LOST_THRESHOLD) {
+            Ev.k(LogCat.CONN, "linkprobe.recovered", "client" to key, "failedProbes" to streakBefore)
+        }
+    }
+
+    private fun onFail(key: String) {
+        val n: Int
+        val lastOkSecAgo: Long
+        synchronized(lock) {
+            if (failStreak.size >= MAX_TRACKED && key !in failStreak) return
+            n = (failStreak[key] ?: 0) + 1
+            failStreak[key] = n
+            lastOkSecAgo = lastOkAt[key]?.let { (System.currentTimeMillis() - it) / 1000 } ?: -1
+        }
+        if (n == LOST_THRESHOLD) {   // 恰好翻转到「不通」时记一次；继续失败不重复
+            Ev.kw(LogCat.CONN, "linkprobe.lost", "client" to key, "fails" to n, "lastOkSecAgo" to lastOkSecAgo)
+        }
     }
 
     private fun add(ms: Long) = synchronized(lock) {
@@ -71,5 +116,9 @@ object LinkProbe {
     }
 
     /** 会话边界清空（stop/start 时调用），避免上次会话的数字带到这次。 */
-    fun reset() = synchronized(lock) { window.clear() }
+    fun reset() = synchronized(lock) {
+        window.clear()
+        failStreak.clear()
+        lastOkAt.clear()
+    }
 }

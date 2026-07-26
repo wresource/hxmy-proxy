@@ -51,8 +51,8 @@ class ProxyForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            Ev.k(LogCat.SVC, "fgs.stop", "by" to "user")
-            shutdown()
+            Ev.k(LogCat.SVC, "fgs.stop", "by" to "user", "startId" to startId)
+            shutdown(startId)
             return START_NOT_STICKY
         }
         startForeground(
@@ -75,15 +75,22 @@ class ProxyForegroundService : Service() {
         return START_STICKY
     }
 
-    private fun shutdown() {
+    private fun shutdown(startId: Int) {
+        // 必须复位（曾漏）：stopSelf 到 onDestroy 之间存在窗口，期间用户再点「开始」会因 started
+        // 仍为 true 而跳过 repository.start()——startForeground 已执行、通知在、UI 却停在未共享，
+        // 正是「开关共享开关也没用」的一种真实成因。
+        started = false
         // 用户**主动**停止 → 清标记，开机/更新后不再自动恢复（绝不擅自开启共享）。同步写，不留悬挂协程。
         ServiceState.setWasSharing(this, false)
         repository.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // 带 startId：若停止请求之后已有新的 start 送达（更大的 startId），本次销毁请求自动作废，
+        // 新会话不会被这个排队中的旧停止请求杀掉。无参 stopSelf() 等同 stopService，会无视后到的 start。
+        stopSelf(startId)
     }
 
     override fun onDestroy() {
+        started = false   // 防御：系统直接销毁（未走 shutdown）时同样复位
         Ev.k(LogCat.SVC, "fgs.destroy")
         FileLog.flush()   // 常驻 BufferedWriter：服务销毁前把缓冲落盘，否则末尾几行会丢
         repository.stop()

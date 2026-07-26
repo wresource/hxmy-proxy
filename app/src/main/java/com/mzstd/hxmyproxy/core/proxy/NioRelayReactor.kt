@@ -1,5 +1,7 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.LogCat
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.nio.ByteBuffer
@@ -23,9 +25,10 @@ import kotlin.coroutines.resume
  */
 class NioRelayReactor(
     workerCount: Int = 1,
-    sweepIntervalMs: Long = 1000,
+    private val sweepIntervalMs: Long = 1000,
 ) {
-    private val workers = List(workerCount.coerceAtLeast(1)) { SelectorWorker("hxmy-nio-relay-$it", sweepIntervalMs) }
+    // Array 而非 List：worker 意外死亡时按槽位原地换新（见 aliveWorkerAt）。
+    private val workers = Array(workerCount.coerceAtLeast(1)) { SelectorWorker("hxmy-nio-relay-$it", sweepIntervalMs) }
     private val rr = AtomicInteger(0)
     @Volatile private var started = false
 
@@ -36,8 +39,12 @@ class NioRelayReactor(
     }
 
     @Synchronized fun stop() {
-        workers.forEach { it.stop() }
         started = false
+        // 先全部发停止信号，再逐个等收尾：worker 的 finally 会 resume 全部在途隧道协程。
+        // 等收尾结束再返回，调用方（stopServers）才能安全 shutdownNow relay 线程池——
+        // 否则 resume 分发会撞上已关闭的 dispatcher（RejectedExecutionException 竞态）。
+        workers.forEach { it.signalStop() }
+        workers.forEach { it.awaitStop(STOP_JOIN_MS) }
     }
 
     /**
@@ -51,8 +58,53 @@ class NioRelayReactor(
         idleMillis: Int,
         onTraffic: (Long, Long) -> Unit,
     ) {
-        val worker = workers[(rr.getAndIncrement() and Int.MAX_VALUE) % workers.size]
+        val worker = aliveWorkerAt((rr.getAndIncrement() and Int.MAX_VALUE) % workers.size)
         worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), onTraffic)
+    }
+
+    /** 各槽位上次重启时刻（ms）；冷却期内不再重建，防持续性崩溃源把重启变成风暴。 */
+    private val lastRestartAt = LongArray(workers.size)
+
+    /**
+     * 取槽位 worker；发现线程已死（selector 异常崩溃）→ 原地换新并落 key.log。
+     * 崩溃不再是永久失能：旧模型里 selector 线程死后新隧道全部永久挂起、且全程零日志
+     * （7-26 排障确认的最大盲区之一）。以下情形返回死 worker 而不复活——也安全：
+     * [SelectorWorker.relay] 的 enqueue 对死线程有调用线程兜底，隧道被立即拆掉（关两 channel +
+     * resume）而非挂死：① reactor 已 stop；② 槽位在冷却期内；③ 新 worker 构造/启动失败
+     * （Selector.open 需 3 个 FD，FD 耗尽——即最需要复活的时刻——恰恰会失败，不能让它抛到每条连接）。
+     */
+    private fun aliveWorkerAt(i: Int): SelectorWorker {
+        workers[i].let { if (it.isAlive()) return it }
+        synchronized(this) {
+            val cur = workers[i]
+            if (!started || cur.isAlive()) return cur
+            val now = System.currentTimeMillis()
+            if (now - lastRestartAt[i] < RESTART_COOLDOWN_MS) return cur
+            lastRestartAt[i] = now
+            val fresh = try {
+                SelectorWorker("hxmy-nio-relay-$i", sweepIntervalMs).also {
+                    // start 失败（如 pthread OOM）时回收已 open 的 selector（epoll+pipe 约 3 个 FD）——
+                    // 该失败恰发生在资源紧张时，泄漏会自我加剧。
+                    try { it.start() } catch (e: Throwable) { it.disposeUnstarted(); throw e }
+                }
+            } catch (e: Throwable) {
+                Ev.throttled(
+                    LogCat.RELAY, "nio.worker.restart.fail", "wrestart:$i", 10_000L,
+                    key = true, kv = arrayOf("idx" to i, "err" to e.toString()),
+                )
+                return cur
+            }
+            workers[i] = fresh
+            Ev.kw(LogCat.RELAY, "nio.worker.restart", "idx" to i)
+            return fresh
+        }
+    }
+
+    private companion object {
+        /** stop 时等单个 worker 收尾的上限；超时也继续（守护线程不会拖住进程）。 */
+        const val STOP_JOIN_MS = 500L
+        /** 同槽位两次重启的最小间隔：未知持续性崩溃源下，重启速率被钳在每槽每 5s 一次。 */
+        const val RESTART_COOLDOWN_MS = 5_000L
     }
 }
 
@@ -63,12 +115,37 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     private val tunnels = ConcurrentHashMap.newKeySet<Tunnel>()
     private val thread = Thread({ loop() }, name).apply { isDaemon = true }
     @Volatile private var running = true
+    /**
+     * 线程收尾已完成（selector 已关、最终 drain 已跑）。与 [enqueue] 的兜底构成 Dekker 闭合：
+     * 仅凭 `thread.isAlive` 有 TOCTOU——崩溃到线程真正终止之间（写 died 日志 + 逐条关隧道，
+     * 毫秒到几十毫秒）isAlive 仍为 true，窗口内入队的 register 任务会永久搁浅、隧道协程无限挂起
+     * （FD/registry 名额泄漏到会话结束）。producer 先入队再读 flag、consumer 先立 flag 再最终 drain，
+     * volatile 全序保证任务必被一侧消费。
+     */
+    @Volatile private var terminated = false
 
     fun start() = thread.start()
 
     fun stop() {
+        signalStop()
+        awaitStop(500)
+    }
+
+    fun signalStop() {
         running = false
-        selector.wakeup()
+        runCatching { selector.wakeup() }
+    }
+
+    fun awaitStop(timeoutMs: Long) {
+        runCatching { thread.join(timeoutMs) }
+    }
+
+    fun isAlive(): Boolean = thread.isAlive
+
+    /** 仅供「构造成功但 start 失败」的回收：线程从未运行，finally 不会执行，需手动关 selector。 */
+    fun disposeUnstarted() {
+        terminated = true
+        runCatching { selector.close() }
     }
 
     suspend fun relay(
@@ -94,7 +171,11 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
 
     private fun enqueue(task: () -> Unit) {
         tasks.add(task)
-        selector.wakeup()
+        runCatching { selector.wakeup() }
+        // 线程收尾完成或已死 → 队列永远无人消费，注册的隧道协程会永久挂起。调用线程兜底 drain：
+        // task 自带失败路径（register 对已关 selector 抛 → close → resume），不会卡死；
+        // close 幂等（CAS），多个调用线程并发兜底也安全。保留 isAlive 兜住「线程从未 start」的极端情形。
+        if (terminated || !thread.isAlive) drainTasks()
     }
 
     fun untrack(t: Tunnel) = tunnels.remove(t)
@@ -135,9 +216,31 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
                     lastSweep = now
                 }
             }
+        } catch (e: Throwable) {
+            // 意外崩溃（select 抛系统错误 / sweep 里 resume 抛等）。此前这里**零日志、零恢复**：
+            // 线程静默死亡后新隧道全部永久挂起、idle sweep 一并失效——正是「服务挂了但没有任何痕迹」
+            // 的完美形态（7-26 排障教训）。落 key.log；复活由 aliveWorkerAt 在下次 relay 时按槽位换新。
+            // 60s 内重复死亡只记单行不带栈（栈 1-2KB/条会加速冲洗 256KB key 环，重复栈零信息增量）。
+            val now = System.currentTimeMillis()
+            if (now - lastDiedFullLogAt > DIED_FULL_LOG_WINDOW_MS) {
+                lastDiedFullLogAt = now
+                Ev.e(LogCat.RELAY, "nio.worker.died", e, "name" to Thread.currentThread().name, "tunnels" to tunnels.size)
+            } else {
+                Ev.throttled(
+                    LogCat.RELAY, "nio.worker.died", "wdied", 10_000L, key = true,
+                    kv = arrayOf("name" to Thread.currentThread().name, "tunnels" to tunnels.size, "err" to e.toString()),
+                )
+            }
         } finally {
-            tunnels.toList().forEach { it.close(this) }   // 收尾：拆全部隧道（resume 各自协程）
+            // 每条单独兜底：一条隧道 close/resume 抛错（如 dispatcher 已关）不能中断其余隧道的收尾——
+            // 否则剩余协程永不 resume（连接与 registry 计数一起泄漏）。
+            tunnels.toList().forEach { runCatching { it.close(this) } }
             runCatching { selector.close() }
+            // 顺序关键：先关 selector 再立 flag 再最终 drain——晚到任务两种结局都安全：
+            // 被这次 drain 消费（register 对已关 selector 抛 → close → resume），
+            // 或读到 terminated=true 由调用线程自己 drain。不存在第三种结局。
+            terminated = true
+            drainTasks()
         }
     }
 
@@ -150,6 +253,13 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
         // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
         tunnels.toList().forEach { if (it.idleExpired(now) || it.externallyClosed()) it.close(this) }
+    }
+
+    private companion object {
+        /** died 全栈日志的最小间隔；窗口内的重复死亡只记单行（class+message）。 */
+        const val DIED_FULL_LOG_WINDOW_MS = 60_000L
+        /** 上次全栈 died 日志时刻（跨 worker 实例共享——重复崩溃通常同源）。 */
+        @Volatile var lastDiedFullLogAt = 0L
     }
 }
 

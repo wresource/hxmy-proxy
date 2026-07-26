@@ -37,6 +37,12 @@ private const val ACCEPT_ERROR_BACKOFF_MS = 100L
 /** 拒连日志节流窗口：同一「原因+来源 IP」每这么久最多落一条。 */
 private const val REJECT_LOG_INTERVAL_MS = 10_000L
 
+/**
+ * accept 成功落盘的节流窗口（按来源 IP）。此前 accept 成功只有 logcat（release 还被 R8 剥掉），
+ * 导出日志里「SYN 没到手机」与「accept 了且一切正常」**完全同形**——7-26 排障里最大的仪表盲区。
+ */
+private const val ACCEPT_LOG_INTERVAL_MS = 30_000L
+
 
 /**
  * 对端正常关闭类异常(客户端断开 / keep-alive 空闲取消 / 网站关连接):
@@ -61,6 +67,9 @@ interface ProxyServer {
 
     /** bind 失败原因（端口被占用/无效）；null 表示无错误。运行时改端口可即时看到失败而非崩溃。 */
     val bindError: StateFlow<ProxyError?>
+
+    /** 本次监听会话累计 accept 成功数（含自探连接）；供 PERF 心跳读取，定位「入站到底进没进来」。 */
+    val acceptCount: Long get() = 0
 
     /** 在 [scope] 内绑定并启动 accept 循环。 */
     fun start(scope: CoroutineScope, port: Int)
@@ -89,6 +98,9 @@ abstract class TcpProxyServerBase(
 
     private val _bindError = MutableStateFlow<ProxyError?>(null)
     override val bindError: StateFlow<ProxyError?> = _bindError.asStateFlow()
+
+    private val acceptTotal = java.util.concurrent.atomic.AtomicLong(0)
+    override val acceptCount: Long get() = acceptTotal.get()
 
     @Volatile private var serverChannel: ServerSocketChannel? = null
     @Volatile private var acceptJob: Job? = null
@@ -140,28 +152,48 @@ abstract class TcpProxyServerBase(
                         server.accept()                       // 阻塞 accept，返回阻塞模式 SocketChannel
                     } catch (e: Throwable) {
                         if (!isActive) break
-                        // FD 耗尽（EMFILE: too many open files）时 accept 会持续立即抛错：退避避免 100% CPU
-                        // 紧凑自旋，并记一条（仅此类系统错误；客户端正常断开不会进到这里）。
+                        // stop() 先关 serverChannel 再 cancel 协程——关闭唤醒的 accept 会在 cancel
+                        // 送达前抛 ClosedChannelException（AsynchronousCloseException 是其子类），
+                        // 这是正常收尾，直接退出，不能记成 accept 异常（否则每次停止都误报一条）。
+                        if (e is java.nio.channels.ClosedChannelException) break
+                        // 此前非 EMFILE 异常是**裸 continue：零日志、零退避**——若错误持续，这里就是
+                        // 100% CPU 自旋且导出日志全程无痕（7-26 RCA 的 accept 卡死候选正卡在这个盲区，
+                        // 无法证实也无法排除）。统一节流落盘（进 key.log）+ 统一退避。
                         val msg = (e.message ?: "").lowercase()
-                        if ("too many open files" in msg || "emfile" in msg) {
-                            Log.w(TAG, "$protocol accept FD 耗尽，退避重试: ${e.message}")
-                            FileLog.w(TAG, "$protocol accept too-many-open-files", e)
-                            delay(ACCEPT_ERROR_BACKOFF_MS)
-                        }
+                        val emfile = "too many open files" in msg || "emfile" in msg
+                        Log.w(TAG, "$protocol accept error，退避重试: ${e.message}")
+                        Ev.throttled(
+                            LogCat.CONN, "accept.error", "acceptErr:$protocol", REJECT_LOG_INTERVAL_MS,
+                            key = true,
+                            kv = arrayOf("proto" to protocol, "err" to e.toString(), "emfile" to (if (emfile) true else null)),
+                        )
+                        delay(ACCEPT_ERROR_BACKOFF_MS)
                         continue
                     }
                     client.configureBlocking(true)            // 握手期阻塞（子类用 channel.socket() 流）
                     val sock = client.socket()
                     val remote = (sock.remoteSocketAddress as? InetSocketAddress)?.address
+                    val remotePort = (sock.remoteSocketAddress as? InetSocketAddress)?.port ?: 0
                     val local = (sock.localSocketAddress as? InetSocketAddress)?.address
+                    // 内核 accept 计数——放在准入**之前**：语义是「accept 循环还活着且有连接进来」。
+                    // 自探每 30s 必到 2 条（含被准入拒的 127 腿），心跳里该数停涨=accept 层卡死的直接证据。
+                    acceptTotal.incrementAndGet()
+                    // 自探识别用**源端口标记**而非「remote 是本机地址」：后者与真实的本机自用代理
+                    //（设备内 nc 验证法 / WiFi 代理指向自身 LAN IP）完全同形，按地址过滤会把自用流量的
+                    // 记账与拦截计数一并抹掉（review 证实的回归）。见 SelfProbeMarks。
+                    val probeConn = remote != null && (remote.isLoopbackAddress || remote == local) &&
+                        SelfProbeMarks.consume(remotePort)
                     if (remote == null || local == null || !accessController.admit(local, remote)) {
                         // 准入拒绝以前**完全静默**（只 closeQuietly），导出日志里查不到任何痕迹，
                         // 排障时无法区分「没连上来」与「连上来被拒」。进 key.log，永不被高频日志冲掉。
-                        Ev.throttled(
-                            LogCat.ADMIT, "reject.notAdmitted", "admit:${remote?.hostAddress}", REJECT_LOG_INTERVAL_MS,
-                            key = true,
-                            kv = arrayOf("proto" to protocol, "local" to local?.hostAddress, "remote" to remote?.hostAddress),
-                        )
+                        // 自探的 127 腿被拒属设计内（loopback 不放行），不落行——否则每 30s 一条灌 key 环。
+                        if (!probeConn) {
+                            Ev.throttled(
+                                LogCat.ADMIT, "reject.notAdmitted", "admit:${remote?.hostAddress}", REJECT_LOG_INTERVAL_MS,
+                                key = true,
+                                kv = arrayOf("proto" to protocol, "local" to local?.hostAddress, "remote" to remote?.hostAddress),
+                            )
+                        }
                         client.closeQuietly(); continue
                     }
                     if (!registry.tryAcquire(remote)) {
@@ -181,7 +213,16 @@ abstract class TcpProxyServerBase(
                     }
                     runCatching { sock.tcpNoDelay = true }
                     Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
-                    val tracker = accounting?.openConnection(remote, protocol)
+                    // 仅探针本身不落 accept 行、不进流量账（避免 30s 一次的自探把日志与 UI 客户端列表
+                    // 噪音化：clients 里出现本机 IP、LinkProbe 反过来探自己）。真实的本机自用连接照常记。
+                    if (!probeConn) {
+                        Ev.throttled(
+                            LogCat.CONN, "accept", "accept:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
+                            level = "I",
+                            kv = arrayOf("proto" to protocol, "remote" to remote.hostAddress, "active" to registry.activeGlobal),
+                        )
+                    }
+                    val tracker = if (probeConn) null else accounting?.openConnection(remote, protocol)
                     inFlight.add(client)
                     launch(ioDispatcher) {
                         try {

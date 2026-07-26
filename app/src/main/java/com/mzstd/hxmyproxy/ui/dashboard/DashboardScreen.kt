@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.ui.dashboard
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +47,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +74,7 @@ import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.LinkStats
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.data.repository.ManualResetPhase
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
@@ -156,17 +160,66 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
 
+    // pending-result 防重投：ActivityResultRegistry 会把未消费的权限结果存进 savedInstanceState，
+    // 进程死亡后重开 app、Compose 一 register 就原样重投——旧回调无条件 start()，表现为
+    // 「关掉 app 再打开，共享自己开起来了」（用户 7-26 现场观察的「自动续上」路径之一）。
+    // 用 remember（非 Saveable）做进程内标志：重投递到达时它必为 false，直接忽略。
+    // 代价：权限框开着时 Activity 重建（旋转/折叠）需再点一次开始——可接受。
+    var startRequested by remember { mutableStateOf(false) }
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { ProxyForegroundService.start(context) }
+    ) {
+        if (startRequested) {
+            startRequested = false
+            ProxyForegroundService.start(context)
+        }
+    }
 
     val onStart = {
         val perms = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
             if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
         }
-        if (perms.isEmpty()) ProxyForegroundService.start(context)
-        else permLauncher.launch(perms.toTypedArray())
+        if (perms.isEmpty()) {
+            ProxyForegroundService.start(context)
+        } else {
+            startRequested = true
+            permLauncher.launch(perms.toTypedArray())
+        }
+    }
+    // 手动刷新服务的结果呈现：轻结果用 Toast；「仍不可达」用对话框引导拉系统网络面板
+    //（app 无权开关 WiFi——Android 10 起 setWifiEnabled 已失效,面板是 app 能做的极限）。
+    val resetPhase by viewModel.manualResetState.collectAsStateWithLifecycle()
+    LaunchedEffect(resetPhase) {
+        when (resetPhase) {
+            ManualResetPhase.DONE_OK -> {
+                Toast.makeText(context, R.string.refresh_done_ok, Toast.LENGTH_SHORT).show()
+                viewModel.ackManualReset()
+            }
+            ManualResetPhase.DONE_NO_CLIENT -> {
+                Toast.makeText(context, R.string.refresh_done, Toast.LENGTH_SHORT).show()
+                viewModel.ackManualReset()
+            }
+            else -> {}
+        }
+    }
+    if (resetPhase == ManualResetPhase.DONE_LINK_DEAD) {
+        AlertDialog(
+            onDismissRequest = { viewModel.ackManualReset() },
+            title = { Text(stringResource(R.string.refresh_dead_title)) },
+            text = { Text(stringResource(R.string.refresh_dead_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.ackManualReset()
+                    runCatching {
+                        context.startActivity(Intent(android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY))
+                    }
+                }) { Text(stringResource(R.string.refresh_open_panel)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.ackManualReset() }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
     val landscape = conf.screenWidthDp > conf.screenHeightDp
@@ -231,7 +284,7 @@ private fun DashboardContent(
             )
         },
     )
-    HeroRow(ui, heroState, warnRes, onStart, onOpenProtection, showHeroButton)
+    HeroRow(ui, viewModel, heroState, warnRes, onStart, onOpenProtection, showHeroButton)
     // 行2 仅「真·共享中」显示（含端口部分被占的 porterror 态）；停止/未就绪整体移除。
     if (heroState == HeroState.Running) RateRow(ui, viewModel)
     PortBindBanner(ui)
@@ -248,6 +301,7 @@ private fun DashboardContent(
 @Composable
 private fun HeroRow(
     ui: MainUiState,
+    viewModel: MainViewModel,
     state: HeroState,
     warnRes: Int?,
     onStart: () -> Unit,
@@ -258,7 +312,7 @@ private fun HeroRow(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HeroCard(ui, state, warnRes, onStart, showButton, Modifier.weight(2f).fillMaxHeight())
+        HeroCard(ui, viewModel, state, warnRes, onStart, showButton, Modifier.weight(2f).fillMaxHeight())
         GuardCard(ui, onOpenProtection, Modifier.weight(1f).fillMaxHeight())
     }
 }
@@ -304,6 +358,7 @@ private fun GlowDot(color: Color) {
 @Composable
 private fun HeroCard(
     ui: MainUiState,
+    viewModel: MainViewModel,
     state: HeroState,
     warnRes: Int?,
     onStart: () -> Unit,
@@ -311,6 +366,7 @@ private fun HeroCard(
     modifier: Modifier = Modifier,
 ) {
     val share = ui.share
+    val resetPhase by viewModel.manualResetState.collectAsStateWithLifecycle()
     val dotColor = when (state) {
         HeroState.Running -> StatusColors.runningDot()
         HeroState.Stopped -> StatusColors.stoppedDot()
@@ -323,6 +379,27 @@ private fun HeroCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GlowDot(dotColor)
                 StatLabel(stringResource(R.string.status_share))
+                Spacer(Modifier.weight(1f))
+                // 手动刷新服务（仅共享中）：客户端连不上时的第一步自救——app 全量重置 + 主动探测
+                // 刷沿路表项；仍不通再由对话框引导开系统网络面板。RUNNING 期间转圈防重触。
+                if (share.running) {
+                    if (resetPhase == ManualResetPhase.RUNNING) {
+                        CircularProgressIndicator(
+                            Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        IconButton(onClick = { viewModel.manualReset() }, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                painterResource(R.drawable.ic_b_refresh),
+                                contentDescription = stringResource(R.string.refresh_service),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(17.dp),
+                            )
+                        }
+                    }
+                }
             }
             Text(
                 stringResource(

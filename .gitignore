@@ -27,3 +27,5 @@ release-artifacts/
 /0724-2hxmyproxy-log.txt
 /72456hxmyproxy-log.txt
 /hxmyproxy-log(1).txt
+/*hxmyproxy-log*.txt
+/tasks/

@@ -465,6 +465,12 @@
     <!-- 01 Dashboard -->
     <string name="dash_brand_mode">Gateway · dual mode</string>
     <string name="dash_gateway_foot">Filtering gateway · rules on</string>
+    <string name="refresh_service">Refresh service</string>
+    <string name="refresh_done_ok">Service reset · client link OK</string>
+    <string name="refresh_done">Service reset</string>
+    <string name="refresh_dead_title">Still unreachable?</string>
+    <string name="refresh_dead_body">The app has fully reset itself, but recent clients still don\'t respond. The stale state likely lives in the system Wi-Fi layer, which apps can\'t reset — toggling Wi-Fi or airplane mode clears it.</string>
+    <string name="refresh_open_panel">Open network panel</string>
     <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>

@@ -59,6 +59,11 @@ class MainViewModel @Inject constructor(
     /** 规则版本信号：规则一变 +1，供 top domain 标订阅刷新（触发重判所有域名）。 */
     val ruleVersion: kotlinx.coroutines.flow.StateFlow<Int> = ruleEngine.version
 
+    /** 手动刷新服务：状态流 + 触发/确认（见 [ProxyServerRepository.manualReset] 的三段说明）。 */
+    val manualResetState = proxyServerRepository.resetState
+    fun manualReset() = proxyServerRepository.manualReset()
+    fun ackManualReset() = proxyServerRepository.ackManualReset()
+
     /** 速率历史（最近 60 个 1s 样本，字节/秒），监控/首页 sparkline 用；停止即清空。 */
     data class RateHistory(val down: List<Float> = emptyList(), val up: List<Float> = emptyList())
 
