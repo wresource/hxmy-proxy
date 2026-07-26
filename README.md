@@ -29,6 +29,7 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Client link latency** — measures the *client → phone* hop (the one that degrades first when the phone acts as a gateway, and the one nothing used to measure), shown as p50 with p95 alongside and colour-coded. Probed every 10 s, and only while a client is actually connected.
 - **Settings backup** — export/import your whole configuration as JSON, so nothing is lost on reinstall or a new phone (system cloud backup is deliberately off — see Privacy).
 - **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. One master switch in Settings.
+- **Self-diagnosing when clients can't connect** — a 60 s heartbeat (ports / accepts / admission / RSSI / link), accept-success logging, a loopback+LAN self-probe pair and client-probe loss events make an exported log tell you *which layer* failed; a one-tap **Refresh service** button fully resets the app-side stack, probes recent clients (refreshing on-path ARP entries) and, if they still don't answer, points you at the system Wi-Fi panel — the one thing apps can't reset themselves.
 - **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
@@ -60,7 +61,7 @@ logcat output, so no visited domain or client IP is written to the system log.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.18.0**.
+Latest release: **1.18.5**.
 
 ## More
 
