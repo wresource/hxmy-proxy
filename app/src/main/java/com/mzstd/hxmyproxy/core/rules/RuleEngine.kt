@@ -31,6 +31,9 @@ class RuleEngine {
         val ovrProxy: RuleMatcher = RuleMatcher(),
         val userDirect: RuleMatcher = RuleMatcher(),
         val userReject: RuleMatcher = RuleMatcher(),
+        /** 广告表误杀救济表（assets/rules/ads-allowlist.txt）：命中则**跳过** [reject] 判定，
+         *  继续按内置直连组/兜底走。见该文件头部说明。 */
+        val adsAllow: RuleMatcher = RuleMatcher(),
         val reject: RuleMatcher = RuleMatcher(),
         val direct: RuleMatcher = RuleMatcher(),
         val proxy: RuleMatcher = RuleMatcher(),
@@ -65,7 +68,12 @@ class RuleEngine {
         if (s.ovrProxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.OVERRIDE)
         if (s.userDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.USER_ALLOW)
         if (s.userReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.USER_BLOCK)
-        if (s.reject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.BUILTIN_ADS)
+        // 广告表判定前先过救济表：公共黑名单（oisd）会误收厂商的内容分发域名，而 ADS 又优先于
+        // 内置 App 直连组 —— 结果是我们自己精选要直连的域族，子域反被拦掉（微信小程序/图片转圈的根因）。
+        // 命中救济表则跳过广告表，继续往下走（通常落到 BUILTIN_APP 直连）。
+        if (!s.adsAllow.matches(host) && s.reject.matches(host)) {
+            return RuleDecision(RuleAction.REJECT, RuleSrc.BUILTIN_ADS)
+        }
         if (s.direct.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.BUILTIN_APP)
         if (s.proxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.BUILTIN_PROXY)
         return RuleDecision(RuleAction.PROXY, RuleSrc.DEFAULT)

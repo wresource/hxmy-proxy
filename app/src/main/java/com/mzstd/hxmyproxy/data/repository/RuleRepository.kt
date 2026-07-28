@@ -40,6 +40,10 @@ class RuleRepository @Inject constructor(
             if (override != null) override.forEach { into.add(it) }
             else loadAsset(group.assetPath, into)
         }
+        // 广告表误杀救济表：**始终装载、不受任何开关控制**——它是对上游公共黑名单的修正，
+        // 只在广告表启用时才有作用（广告表没启用时 reject 为空，救济表自然无影响）。
+        val adsAllow = RuleMatcher()
+        loadAsset(ADS_ALLOWLIST_ASSET, adsAllow)
         val userDirect = RuleMatcher()
         val userReject = RuleMatcher()
         // 第一模块快速白名单 → 直连（受整体开关控制；关掉则整组临时失效）
@@ -65,11 +69,11 @@ class RuleRepository @Inject constructor(
         ruleEngine.update(
             RuleEngine.Snapshot(
                 ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
-                userDirect = userDirect, userReject = userReject,
+                userDirect = userDirect, userReject = userReject, adsAllow = adsAllow,
                 reject = reject, direct = direct, proxy = proxy,
             ),
         )
-        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size} overrides=${settings.hostOverrides.size}")
+        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size} adsAllow=${adsAllow.size} overrides=${settings.hostOverrides.size}")
     }
 
     private fun loadAsset(path: String, into: RuleMatcher) {
@@ -108,4 +112,9 @@ class RuleRepository @Inject constructor(
     }
 
     data class GroupPreview(val total: Int, val sample: List<String>)
+
+    companion object {
+        /** 广告表误杀救济表资产路径（见该文件头部的收录标准）。 */
+        const val ADS_ALLOWLIST_ASSET = "rules/ads-allowlist.txt"
+    }
 }

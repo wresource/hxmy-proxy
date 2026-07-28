@@ -1,0 +1,35 @@
+# 广告表误杀救济表(ads allowlist)
+#
+# 命中这里的域名**不参与广告表(ads-*.txt)的 REJECT 判定**,继续按内置 App 直连组/兜底判定。
+# 优先级:低于用户自己的规则,高于内置广告表。始终装载,不受任何开关控制。
+#
+# 【为什么需要它】
+# ads-oisd-small.txt 是自动聚合的公共黑名单(6 万条),会把厂商的**内容分发域名**一起收录;
+# 而判定顺序是 BUILTIN_ADS 先于 BUILTIN_APP —— 结果是我们自己在 app-*.txt 里精选、
+# 想让它直连的域族,其子域反被广告表拦掉,表现为「功能坏了但看不出为什么」
+# (2026-07-28 实测:微信小程序打不开、图片转圈,根因是 wxa.wxs.qq.com 被拦 41 次)。
+# 与其去改 6 万行的上游文件(下次更新就丢),不如在这里显式救济:每条都人工核对过,可审计。
+#
+# 【收录标准】必须同时满足:
+#   1. 其父域已在某个 app-*.txt 直连组里(即我们已认定该域族属于该 App 的功能域)
+#   2. 承担内容/功能职责(CDN、图片、视频、资源、登录、长连接),而非广告投放或行为追踪
+#   3. 有客观依据(DNS CNAME 指向 CDN 基础设施 / 厂商文档 / 实测流量)
+# 判断存疑时**不要收录** —— 漏救济只是少了个直连,错救济会放广告进来。
+#
+# 【格式】每行一个域名,后缀匹配(含所有子域);# 开头为注释。
+
+# ─── 微信 / WeChat ───────────────────────────────────────────────
+# 父域 wxs.qq.com 已在 app-wechat.txt。以下四个子域被 oisd 收录,实测全部解析到腾讯云 CDN:
+# wxa    → wxa.wxs.qq.com.cloud.tc.qq.com → sched.legopic2-dk(图片 CDN 调度) 小程序资源
+# wximg  → wximg.wxs.qq.com.cdn.dnsv1.com(腾讯云 CDN)                        图片
+# wxsmw  → wxsmw.wxs.qq.com.tcdnvod.com(点播 CDN)                            视频
+# wxsnsdythumb → socwxsns.video.qq.com / 50.wxapp.tc.qq.com                  朋友圈缩略图
+wxa.wxs.qq.com
+wximg.wxs.qq.com
+wxsmw.wxs.qq.com
+wxsnsdythumb.wxs.qq.com
+# 父域 qpic.cn 在 app-wechat.txt;gvideo 解析到 svideolego(短视频 CDN),是内容不是广告。
+gvideo.qpic.cn
+# 微信小程序视频播放器(wxamedia = WeiXin App Media),父域 wxamedia.com 在 app-tencent.txt;
+# oisd 收录的是三个具体租户号子域,这里用父域一并救济。解析:cdn.dnsv1.com(腾讯云 CDN)。
+vodplayer.wxamedia.com
