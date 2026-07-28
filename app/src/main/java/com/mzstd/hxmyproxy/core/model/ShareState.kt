@@ -78,6 +78,8 @@ data class ShareState(
     val signalDbm: Int = 0,
     /** 段①（客户端 → 本机）链路时延；samples=0 表示尚无样本（无客户端或探测未回）。 */
     val linkStats: LinkStats = LinkStats(),
+    /** 疑似失联的最近客户端（曾连过、现探测不可达且无真实入站）；非空时常驻通知切换为告警文案。 */
+    val unreachableClients: List<String> = emptyList(),
     /** bind 失败的协议（端口被占用/无效）。运行时改到坏端口会在此提示而非崩溃。 */
     val portBindErrors: Set<ProxyProtocol> = emptySet(),
     /** 疑似系统 VPN lockdown（「阻止无 VPN 连接」）拦了出口分流：底层网络连不通但 VPN 能连。 */

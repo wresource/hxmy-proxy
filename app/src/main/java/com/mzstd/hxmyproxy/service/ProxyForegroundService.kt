@@ -115,6 +115,10 @@ class ProxyForegroundService : Service() {
             ?: state.recommendedEntries.firstOrNull()
         return when {
             !state.running -> loc.getString(R.string.notif_stopped)
+            // 失联告警借用常驻通知（不新弹）：客户端曾在、现探测不可达且无真实入站——
+            // 用户不用等自己发现断网,瞥一眼通知即知,点开 app 可手动刷新/看指引。
+            state.unreachableClients.isNotEmpty() ->
+                loc.getString(R.string.notif_client_unreachable, state.unreachableClients.joinToString(", "))
             entry == null -> loc.getString(R.string.notif_running_no_entry)
             else -> loc.getString(
                 R.string.notif_running,

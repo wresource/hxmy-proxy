@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.data.repository
 
+import android.content.Context
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.network.LinkProbe
 import com.mzstd.hxmyproxy.core.log.FileLog
@@ -41,6 +42,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.mzstd.hxmyproxy.service.RecentClients
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.net.InetAddress
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
@@ -71,6 +75,7 @@ private const val NIO_RELAY_WORKERS_MAX = 4
  */
 @Singleton
 class ProxyServerRepository @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val settingsRepository: SettingsRepository,
     private val connectivityObserver: ConnectivityObserver,
     private val interfaceScanner: InterfaceScanner,
@@ -128,9 +133,28 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastAdmitKey: Set<String> = emptySet()
     /** 上次 refresh 的接口扫描快照（只在变化时落盘，避免刷屏淹没关键事件）。 */
     @Volatile private var lastScanKey: String = ""
-    /** 最近见过的客户端地址（ticker 里在线时更新）：手动刷新的段② 探测目标——客户端断连后
-     *  accounting 里就没有它了,而那恰是最需要探它的时刻。stop() 清空。 */
-    @Volatile private var lastSeenClients: List<java.net.InetAddress> = emptyList()
+    /** 最近见过的客户端地址（在线时更新,**跨会话持久化**到 [RecentClients]）：手动刷新与路径保活的
+     *  探测目标——最需要被探的客户端恰恰是「这个会话还没连上来的那台」（7-27 教训）。 */
+    @Volatile private var lastSeenClients: List<InetAddress> = emptyList()
+    /** 入口接口的子网定向广播地址（refresh 更新）：存在通告的目标。 */
+    @Volatile private var broadcastTargets: List<InetAddress> = emptyList()
+    /** 入口接口的 (子网, 前缀) 快照（refresh 更新）：recent 客户端只有落在当前某入口子网内
+     *  才参与探测与失联判定——换网后旧网段 IP 既不该探（单播会经默认路由外泄）也不该告警。 */
+    @Volatile private var entrySubnets: List<Pair<Int, Int>> = emptyList()
+    /** 失联解除的出向迟滞：连续这么多轮无失联嫌疑才解除（与进入的 3 连败对称,压抖动振荡）。 */
+    @Volatile private var clearStreak = 0
+    /** 自愈突发单飞标志（突发最坏时长可超过冷却,必须防重叠）。 */
+    @Volatile private var healing = false
+    /** 本次告警期内已执行的自愈轮数（上限 HEAL_MAX_ROUNDS——治不好的(如客户端关机)不再空转）。 */
+    @Volatile private var healRounds = 0
+    /** 真实客户端（非自探）最近一次有流量的时刻；失联判据之一。 */
+    @Volatile private var lastRealInboundAt = 0L
+    /** 离线 recent 客户端的连续探测失败计数（路径保活探测,与 LinkProbe 在线统计分开）。 */
+    private val offlineFail = HashMap<String, Int>()
+    /** 上次自愈突发时刻（冷却用）。 */
+    @Volatile private var lastHealAt = 0L
+    /** 本会话是否已落过 beacon 首发日志。 */
+    @Volatile private var beaconLogged = false
     /** 最近一次配对自探结果 "loop/lan"（ok/fail/-）；心跳带上，UI 不展示。 */
     @Volatile private var lastSelfProbe: String = "-"
     /** 上次落盘过的自探状态（只记变化：正常运行期零噪音）。 */
@@ -156,6 +180,10 @@ class ProxyServerRepository @Inject constructor(
         totalDown.set(0)
         registry.reset()
         accounting.reset()
+        // 跨会话恢复最近客户端：路径保活/手动刷新从会话第一秒就有探测目标——
+        // 最需要被探的客户端恰恰是「本会话还没连上来的那台」。
+        lastSeenClients = RecentClients.load(appContext).keys
+            .mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
         val s = settingsRepository.settings.first()
         currentSettings = s
         applyTunables(s)
@@ -238,10 +266,51 @@ class ProxyServerRepository @Inject constructor(
                 val snap = accounting.snapshot(TOP_DOMAINS)
                 // 段①（客户端→本机）链路时延：每 LINK_PROBE_TICKS 秒探一次在线客户端。
                 // 独立协程跑，绝不阻塞这个 1s 速率 ticker；没有客户端就不探（省电、不对着空气发包）。
-                if (snap.clients.isNotEmpty()) lastSeenClients = snap.clients.map { it.clientIp }
-                if (tick % LINK_PROBE_TICKS == 0L && snap.clients.isNotEmpty()) {
-                    val ips = snap.clients.map { it.clientIp }
-                    session.launch(Dispatchers.IO) { runCatching { LinkProbe.sample(ips) } }
+                val online = snap.clients.map { it.clientIp }
+                if (online.isNotEmpty()) {
+                    // 在线的排前、历史保留（跨会话探测目标）；30s 一次落盘。
+                    lastSeenClients = (online + lastSeenClients).distinct().take(RECENT_MAX)
+                    snap.clients.maxOfOrNull { it.lastSeenAtEpochMs }?.let {
+                        if (it > lastRealInboundAt) lastRealInboundAt = it
+                    }
+                    if (tick % RECENT_PERSIST_TICKS == 0L) {
+                        RecentClients.record(appContext, online.mapNotNull { it.hostAddress })
+                    }
+                }
+                if (tick % LINK_PROBE_TICKS == 0L && online.isNotEmpty()) {
+                    session.launch(Dispatchers.IO) { runCatching { LinkProbe.sample(online) } }
+                }
+                // 存在通告（15s）：向各入口子网发定向广播——手机主动发出的帧持续刷新路由器
+                // 转发层对「手机在哪个口」的认知,把换频段/重关联后转发表不收敛的坏窗口压到秒级
+                //（7-27 故障机制:发往手机的帧被送往旧口黑洞,而手机出向帧会让沿路的表重新学习）。
+                if (tick % BEACON_TICKS == 0L) {
+                    session.launch(Dispatchers.IO) { runCatching { sendPresenceBeacon() } }
+                }
+                // 路径保活探测（30s）：疑似目标 = 「曾连过但当前离线」+「在线但流量已静默超阈」
+                //（后者是黑洞主场景:有活跃隧道时被黑洞,accounting 里仍算"在线",若只看离线集,
+                //  要等 idle 超时+ageOut 共 6 分钟以上才开始探——review 抓的检测盲区）。
+                // 只探当前入口子网内的目标(换网后的旧网段 IP 不探不判,单播也不会经默认路由外泄),
+                // 且排除本机自身地址(自用代理场景本机 IP 也在 recent 里,探自己永远通,零信息)。
+                if (tick % KEEPPATH_TICKS == 0L) {
+                    val nowMs = System.currentTimeMillis()
+                    val selfIps = lastAdmitKey
+                    val staleOnline = snap.clients
+                        .filter { nowMs - it.lastSeenAtEpochMs > OUTAGE_INBOUND_SILENCE_MS }
+                        .map { it.clientIp }
+                    val suspects = (lastSeenClients.filter { it !in online } + staleOnline)
+                        .distinct()
+                        .filter { inEntrySubnet(it) && it.hostAddress !in selfIps }
+                    if (suspects.isNotEmpty()) {
+                        session.launch(Dispatchers.IO) { runCatching { keepPathProbe(suspects) } }
+                    } else if (_state.value.unreachableClients.isNotEmpty()) {
+                        clearOutage("no-suspects")
+                    }
+                }
+                // 恢复检测（秒级）：真实入站一出现立即解除失联态（探测通道要等下轮,这里更快）。
+                if (_state.value.unreachableClients.isNotEmpty() &&
+                    System.currentTimeMillis() - lastRealInboundAt < 5_000
+                ) {
+                    clearOutage("inbound")
                 }
                 // 配对自探（30s）：127.0.0.1 与本机 LAN IP 各连一次本机监听端口，状态变化才落盘。
                 if (tick % SELF_PROBE_TICKS == 0L) {
@@ -319,7 +388,10 @@ class ProxyServerRepository @Inject constructor(
                 startServers(session, currentSettings)
                 refresh()
                 // 段②：主动探测最近客户端（每个目标最多 3 发；发包本身就是目的——刷沿路表项）。
-                val targets = lastSeenClients
+                // 排除本机自身地址（自用代理时本机 IP 也在 recent 里,探自己必通 → DONE_OK 假阳性
+                // 会掩盖真客户端的黑洞,review 抓的）;只探当前入口子网内的目标。
+                val selfIps = lastAdmitKey
+                val targets = lastSeenClients.filter { inEntrySubnet(it) && it.hostAddress !in selfIps }
                 if (targets.isEmpty()) return@runCatching ManualResetPhase.DONE_NO_CLIENT
                 val reachable = targets.any { addr ->
                     (1..MANUAL_PROBE_ATTEMPTS).any { LinkProbe.probe(addr) != null }
@@ -371,6 +443,166 @@ class ProxyServerRepository @Inject constructor(
         }
     }.getOrDefault(false)
 
+    /** 向各入口子网的定向广播地址发一个小 UDP 包（端口 9=discard，谁收到都静默丢弃）。
+     *  发包本身就是全部目的：广播帧会被 AP/路由器泛洪到所有口,沿路每张转发表都因此刷新
+     *  「手机 MAC 在哪」——等价于无 root 的存在通告。失败静默（离网瞬间等）。 */
+    private fun sendPresenceBeacon() {
+        val targets = broadcastTargets
+        if (targets.isEmpty()) return
+        var sent = 0
+        java.net.DatagramSocket().use { s ->
+            s.broadcast = true
+            targets.forEach { b ->
+                runCatching {
+                    s.send(java.net.DatagramPacket(BEACON_PAYLOAD, BEACON_PAYLOAD.size, b, BEACON_PORT))
+                    sent++
+                }
+            }
+        }
+        // 会话内首次落一条（可观测纪律：beacon 若因异常静默失效,不能无痕）。
+        if (!beaconLogged) {
+            beaconLogged = true
+            Ev.i(
+                LogCat.NET, "beacon.first", "sent" to sent, "of" to targets.size,
+                "to" to targets.joinToString("|") { it.hostAddress ?: "?" },
+            )
+        }
+    }
+
+    /** IPv4 子网定向广播地址（ip | ~mask）；非 v4 或异常前缀返回 null。 */
+    private fun subnetBroadcast(addr: InetAddress, prefix: Int): InetAddress? {
+        val b = addr.address
+        if (b.size != 4 || prefix !in 1..31) return null
+        val ip = ((b[0].toInt() and 255) shl 24) or ((b[1].toInt() and 255) shl 16) or
+            ((b[2].toInt() and 255) shl 8) or (b[3].toInt() and 255)
+        val bc = ip or ((1 shl (32 - prefix)) - 1)
+        return runCatching {
+            InetAddress.getByAddress(
+                byteArrayOf((bc ushr 24).toByte(), (bc ushr 16).toByte(), (bc ushr 8).toByte(), bc.toByte()),
+            )
+        }.getOrNull()
+    }
+
+    /** 对离线的 recent 客户端逐个探测：成功清零失败计数,失败累加;达阈值集合交给失联判定。 */
+    private suspend fun keepPathProbe(offline: List<InetAddress>) {
+        val unreachable = mutableListOf<String>()
+        offline.forEach { addr ->
+            val ok = LinkProbe.probe(addr) != null
+            val key = addr.hostAddress ?: return@forEach
+            synchronized(offlineFail) {
+                if (ok) offlineFail.remove(key)
+                else {
+                    val n = (offlineFail[key] ?: 0) + 1
+                    offlineFail[key] = n
+                    if (n >= OUTAGE_FAILS) unreachable.add(key)
+                }
+            }
+        }
+        evaluateOutage(unreachable)
+    }
+
+    /**
+     * 失联判定：曾有客户端 + 该客户端连续探测不可达 + 无真实入站已超阈 + 自探正常（app 层活着）。
+     * 成立 → 状态入 [ShareState.unreachableClients]（常驻通知随之切换告警文案）+ 自愈突发；
+     * 不再成立 → 解除。边沿各落一条 key.log。注：客户端正常关机/睡眠也符合此特征,
+     * 通知文案措辞为「可能失联」并只在常驻通知上变化,不新弹通知。
+     */
+    private fun evaluateOutage(unreachable: List<String>) {
+        // sawInbound 门：**本会话见过真实入站**才有资格判失联——7-27 型故障的本质是「正连着的
+        // 客户端突然黑洞」;会话从头就没人连过(如开机自动恢复后无人在用)不是失联,是没人来,
+        // 不然启动 90s 后必然误报(review 抓的 high)。保活探测与 beacon 不受此门影响,照常发。
+        val sawInbound = lastRealInboundAt != 0L
+        val noInbound = System.currentTimeMillis() - lastRealInboundAt > OUTAGE_INBOUND_SILENCE_MS
+        val appAlive = lastSelfProbe.startsWith("ok")
+        val outage = unreachable.isNotEmpty() && sawInbound && noInbound && appAlive
+        val prev = _state.value.unreachableClients
+        when {
+            outage && prev.isEmpty() -> {
+                clearStreak = 0
+                Ev.kw(
+                    LogCat.CONN, "client.unreachable",
+                    "clients" to unreachable.joinToString("|"),
+                    "inboundSilenceSec" to (System.currentTimeMillis() - lastRealInboundAt) / 1000,
+                )
+                _state.update { it.copy(unreachableClients = unreachable) }
+                maybeHealBurst(unreachable)   // 仅进入边沿触发;持续态不再反复突发(review 抓的 high)
+            }
+            outage -> {
+                clearStreak = 0
+                if (unreachable != prev) _state.update { it.copy(unreachableClients = unreachable) }
+            }
+            prev.isNotEmpty() -> {
+                // 出向迟滞：连续 CLEAR_STREAK 轮无嫌疑才解除——与进入的 3 连败对称。
+                // 半收敛链路(探测时通时断,恰是本特性的目标场景)下否则会 2 分钟一个周期振荡,
+                // 通知闪烁 + key.log 被成对的边沿事件刷屏。真实入站路径(ticker 秒级)不迟滞。
+                if (++clearStreak >= CLEAR_STREAK) clearOutage("probe-ok")
+            }
+        }
+    }
+
+    private fun clearOutage(why: String) {
+        if (_state.value.unreachableClients.isEmpty()) return
+        Ev.k(LogCat.CONN, "client.reachable", "why" to why)
+        // 不再清 offlineFail 全表：各 key 的清零由「该 IP 探测成功」与 stop() 负责——
+        // 全清会把其他仍在累计的客户端计数一并归零,推迟它们的首报。
+        healRounds = 0
+        clearStreak = 0
+        _state.update { it.copy(unreachableClients = emptyList()) }
+    }
+
+    /** 自愈突发：对失联客户端密集发单播（每个 [HEAL_BURST_PROBES] 发）——高频强刷「手机↔该客户端」
+     *  这对路径的转发状态。三重限流（review 抓的失控点）：单飞防重叠（突发最坏时长可超冷却）、
+     *  冷却从**结束**起算、告警期内最多 [HEAL_MAX_ROUNDS] 轮（治不好的如关机客户端不再整夜空转）。
+     *  仅首轮进 key.log，后续轮进主环。 */
+    private fun maybeHealBurst(targets: List<String>) {
+        if (healing || healRounds >= HEAL_MAX_ROUNDS ||
+            System.currentTimeMillis() - lastHealAt < HEAL_COOLDOWN_MS
+        ) {
+            return
+        }
+        healing = true
+        healRounds++
+        val round = healRounds
+        engineScope?.launch(Dispatchers.IO) {
+            try {
+                if (round == 1) Ev.k(LogCat.CONN, "path.heal", "targets" to targets.joinToString("|"))
+                else Ev.i(LogCat.CONN, "path.heal", "round" to round, "targets" to targets.joinToString("|"))
+                val results = targets.map { ip ->
+                    val addr = runCatching { InetAddress.getByName(ip) }.getOrNull() ?: return@map "$ip:-"
+                    var okCount = 0
+                    repeat(HEAL_BURST_PROBES) {
+                        if (LinkProbe.probe(addr) != null) okCount++
+                        delay(HEAL_BURST_GAP_MS)
+                    }
+                    "$ip:$okCount/$HEAL_BURST_PROBES"
+                }
+                val line = results.joinToString(",")
+                if (round == 1) Ev.k(LogCat.CONN, "path.heal.done", "result" to line)
+                else Ev.i(LogCat.CONN, "path.heal.done", "round" to round, "result" to line)
+            } finally {
+                healing = false
+                lastHealAt = System.currentTimeMillis()
+            }
+        } ?: run { healing = false }
+    }
+
+    /** IPv4 地址转 Int；非 v4 返回 null。 */
+    private fun ipv4Int(addr: InetAddress): Int? {
+        val b = addr.address
+        if (b.size != 4) return null
+        return ((b[0].toInt() and 255) shl 24) or ((b[1].toInt() and 255) shl 16) or
+            ((b[2].toInt() and 255) shl 8) or (b[3].toInt() and 255)
+    }
+
+    /** 该地址是否落在当前某个入口子网内。 */
+    private fun inEntrySubnet(addr: InetAddress): Boolean {
+        val ip = ipv4Int(addr) ?: return false
+        return entrySubnets.any { (net, prefix) ->
+            val mask = if (prefix <= 0) 0 else (-1 shl (32 - prefix))
+            (ip and mask) == (net and mask)
+        }
+    }
+
     /**
      * PERF 心跳：60s 一条进主环、每 [HEARTBEAT_KEY_EVERY] 条镜像进 key.log，随后 flush。
      * 7-26 排障的核心教训：正常流量不落盘 ⇒ 「故障起止时刻」在导出日志里不可定位，
@@ -408,7 +640,19 @@ class ProxyServerRepository @Inject constructor(
         totalDown.set(0)
         lastRecordedEntryKey = ""
         lastInterfaceIps = emptySet()
+        // 不在 stop 落盘 recent：lastSeenClients 含从盘上恢复的历史 IP,整体 record 会把它们的
+        // 时间戳全部刷新——7 天 TTL 被每次启停无限续命,僵尸 IP 永生(review 抓的)。ticker 已每
+        // 30s 落盘真正在线的集合,最多丢 30s 窗口,可接受。
         lastSeenClients = emptyList()
+        broadcastTargets = emptyList()
+        entrySubnets = emptyList()
+        lastRealInboundAt = 0L
+        lastHealAt = 0L
+        beaconLogged = false
+        healing = false
+        healRounds = 0
+        clearStreak = 0
+        synchronized(offlineFail) { offlineFail.clear() }
         _resetState.value = ManualResetPhase.IDLE
         // 会话边界必须清（曾漏清）：残留的 lastAdmitKey 会让新会话首次 refresh 在「接口扫描恰好为空」时
         // 跳过准入更新（保护分支判据正是 lastAdmitKey.isEmpty()），准入停在上个会话的旧值。
@@ -599,6 +843,10 @@ class ProxyServerRepository @Inject constructor(
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
         val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
         val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
+        // 存在通告的目标：各入口子网的定向广播地址。入口即客户端所在的网段——通告发给谁听不重要,
+        // 广播帧被泛洪的过程本身就在刷新沿路转发表。
+        broadcastTargets = effective.mapNotNull { subnetBroadcast(it.address, it.prefixLength) }
+        entrySubnets = effective.mapNotNull { i -> ipv4Int(i.address)?.let { it to i.prefixLength } }
         // 带接口名与类型：7-26 排障时 scan 里冒出过一个只有 IP 的 10.168.249.89，是什么接口至今无解
         //（当时 scanKey 只拼 IP）。名字+类型是判定「陌生接口从哪来」的最起码信息。
         val scanKey = interfaces.joinToString(",") {
@@ -744,6 +992,28 @@ class ProxyServerRepository @Inject constructor(
         const val SELF_PROBE_TIMEOUT_MS = 1500
         /** 手动刷新段② 对每个目标客户端的最大探测次数。 */
         const val MANUAL_PROBE_ATTEMPTS = 3
+        /** 存在通告间隔（1s ticker 计数）。 */
+        const val BEACON_TICKS = 15L
+        /** 存在通告端口：UDP discard——谁收到都静默丢弃,零副作用;发出去本身就是全部目的。 */
+        const val BEACON_PORT = 9
+        val BEACON_PAYLOAD: ByteArray = "hxmy".toByteArray()
+        /** 路径保活探测间隔（1s ticker 计数,对离线 recent 客户端）。 */
+        const val KEEPPATH_TICKS = 30L
+        /** 连续探测失败这么多次（×30s ≈ 90s）→ 判定失联。 */
+        const val OUTAGE_FAILS = 3
+        /** 无真实入站超过此时长才允许判失联（有流量=没失联）。 */
+        const val OUTAGE_INBOUND_SILENCE_MS = 90_000L
+        /** 自愈突发冷却（从上一轮**结束**起算）/ 每目标发包数 / 包间隔 / 单次告警期内最大轮数。
+         *  冷却必须大于「进 90s + 出迟滞 60s」的最短振荡周期,否则半收敛链路上每个振荡都撞上突发。 */
+        const val HEAL_COOLDOWN_MS = 240_000L
+        const val HEAL_BURST_PROBES = 10
+        const val HEAL_BURST_GAP_MS = 500L
+        const val HEAL_MAX_ROUNDS = 3
+        /** 失联解除需要连续这么多轮（×30s）无嫌疑（出向迟滞,与进入 3 连败对称）。 */
+        const val CLEAR_STREAK = 2
+        /** recent 客户端内存上限与落盘间隔（1s ticker 计数）。 */
+        const val RECENT_MAX = 8
+        const val RECENT_PERSIST_TICKS = 30L
     }
 }
 

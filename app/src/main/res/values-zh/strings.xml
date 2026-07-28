@@ -471,6 +471,7 @@
     <string name="refresh_dead_title">还是连不上？</string>
     <string name="refresh_dead_body">应用已完成全量重置，但最近的客户端仍无响应。陈旧状态大概率在系统 WLAN 层，应用无权重置它——开关一次 WLAN 或飞行模式即可清除。</string>
     <string name="refresh_open_panel">打开网络面板</string>
+    <string name="notif_client_unreachable">客户端 %1$s 可能失联 · 点按处理</string>
     <string name="dash_selected_count">已选 %1$d/%2$d</string>
     <string name="monitor_last_60s">最近 60 秒</string>
     <string name="stat_unit_devices">台设备</string>

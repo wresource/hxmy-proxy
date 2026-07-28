@@ -471,6 +471,7 @@
     <string name="refresh_dead_title">Still unreachable?</string>
     <string name="refresh_dead_body">The app has fully reset itself, but recent clients still don\'t respond. The stale state likely lives in the system Wi-Fi layer, which apps can\'t reset — toggling Wi-Fi or airplane mode clears it.</string>
     <string name="refresh_open_panel">Open network panel</string>
+    <string name="notif_client_unreachable">Client %1$s may be unreachable · tap to fix</string>
     <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>
