@@ -7,6 +7,7 @@ import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.rules.RuleSrc
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import java.io.File
 import org.junit.Test
@@ -134,6 +135,53 @@ class BuiltinRuleAssetsTest {
             "h.trace.qq.com",            // 追踪
         ).forEach {
             assertEquals("$it 应保持拦截", RuleAction.REJECT, engine.decide(it))
+        }
+    }
+
+    /**
+     * 第二批救济(2026-07-28,556 条冲突分诊)的高置信条目：都有实测/反编译级证据，
+     * 且拦掉会造成用户可见的功能损坏。同时锁住「复核时被推翻」的那批仍要拦——
+     * 它们看着像内容(img/video/cdn 命名)实则服务广告投放，是本轮最容易判错的一类。
+     */
+    @Test
+    fun secondBatchAllowlistRescuesAndStillBlocksLookalikes() {
+        val engine = RuleEngine()
+        engine.update(
+            RuleEngine.Snapshot(
+                adsAllow = matcherOf("ads-allowlist.txt"),
+                reject = matcherOf("ads-oisd-small.txt"),
+                direct = matcherOf(
+                    "app-tencent.txt", "app-wechat.txt", "app-alibaba.txt",
+                    "app-douyin.txt", "app-kuaishou.txt", "app-netease.txt", "app-jd.txt",
+                ),
+            ),
+        )
+        // 拦掉会坏功能的：长连接/起播/搜索/设备注册/直播拉流/验证码/商品图
+        listOf(
+            "accscdn.m.taobao.com",        // 淘系 ACCS 长连接(反编译硬证 SERVICE_HOST)
+            "amdcopen.m.taobao.com",       // 淘系接入调度
+            "vd6.l.qq.com",                // 腾讯视频起播
+            "vi.l.qq.com",
+            "wxsnsdy.tc.qq.com",           // 朋友圈视频正片(注意与 wxsnsad 广告域区分)
+            "log.snssdk.com",              // 字节 device_register(实测返回 device_id/install_id)
+            "search.ixigua.com",           // 西瓜搜索(实测 1.27MB 结果页)
+            "ks-p2p.pull.yximgs.com",      // 快手直播拉流(父域 pull.yximgs.com 覆盖)
+            "ye.dun.163yun.com",           // 网易易盾验证码
+            "img2.360buyimg.com",          // 京东商品图分片
+            "images.pinduoduo.com",        // 拼多多商品图
+        ).forEach {
+            assertNotEquals("$it 拦掉会坏用户功能，应被救济", RuleAction.REJECT, engine.decide(it))
+        }
+        // 复核时被推翻的「像内容实为广告」：必须仍然拦
+        listOf(
+            "wm.mipcdn.com",               // 实测 <title>百度网盟推广</title>
+            "feed-image.baidu.com",        // 网盘开屏广告图
+            "img1.126.net",                // 网易富媒体广告图床
+            "adsmind.gdtimg.com",          // 广点通素材
+            "ads-img-al.xhscdn.com",       // 小红书广告图
+            "v1-ad.video.yximgs.com",      // 快手广告视频(证明 pull.yximgs.com 父域没扩散过界)
+        ).forEach {
+            assertEquals("$it 是广告投放，应保持拦截", RuleAction.REJECT, engine.decide(it))
         }
     }
 

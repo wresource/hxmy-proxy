@@ -33,3 +33,177 @@ gvideo.qpic.cn
 # 微信小程序视频播放器(wxamedia = WeiXin App Media),父域 wxamedia.com 在 app-tencent.txt;
 # oisd 收录的是三个具体租户号子域,这里用父域一并救济。解析:cdn.dnsv1.com(腾讯云 CDN)。
 vodplayer.wxamedia.com
+
+# ═══ 第二批:556 条冲突候选的人工复核结果(2026-07-28)═══════════════
+# 复核方法:DNS CNAME 链(dnsresults.txt 全量)+ 端点实测响应 + 上游列表的
+# 已采纳误报 issue + 人工精选表(blackmatrix7 / NobyDa / Hackl0us / v2fly)交叉比对。
+# 只收「拦掉会让用户功能坏且无从排查」的域;纯广告投放/纯追踪/可降级遥测一律不收。
+
+# ─── 腾讯 / Tencent(父域 qq.com 等在 app-tencent.txt)──────────────
+# 腾讯视频起播链路:vd6 取播放文件信息(/proxyhttp),vi 取 video info/播放参数。
+# 拦掉 → 腾讯视频/腾讯新闻内嵌视频点了一直转圈、取不到 m3u8。三份独立故障报告已放行:
+# Cats-Team/AdRules#166、217heidai/adblockfilters#80、hagezi/dns-blocklists#10746。
+# 反向印证:NobyDa/Hackl0us 拦了十几个 *.l.qq.com,唯独不含 vd6/vi。
+vd6.l.qq.com
+vi.l.qq.com
+# 朋友圈动态视频源(dy=动态,与朋友圈广告域 wxsnsad.tc.qq.com 是两个域,勿混)。
+# 微信官方 miniprogram-demo、Taro 官方 Video 示例都用 wxsnsdy.tc.qq.com/…/snsdyvideodownload
+# 作为 <video> src;拦掉 → 朋友圈视频、小程序 video 组件黑屏。DNS: legodlied1-dk(腾讯云下载 CDN)。
+# 其缩略图配套域 wxsnsdythumb.wxs.qq.com 已在上面救济,本条是正片。
+wxsnsdy.tc.qq.com
+# 腾讯视频分发节点调度(dsp=dispatch 调度,非 DSP 广告平台)。DNS: video.dsplego-dk.sched.dcloudstc.com。
+# 依据:blackmatrix7 的 Advertising.stoverride 不封该域,只按路径 reject 贴片素材
+# ^https?://video\.dispatch\.tc\.qq\.com/\w+\.p20\d\.1\.mp4 —— 即作者认定域级拦会误伤正片。
+# ⚠️代价:救济后该域上的贴片广告 mp4 也会一并放行(我们无法做路径级拦截)。
+video.dispatch.tc.qq.com
+# 腾讯视频直播/正片流。DNS: vlive.vlivelego-dk.sched.dcloudstc.com(腾讯云直播/点播 CDN)。
+# 同族的广告素材域是 vmind.qqvideo.tc.qq.com(被按路径 reject),vlive 不在任何广告规则里。
+vlive.qqvideo.tc.qq.com
+# 小程序 DRM 视频授权/密钥(mini-prog + drm,无任何广告语义)。
+# DNS: …cdn.dnsv1.com → os7yy0si.sched.vodlego-dk.tdnsvod4.cn,与已救济的 vodplayer.wxamedia.com 同集群。
+# 拦掉 → 小程序内加密视频黑屏/一直缓冲。仅出现在自动聚合表,无手工列表单独收录。
+mini-prog-drm.vodplayvideo.net
+# 小程序静态资源/对象存储(wxa=小程序,cos=腾讯云对象存储)。
+# DNS: …cdn.dnsv1.com → 3m6wo1ti.sched.sma-dk.tdnsstic1.cn,与实测误杀的 wximg.wxs.qq.com
+# (lyejtndn.sched.sma-dk)同一静态素材 CDN 集群。拦掉 → 小程序白屏/图片裂,与 07-28 故障同型。
+wxaintpcos.wxqcloud.qq.com.cn
+# 腾讯直播带货的商品图文素材。DNS: …cloud.tc.qq.com → file.daihuo.sched.legopic2-dk.tdnsv6.com,
+# 与实测误杀的 wxa.wxs.qq.com 同一 legopic2-dk 图片 CDN 调度集群;腾讯广告素材走 gdtimg/adsmind 另一族。
+file.daihuo.qq.com
+# 腾讯智慧零售(zhls)导购小程序的商品图/海报。DNS: …cloud.tc.qq.com → sched.legopic2-dk.tdnsv6.com
+# (同上图片 CDN 集群)。注:AWAvenue 把它归 Privacy 而非广告,但纯追踪域不会落进图片 CDN 调度池。
+pcm-img.zhls.qq.com
+
+# ─── 阿里巴巴 / Alibaba(父域 taobao.com / sm.cn 在 app-alibaba.txt)───
+# 淘系 networksdk 的 AMDC 接入调度(下发接入 IP/协议)。反编译硬证:友盟 PushAgent.java
+# DispatchConstants.setAmdcServerDomain{"amdcopen.m.taobao.com", …};anti-AD#778 实测拦掉后
+# 天猫超市「加入购物车/购买」按钮消失。拦掉 → 淘系 App 启动后接口大面积超时,根因完全不可见。
+amdcopen.m.taobao.com
+# 淘系 ACCS 长连接主机。反编译硬证多处复现:com/taobao/accs/common/Constants.java
+# SERVICE_HOST = "accscdn.m.taobao.com";大麦/钉钉 AccsClientConfig DEFAULT_CHANNEL_HOSTS 同名。
+# 拦掉 → 淘宝/闲鱼/钉钉/优酷等所有集成 com.taobao.accs 的 App 收不到推送、消息不实时。
+accscdn.m.taobao.com
+# 优酷侧 ACCS 长连接入口。DNS: → openacs.m.taobao.com → zb-center-openacs…(与 accscdn 同一
+# 59.82.x 长连接集群)。同型实证:anti-AD#1106 优酷首播报错,根因是 ACS 域被拦,加白后恢复。
+youku-acs.m.taobao.com
+# 友盟推送的消息长连接入口(msgacs = message + ACCS)。DNS: 两条都 CNAME 到 msgacs.m.umeng.com。
+# 拦掉 → 集成友盟推送的第三方 App 收不到通知(含订单/物流/IM,不只营销)。
+# 对照:blackmatrix7 Direct.list 保留 msg.umeng.com,而把友盟统计的 adash/ulogs 另行拦掉。
+umengacs.m.taobao.com
+umengjmacs.m.taobao.com
+# 淘宝小程序/店铺 hybrid 容器。决定性证据是 DNS 就是店铺主站的别名:
+# → shop.taobao.com → tao.conf.cn.zb.v4.aserver.alibabacorp.com(aserver=淘宝 mtop 无线网关)。
+# 广告接入走 tao.ad.tengine.ingress / tanx / simba 一系。拦掉 → 店铺 hybrid 页白屏。
+hybrid.miniapp.taobao.com
+# 神马搜索的输入联想接口。一手证据:SearXNG 源码 searx/autocomplete.py 直接调用
+# https://sugs.m.sm.cn/web?q=<query> 作为神马自动补全后端。
+# ⚠️CNAME 里出现 so.advertisement.alibabacorp.sm.cn 只是神马归属阿里广告事业部的接入层命名
+# (log.m.sm.cn 同一 CNAME);真正的广告域解析完全不同(huichuan.sm.cn / image-ad.sm.cn 等,保持拦截)。
+sugs.m.sm.cn
+
+# ─── 高德地图 / AMap(父域 amap.com 在 app-amap.txt)────────────────
+# 定位服务的逆地理编码(aps=定位服务,rgeo=reverse geocoding,高德官方 API 标准缩写)。
+# DNS 走通用业务接入 ingress.amap.com;高德的采集域是另一批(cgicol/dualstack-logs,保持拦截)。
+# 拦掉 → 用高德定位 SDK 的 App「正在定位…」不结束、地址文本为空。
+apsrgeo.amap.com
+
+# ─── 京东 / JD(父域 360buyimg.com 在 app-jd.txt)──────────────────
+# 京东商品图床分片。硬实验:同一张首页真实商品图路径向 img1/img2/img10/img30 请求,
+# 四台全部 200 且字节数完全一致 → imgN 是可互换分片,不存在「img2 专供广告」。
+# SM-Ad 自己注释掉了同池的 img10 并注明「会误杀京东商品详情页的图」;AWAvenue#197 标注「非广告域名」。
+img2.360buyimg.com
+
+# ─── 抖音·西瓜·字节(父域 ixigua/snssdk/amemv 在 app-douyin.txt)────
+# 西瓜视频信息流主接口。实测 GET /video/app/stream/v51/ 返回业务 JSON
+# {"message":"success","data":[],"has_more":false,"login_status":0,…},非广告响应。
+# 拦掉 → 西瓜首页/推荐/详情全线空白,App 基本不可用。(AWAvenue 把它放 Only.Ads 桶,实测证伪)
+api5-normal-quic-lf.ixigua.com
+# 西瓜视频搜索业务本体。实测 GET /search/ 四台均返回 200 + 约 1.27 MB 完整搜索结果页 HTML。
+# 拦掉 → 搜索直接白屏/报错,搜不到任何视频。
+search.ixigua.com
+search3-search.ixigua.com
+search5-search.ixigua.com
+search5-search-hl.ixigua.com
+# 字节 AppLog 的设备注册端点(不只是埋点 sink)。实测三台 POST /service/2/device_register/
+# 均返回 {"server_time":…,"device_id":0,"install_id":0}。拦掉 → 新装/清数据后拿不到 did/iid,
+# 抖音登录验证码加载失败、同城与直播无数据。anti-AD#920 已确认修复;SM-Ad 亦注释掉该条。
+log.snssdk.com
+log-hl.snssdk.com
+log.amemv.com
+# 字节 OAuth 授权端点。实测 GET /oauth/authorize/ 返回业务响应
+# {"data":{"error_code":10005,"description":"缺少参数"}}(同主机其它路径返回 TLB 404,说明只有鉴权路由存在)。
+# 拦掉 → 第三方 App 用「今日头条/抖音账号登录」授权失败。
+open.snssdk.com
+# 功能开关/降级策略下发(server→client 的配置下发,不是上行埋点)。实测 GET /common 返回
+# 5741 字节开关 JSON:{"code":0,"data":{"is_open_batch_backtrack":…,"ec_use_annie_component":…}}。
+# 拦掉 → 字节系 App 启动期没网、组件走默认降级路径。
+abtest-ch.snssdk.com
+# 字节 TTNet 的网络配置下发(get_domains)。实测 GET /get_domains/v4/ 返回
+# {"data":{"send_tnc_host_arrays":["tnc0-alisc1.zijieapi.com","tnc0-aliec2.zijieapi.com"]},"message":"success"}。
+# 既非广告投放也非行为上报;拦掉 → 拿不到接入点映射,刷新失败/启动期短暂无网。
+# ⚠️如实披露:SM-Ad 与 AWAvenue 目前仍在拦这三条,救济属本项目「保守优先」口径。
+tnc3-aliec2.snssdk.com
+tnc3-alisc1.snssdk.com
+tnc3-bjlgy.snssdk.com
+
+# ─── 百度 / Baidu(父域 baidu.com / bdurl.net 在 app-baidu.txt)──────
+# 百度搜索前端共享池(sp0~sp3 CNAME 均为 www.a.shifen.com、IP 同为 39.156.70.46/239)。
+# anti-AD#44 已确认并修复的实测误杀:百度搜索英文单词的朗读音频来自 sp0.baidu.com。
+# ⚠️如实披露:zz.bdstatic.com/linksubmit/push.js 的自动推送信标确实打向 sp0…/s.gif —— 这是各表收
+# 录它的原因;但该主机是路径复用的共享池,域级拦截会连功能接口一起打死,故按保守口径救济。
+sp0.baidu.com
+sp1.baidu.com
+sp2.baidu.com
+sp3.baidu.com
+# 字节 DIG 上报网关(域名归字节,只是被归进了 app-baidu 组)。虽名义属遥测,但是「上报被阻塞
+# 会卡死启动链路」的强依赖型:anti-AD#726「pico VR 无法登录、无法正常使用」已确认修复;
+# SM-Ad 第 1984 行该条自带注释「#头条极速版没网」。
+dig.bdurl.net
+
+# ─── 快手 / Kuaishou(父域 yximgs.com 等在 app-kuaishou.txt)─────────
+# 直播拉流域族。ads 表中 *.pull.yximgs.com 现有 7 条(ks / tx-kmpaudio / ks-p2p / ks-p2p-v2 /
+# hw-p2p / tx-p2p-v2 / ali-p2p-v2)全部是拉流,故用父域一条覆盖;快手的广告域在 a.yximgs.com
+# (ali-ad / tx-ad / hw-ot-ad)与 video.yximgs.com(v1~v3-ad),不在 pull. 下,不受本条影响。
+# DNS 逐条核过:hdllive/hdlvcloud.ks-cdn.com(金山云 HDL 直播)、kmp-audio.6000.liveplay.myqcloud.com
+# (腾讯云直播音频)、hcdnl.pullksp2p-v6.gslb.c.cdnhwc2.com(华为云)、ks.sched.lego2-dk.tdnslive1.cn
+# (腾讯云直播线)。上游收录动机是 PCDN 上传带宽治理,不属广告/追踪/遥测。
+pull.yximgs.com
+# 上面 hw-p2p / tx-p2p 的别名域,DNS 链逐跳完全一致(cdnhwc / qlivecdn),父域已在 app-kuaishou.txt。
+hw-p2p-pull.video-voip.com
+tx-p2p-pull.live-voip.com
+
+# ─── 网易 / NetEase(父域 163yun.com 在 app-netease/app-neteasemusic)──
+# 网易易盾的账号安全校验端点(滑块验证码/一键登录鉴权),是交互式必经请求,失败即阻断。
+# ACL4SSR 把它单列进 ChinaOneKeyLogin.list(一键登录规则集);anti-AD 只放在 discretion/anv.txt
+# 酌情目录;anti-AD#1014 后果为「网易云音乐无法进行账号安全校验」。DNS: yidun-bgp-hzbj-yw.ntes53.netease.com。
+# 与已确认可拦的数美 fengkongcloud / 阿里 ynuf 指纹的区别:那两者是单向上报,失败可降级。
+ye.dun.163yun.com
+
+# ─── 喜马拉雅 / Ximalaya(父域 xmcdn.com 在 app-ximalaya.txt)─────────
+# 音频分发。后缀匹配的连带伤害是关键:Homebrew Casks/x/ximalaya.rb 用
+# nativedl.pcdn.xmcdn.com/storages/… 作为官方客户端安装包地址(写在 verified: 字段);
+# audiopay.pcdn.xmcdn.com 承载付费音频(七牛 CDN)。本域自身 CNAME wsall.xmcdn.com.cdn20.com,
+# 与点播域 aod.xmcdn.com 同一网宿入口。上游收录动机是 P2P 上传带宽,不是广告。
+pcdn.xmcdn.com
+
+# ─── 小米 / Xiaomi(父域 xiaomi.com 在 app-xiaomi.txt)───────────────
+# MiPush 推送域 + 手机管家号码库更新。1Hosts#596 报告人原文「These are MiPush Domains /
+# If this domain is blocked, I cannot receive messages from MiPush」,维护者打 allow 并已落地
+# 排除;anti-AD#328 报告拦掉会导致「MIUI 手机管家无法更新骚扰拦截/诈骗号码库」。
+# DNS: l7-matrix-new.sec.miui.com。(hagezi native.xiaomi 收录它,但该系列本就承认会损失设备功能)
+api.miui.security.xiaomi.com
+
+# ─── 优酷 / Youku(父域 cibntv.net 在 app-youku.txt)────────────────
+# 优酷 OTT/电视端(酷喵)的 UPS 起播接口(pl=play,UPS=Unified Play Service,取播放地址/m3u8)。
+# DNS 首跳直接暴露身份:→ ups-aserver-heyi.base.youku.com → secgw-aserver-heyi.m.taobao.com。
+# 拦掉 → 电视端视频完全无法起播(黑屏/一直加载),而不是「跳过广告」。
+# ⚠️如实披露:UPS 响应里同时带播放地址与贴片广告信息,这是部分广告表一并收录它的原因;
+# 同族真广告域 yk-ssp-ad.cp31 / ykad-data.cp31 保持拦截。误报流程最严谨的 hagezi 不拦 pl.cp31。
+pl.cp31.ott.cibntv.net
+
+# ─── 拼多多 / Pinduoduo(父域 pinduoduo.com 在 app-pinduoduo.txt)────
+# 商品图 CDN。DNS: → images.pddcdn.com → opencdnpddpic.jomodns.com(pdd 自有图片 CDN 调度)。
+# 关键反证不成立:AWAvenue 这份精选广告表对拼多多只收 t-dsp.pinduoduo.com 与 video-dsp.pddpic.com
+# 两条 DSP 域,专门把 images.pinduoduo.com 排除在外;第三方脚本对它只做 URL 级重写而非整域 reject,
+# 说明广告图与商品图混在同域、DNS 层整域拦必然误伤。拦掉 → 拼多多商品图大面积裂图。
+images.pinduoduo.com
