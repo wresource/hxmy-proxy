@@ -483,6 +483,12 @@
     <string name="rules_scope_badge_exact">exact</string>
     <string name="rules_scope_badge_single">1 level</string>
     <string name="rules_scope_badge_suffix">all levels</string>
+    <!-- 日志级别筛选 -->
+    <string name="logs_filter_all">All</string>
+    <string name="logs_filter_warn">W and up</string>
+    <string name="logs_filter_error">Errors</string>
+    <string name="logs_filtered_count">showing %1$d</string>
+    <string name="logs_no_match">No entries at this level.</string>
     <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>

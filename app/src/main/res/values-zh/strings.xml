@@ -483,6 +483,12 @@
     <string name="rules_scope_badge_exact">仅此域</string>
     <string name="rules_scope_badge_single">下一级</string>
     <string name="rules_scope_badge_suffix">所有层级</string>
+    <!-- 日志级别筛选 -->
+    <string name="logs_filter_all">全部</string>
+    <string name="logs_filter_warn">警告以上</string>
+    <string name="logs_filter_error">仅错误</string>
+    <string name="logs_filtered_count">显示 %1$d 条</string>
+    <string name="logs_no_match">该级别下没有日志。</string>
     <string name="dash_selected_count">已选 %1$d/%2$d</string>
     <string name="monitor_last_60s">最近 60 秒</string>
     <string name="stat_unit_devices">台设备</string>

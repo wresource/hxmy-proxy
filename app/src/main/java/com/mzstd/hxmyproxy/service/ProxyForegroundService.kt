@@ -60,8 +60,17 @@ class ProxyForegroundService : Service() {
             buildNotification(localized().getString(R.string.notif_starting)),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+        // 收集器只随服务实例启动一次（重复 collect 会叠加通知推送）。
         if (!started) {
             started = true
+            scope.launch { repository.state.collect { lastState = it; pushNotification() } }
+            scope.launch { settingsRepository.settings.collect { language = it.language; pushNotification() } }
+        }
+        // 引擎是否启动**看引擎自己的真实状态**，不只看 started 标志：标志是服务级的，曾经出过残留
+        // （stopSelf→onDestroy 窗口），一旦残留就会整段跳过 repository.start()，连带跳过其中的
+        // 计量归零 —— 表现为「重开了共享，流量却把上一次的接着算」。start() 内有 `if (running) return`
+        // 保幂等，真在跑时这里不会重复启动、更不会误清零。
+        if (!repository.isRunning()) {
             // intent == null ⇒ 系统按 START_STICKY 重建服务，即**此前被系统杀过**——这是「服务意外停止」
             // 这类故障唯一的直接证据（此前整个文件零落盘，只能靠旁证猜）。
             Ev.k(LogCat.SVC, "fgs.start", "restart" to (intent == null), "startId" to startId, "flags" to flags)
@@ -69,8 +78,6 @@ class ProxyForegroundService : Service() {
             // 绝不走 settings flow —— 那会触发 applyTunables/规则重建/serverKey 热重启/refresh，与引擎启动并发。
             ServiceState.setWasSharing(this, true)
             scope.launch { repository.start(scope) }
-            scope.launch { repository.state.collect { lastState = it; pushNotification() } }
-            scope.launch { settingsRepository.settings.collect { language = it.language; pushNotification() } }
         }
         return START_STICKY
     }

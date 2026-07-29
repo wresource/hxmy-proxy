@@ -161,6 +161,8 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastSelfProbeLogged: String? = null
     /** 心跳序号（会话内），每 HEARTBEAT_KEY_EVERY 条镜像一条进 key.log。 */
     private var heartbeatN = 0L
+    /** 本次共享会话的开始时刻；心跳带上它，日志里能一眼看出计量是从哪一刻起算的。 */
+    @Volatile private var sessionStartedAt = 0L
 
     private val _state = MutableStateFlow(ShareState())
     val state: StateFlow<ShareState> = _state.asStateFlow()
@@ -175,11 +177,7 @@ class ProxyServerRepository @Inject constructor(
     suspend fun start(scope: CoroutineScope) {
         if (running) return
         running = true
-        // 新会话边界：累计流量与连接计数归零（避免上次会话残留）。
-        totalUp.set(0)
-        totalDown.set(0)
-        registry.reset()
-        accounting.reset()
+        resetSessionCounters()
         // 跨会话恢复最近客户端：路径保活/手动刷新从会话第一秒就有探测目标——
         // 最需要被探的客户端恰恰是「本会话还没连上来的那台」。
         lastSeenClients = RecentClients.load(appContext).keys
@@ -355,6 +353,26 @@ class ProxyServerRepository @Inject constructor(
             }
         }
         _state.update { it.copy(running = true) }
+    }
+
+    /**
+     * 一次「共享」= 一个计量周期 —— 这是该口径在代码里**唯一**的语义边界（用户拍板 2026-07-29）。
+     *
+     * 开始与停止两端都调用它：停止时清零让 UI 立刻回到 0，开始时清零保证新会话从头计。
+     * 收敛成一个函数而非在 start/stop 里各散落几行 `set(0)`，是因为散着写漏一处就会表现为
+     * 「重开共享后流量把上一次的接着算」，而这种错只有用户能发现、日志里看不出来。
+     * 自动恢复（开机 / app 更新）走的是新进程，天然从这里重新开始，同样算新的一次共享。
+     *
+     * 新增任何"本次会话累计"性质的计量项，都必须加到这里。
+     */
+    private fun resetSessionCounters() {
+        totalUp.set(0)
+        totalDown.set(0)
+        registry.reset()
+        accounting.reset()
+        LinkProbe.reset()          // 上次会话的链路样本不带到这次
+        sessionStartedAt = System.currentTimeMillis()
+        heartbeatN = 0
     }
 
     /** 探活：经底层网络（bypass=true）或默认网络（含 VPN）连国内可达的 223.5.5.5:53。 */
@@ -616,6 +634,10 @@ class ProxyServerRepository @Inject constructor(
                 .joinToString(",").ifEmpty { "none" },
             "conn" to registry.activeGlobal,
             "accept" to servers.sumOf { it.acceptCount },
+            // 本次会话累计字节 + 会话已运行秒数：用户报「流量数字不对」时，这两个字段能直接
+            // 从日志判定是「没在涨」还是「没在会话边界断回 0」，不必再靠 UI 截图比对。
+            "total" to (totalUp.get() + totalDown.get()),
+            "sessionSec" to (if (sessionStartedAt == 0L) -1 else (System.currentTimeMillis() - sessionStartedAt) / 1000),
             "clients" to clients,
             "localAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty>" },
             "rssi" to sig.dbm,
@@ -636,8 +658,7 @@ class ProxyServerRepository @Inject constructor(
         sessionScope?.cancel()
         sessionScope = null
         engineScope = null
-        totalUp.set(0)
-        totalDown.set(0)
+        resetSessionCounters()   // 会话结束：计量归零，UI 立刻回到 0
         lastRecordedEntryKey = ""
         lastInterfaceIps = emptySet()
         // 不在 stop 落盘 recent：lastSeenClients 含从盘上恢复的历史 IP,整体 record 会把它们的
@@ -658,10 +679,6 @@ class ProxyServerRepository @Inject constructor(
         // 跳过准入更新（保护分支判据正是 lastAdmitKey.isEmpty()），准入停在上个会话的旧值。
         lastAdmitKey = emptySet()
         lastScanKey = ""
-        registry.reset()
-        accounting.reset()
-        LinkProbe.reset()   // 会话边界：上次会话的链路样本不带到这次
-        heartbeatN = 0
         lastSelfProbe = "-"
         lastSelfProbeLogged = null   // 下个会话第一次自探必落一条基线（"-->ok/ok"）
         _state.value = ShareState()
