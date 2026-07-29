@@ -16,7 +16,17 @@
 #   3. 有客观依据(DNS CNAME 指向 CDN 基础设施 / 厂商文档 / 实测流量)
 # 判断存疑时**不要收录** —— 漏救济只是少了个直连,错救济会放广告进来。
 #
+# 【已复议、明确不收录的两类】(2026-07-28 全量分诊 556 条冲突时逐条看过,共 32 条存疑域名)
+#   · P2P / PCDN 上传带宽(斗鱼虎牙 msstatic 系、腾讯游戏 p2pupdate、tracker.dcdn.baidu.com):
+#     拦掉最坏只是回落普通 CDN,功能不坏;放行则等于替厂商省 CDN 钱、拿用户的上行带宽。
+#   · HTTPDNS / 安全 SDK(httpdns.bcelive.com、sofire.bdstatic.com、sec.miui.com 系、
+#     imtt.qq.com 系、serveraddr.service.kugou.com):这类域名的作用就是**绕过系统 DNS 自己解析**,
+#     放行等于给该 App 开一条绕过整张规则表的旁路 —— 救济它反而会让广告拦截整体失效。
+#   两类都等排障仪表出现高频 REJECT、且能对上具体功能故障时再逐条复议,不凭猜测提前放行。
+#
 # 【格式】每行一个域名,后缀匹配(含所有子域);# 开头为注释。
+# 每加一条都会被 BuiltinRuleAssetsTest 检查:父域必须在某个 app-*.txt 里,且必须确实救到
+# ads 表中的某条(自身或其子域)——上游移除后变成空转的条目要清理掉。
 
 # ─── 微信 / WeChat ───────────────────────────────────────────────
 # 父域 wxs.qq.com 已在 app-wechat.txt。以下四个子域被 oisd 收录,实测全部解析到腾讯云 CDN:

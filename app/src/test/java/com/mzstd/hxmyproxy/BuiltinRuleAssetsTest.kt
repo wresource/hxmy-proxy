@@ -185,36 +185,90 @@ class BuiltinRuleAssetsTest {
         }
     }
 
+    /** 规则文件的有效行（去注释与空行，小写、去尾点），与装载逻辑同一口径。 */
+    private fun lines(name: String): List<String> =
+        File(assetsDir, name).readLines()
+            .map { it.trim().lowercase().trimEnd('.') }
+            .filter { it.isNotEmpty() && it[0] != '#' }
+
+    /** 全部 app-*.txt 的域名集合（内置直连组）。 */
+    private fun appDomains(): Set<String> {
+        val out = HashSet<String>()
+        assetsDir.listFiles { f -> f.name.startsWith("app-") && f.name.endsWith(".txt") }
+            ?.forEach { out.addAll(lines(it.name)) }
+        return out
+    }
+
+    /** ads 表里「父域已在某个 app-* 直连组」的条目 —— 潜在误杀清单。 */
+    private fun adsAppConflicts(): List<String> {
+        val app = appDomains()
+        return lines("ads-oisd-small.txt").filter { a ->
+            val labels = a.split('.')
+            // 从 i=1 起：只看**父域**落在直连组的情况（自身同名不算冲突，那是两表都收的同一条）
+            (1 until labels.size).any { i -> labels.subList(i, labels.size).joinToString(".") in app }
+        }
+    }
+
     /**
-     * 冲突可见性：ads 表里「父域已在某个 app-* 直连组」的条目属于潜在误杀，
-     * 必须保持在已知规模内。上游 oisd 更新后若新增大量此类条目，此测试会失败，
-     * 迫使人工复核并按需补进 ads-allowlist.txt（而不是等用户报告功能坏掉）。
+     * 冲突可见性：统计的是**尚未被救济表覆盖**的潜在误杀数，不是冲突总数。
+     *
+     * 口径 2026-07-29 改过一次。旧口径统计 ads×app 交集总数（556，阈值 620），问题是**已经人工复核并
+     * 补进 ads-allowlist.txt 的条目仍然占着额度** —— 救济得越多，离阈值反而越近，等于惩罚做正事。
+     * 上游 oisd 更新带来的**新增**误杀因此被已有存量稀释，要涨到 620 才报警，晚了 60 多条。
+     *
+     * 新口径只数「冲突且没被救济」的（实测 498，阈值 560）：救济一条就少一条，剩下的才是真正待复核的。
      */
     @Test
     fun adsAppConflictsStayWithinKnownBaseline() {
-        val appDomains = HashSet<String>()
-        assetsDir.listFiles { f -> f.name.startsWith("app-") && f.name.endsWith(".txt") }
-            ?.forEach { f ->
-                f.forEachLine { line ->
-                    val d = line.trim().lowercase().trimEnd('.')
-                    if (d.isNotEmpty() && d[0] != '#') appDomains.add(d)
-                }
-            }
-        val conflicts = ArrayList<String>()
-        File(assetsDir, "ads-oisd-small.txt").forEachLine { line ->
-            val a = line.trim().lowercase().trimEnd('.')
-            if (a.isEmpty() || a[0] == '#') return@forEachLine
-            val labels = a.split('.')
-            for (i in 1 until labels.size) {
-                if (labels.subList(i, labels.size).joinToString(".") in appDomains) {
-                    conflicts.add(a); break
-                }
-            }
-        }
-        // 2026-07-28 实测基线 556；留出余量，显著增长即需人工复核。
+        val conflicts = adsAppConflicts()
+        // 用真实的救济表判定（与 RuleEngine 里 `adsAllow.matches(host)` 同一份代码路径）
+        val allow = load("ads-allowlist.txt")
+        val unrescued = conflicts.filter { !allow.matches(it) }
+
+        // 2026-07-29 实测：冲突 556，其中 58 条已被救济表的 50 个条目覆盖，剩 498 待复核。
         assertTrue(
-            "ads 与 app 直连组的冲突条目 ${conflicts.size} 超出基线，请复核新增项是否为误杀并按需补进 ads-allowlist.txt",
-            conflicts.size <= 620,
+            "未救济的 ads×app 冲突 ${unrescued.size} 条（总冲突 ${conflicts.size}）超出基线 560，" +
+                "请复核新增项是否为误杀并按需补进 ads-allowlist.txt",
+            unrescued.size <= 560,
+        )
+        // 反向锁：救济表确实在生效。若哪次重构把它从引擎里摘掉，上面那条会因为「没救济任何东西」
+        // 而数字暴涨——但那要涨到 560 才报警，这里直接钉住「至少救到 40 条」，摘掉即刻失败。
+        assertTrue(
+            "救济表只覆盖了 ${conflicts.size - unrescued.size} 条冲突，远低于已知的 58 条——" +
+                "ads-allowlist.txt 是否被清空或未被装载？",
+            conflicts.size - unrescued.size >= 40,
+        )
+    }
+
+    /**
+     * 救济表的**收录纪律**（表头写的三条标准里可机器验证的两条）：
+     *
+     * ① 每条的父域必须在某个 app-*.txt 直连组里 —— 救济表只用来修「我们自己认定该直连、却被
+     *    公共黑名单拦掉」的域，不是随手放行的口子；
+     * ② 每条都必须**确实救到**广告表里的某条 —— 上游把某条移除后，对应的救济就成了空转，
+     *    留着会让人误以为「这个域名曾经被误杀过」。空转不影响功能，但会让表越来越难维护。
+     *
+     * 注意 ② 的方向：救济条目常写成**父域**去覆盖 ads 表里的一批子域
+     * （`pull.yximgs.com` 覆盖 7 条 `*.pull.yximgs.com`，`vodplayer.wxamedia.com` 覆盖 3 个租户号子域），
+     * 所以判据是「ads 表里有它或它的子域」，不是「它在 ads 表里」——反过来查会误判成一堆空转。
+     */
+    @Test
+    fun adsAllowlistEntriesFollowInclusionCriteria() {
+        val app = appDomains()
+        val ads = lines("ads-oisd-small.txt")
+        val allow = lines("ads-allowlist.txt")
+        assertTrue("救济表不应为空", allow.isNotEmpty())
+
+        val orphans = allow.filter { e ->
+            val labels = e.split('.')
+            labels.indices.none { i -> labels.subList(i, labels.size).joinToString(".") in app }
+        }
+        assertTrue("救济表条目的父域必须已在某个 app-* 直连组：$orphans", orphans.isEmpty())
+
+        val noop = allow.filter { e -> ads.none { it == e || it.endsWith(".$e") } }
+        assertTrue(
+            "这些救济条目没救到广告表里的任何域名（上游可能已移除，建议清理）：$noop",
+            noop.size <= 3,
         )
     }
 
