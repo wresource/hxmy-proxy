@@ -64,6 +64,7 @@ import com.mzstd.hxmyproxy.core.model.RuleEntry.Companion.sortedForDisplay
 import com.mzstd.hxmyproxy.core.rules.IpCidrSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
+import com.mzstd.hxmyproxy.core.rules.RuleScope
 import com.mzstd.hxmyproxy.core.rules.RuleCategory
 import com.mzstd.hxmyproxy.core.rules.RuleGroup
 import com.mzstd.hxmyproxy.ui.MainUiState
@@ -426,7 +427,70 @@ private fun QuickRuleCard(
 @Composable
 internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
     var input by remember { mutableStateOf("") }
+    // 作用域档位：默认「单级」——用户想要的通常是 *.apple.com 而非把 xx.yy.apple.com 也圈进来。
+    var scope by remember { mutableStateOf(RuleScope.SINGLE) }
+    // 待确认的全层级规则(非空=弹确认窗)。全层级会连同任意深度子域一起处理，误填代价大，故拦一道。
+    var pendingSuffix by remember { mutableStateOf<String?>(null) }
     val dark = LocalDarkTheme.current
+
+    val submit = { raw: String ->
+        val bare = raw.trim().lowercase().removePrefix("*.").removePrefix("=")
+        if (bare.isNotBlank()) {
+            // IP/CIDR 没有「作用域」概念，直接提交；域名按当前档位加前缀。
+            val isIp = bare.firstOrNull()?.isDigit() == true || bare.contains(':')
+            when {
+                isIp -> { onAdd(bare); input = "" }
+                scope == RuleScope.SUFFIX -> pendingSuffix = bare      // 全层级 → 先确认
+                else -> { onAdd(RuleScope.format(scope, bare)); input = "" }
+            }
+        }
+    }
+
+    if (pendingSuffix != null) {
+        val bare = pendingSuffix!!
+        AlertDialog(
+            onDismissRequest = { pendingSuffix = null },
+            title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
+            text = { Text(stringResource(R.string.rules_scope_confirm_body, bare, bare, bare)) },
+            confirmButton = {
+                // 推荐路径放主按钮：改用单级。
+                TextButton(onClick = {
+                    onAdd(RuleScope.format(RuleScope.SINGLE, bare))
+                    scope = RuleScope.SINGLE; input = ""; pendingSuffix = null
+                }) { Text(stringResource(R.string.rules_scope_confirm_use_single, bare)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    onAdd(bare)   // 无前缀 = 全层级
+                    input = ""; pendingSuffix = null
+                }) { Text(stringResource(R.string.rules_scope_confirm_keep_suffix)) }
+            },
+        )
+    }
+
+    // 档位选择条：三档互斥，选中态用语义色填充。
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        RuleScope.entries.forEach { s ->
+            val on = scope == s
+            Text(
+                stringResource(
+                    when (s) {
+                        RuleScope.EXACT -> R.string.rules_scope_exact
+                        RuleScope.SINGLE -> R.string.rules_scope_single
+                        RuleScope.SUFFIX -> R.string.rules_scope_suffix
+                    },
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (on) accent.onContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(MaterialTheme.shapes.small)
+                    .background(if (on) accent.container else MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .clickable { scope = s }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
+    }
     // 浅灰填充底（HTML --field）：比卡面沉一档，胶囊轮廓在卡上立得住。
     val field = if (dark) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainer
     OutlinedTextField(
@@ -454,7 +518,7 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         },
         trailingIcon = {
             Button(
-                onClick = { if (input.isNotBlank()) { onAdd(input); input = "" } },
+                onClick = { if (input.isNotBlank()) submit(input) },
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent.main, contentColor = accent.onMain),
                 contentPadding = PaddingValues(horizontal = 14.dp),
@@ -501,6 +565,7 @@ internal fun RuleEntryRow(entry: RuleEntry, accent: RuleAccent, onToggle: () -> 
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        RuleScopeBadge(entry.value, entry.enabled)
         // 状态标签（只显示，不可点）：生效=语义色实底，停用=灰底。开关才是操作。
         Text(
             stringResource(if (entry.enabled) R.string.rule_active else R.string.rule_disabled),
@@ -529,6 +594,36 @@ internal fun RuleEntryRow(entry: RuleEntry, accent: RuleAccent, onToggle: () -> 
             )
         }
     }
+}
+
+/**
+ * 作用域小徽标：一眼看出这条规则管到多深（仅此域 / 下一级 / 所有层级）。
+ * IP·CIDR 没有作用域概念，不显示。「所有层级」用中性描边而非实底——它是覆盖面最大的一档，
+ * 需要可辨识但不该抢视觉重心。
+ */
+@Composable
+private fun RuleScopeBadge(rule: String, enabled: Boolean) {
+    // 整块 remember：looksLikeIpOrCidr 会调 android.net.InetAddresses，列表滚动时每帧每行都算一次不值当。
+    val scope = remember(rule) {
+        if (IpCidrSet.looksLikeIpOrCidr(rule)) null else RuleScope.parse(rule).first
+    } ?: return
+    Text(
+        stringResource(
+            when (scope) {
+                RuleScope.EXACT -> R.string.rules_scope_badge_exact
+                RuleScope.SINGLE -> R.string.rules_scope_badge_single
+                RuleScope.SUFFIX -> R.string.rules_scope_badge_suffix
+            },
+        ),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        modifier = Modifier
+            .alpha(if (enabled) 1f else 0.4f)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+    )
 }
 
 /** 条目类型小徽章（HTML .tchip）：按现有匹配器分派逻辑判「IP 段」vs「域名」，语义色淡底。 */

@@ -66,10 +66,15 @@ class RuleRepository @Inject constructor(
                 RuleAction.PROXY -> ovrProxy.add(host)
             }
         }
+        // 平手裁决用:两张用户表各自最近一条的添加时间(停用条目不算,它们不参与判定)。
+        val newestAllow = settings.userDirectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
+        val newestBlock = settings.userRejectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
         ruleEngine.update(
             RuleEngine.Snapshot(
                 ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
-                userDirect = userDirect, userReject = userReject, adsAllow = adsAllow,
+                userDirect = userDirect, userReject = userReject,
+                userDirectNewer = newestAllow >= newestBlock,
+                adsAllow = adsAllow,
                 reject = reject, direct = direct, proxy = proxy,
             ),
         )

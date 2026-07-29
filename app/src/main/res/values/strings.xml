@@ -226,7 +226,7 @@
     <string name="rules_reject_quick">Quick block</string>
     <string name="rules_reject_quick_hint">Added domains / IPs are refused — ads and trackers go dark instantly.</string>
     <string name="rules_reject_sets">Block rule sets</string>
-    <string name="rules_format_hint">example.com · 1.2.3.4 · 192.168.0.0/16</string>
+    <string name="rules_format_hint">*.a.com one level · a.com all levels · =a.com exact · 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
     <string name="warn_no_iface">No network selected — all refused</string>
     <string name="warn_no_proto">No protocol enabled</string>
@@ -472,6 +472,17 @@
     <string name="refresh_dead_body">The app has fully reset itself, but recent clients still don\'t respond. The stale state likely lives in the system Wi-Fi layer, which apps can\'t reset — toggling Wi-Fi or airplane mode clears it.</string>
     <string name="refresh_open_panel">Open network panel</string>
     <string name="notif_client_unreachable">Client %1$s may be unreachable · tap to fix</string>
+    <!-- 规则作用域三档 -->
+    <string name="rules_scope_exact">Exact only</string>
+    <string name="rules_scope_single">One level</string>
+    <string name="rules_scope_suffix">All levels</string>
+    <string name="rules_scope_confirm_title">Apply to all levels?</string>
+    <string name="rules_scope_confirm_body">"%1$s" with no prefix covers every level below it — a.%2$s, a.b.%3$s and deeper. That is usually more than intended; "One level" covers the domain itself plus one level of subdomains.</string>
+    <string name="rules_scope_confirm_use_single">Use *.%1$s</string>
+    <string name="rules_scope_confirm_keep_suffix">Keep all levels</string>
+    <string name="rules_scope_badge_exact">exact</string>
+    <string name="rules_scope_badge_single">1 level</string>
+    <string name="rules_scope_badge_suffix">all levels</string>
     <string name="dash_selected_count">%1$d/%2$d</string>
     <string name="monitor_last_60s">Last 60 s</string>
     <string name="stat_unit_devices">devices</string>

@@ -187,18 +187,35 @@ class MainViewModel @Inject constructor(
     fun toggleUserDirectEnabled(on: Boolean) = update { it.copy(userDirectEnabled = on) }
     fun toggleUserRejectEnabled(on: Boolean) = update { it.copy(userRejectEnabled = on) }
 
+    /**
+     * 归一化用户输入的规则：保留作用域前缀（`*.` 单级 / `=` 精确 / 无前缀全层级），
+     * 只对**裸域名**部分做小写与合法性校验。返回 null 表示非法。
+     *
+     * 注意与旧版的区别：以前无条件 `removePrefix("*.")` 把通配前缀吃掉、一律当全层级；
+     * 现在前缀是语义的一部分，必须原样存进 RuleEntry.value，由 RuleMatcher 解析。
+     */
+    private fun normalizeRule(input: String): String? {
+        val t = input.trim().lowercase()
+        val (scope, bare) = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(t)
+        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。
+        if (bare.isEmpty() || (!bare.contains('.') && !bare.contains(':'))) return null
+        // 内部不得含空白：粘贴或输入法误入的 "by wxs.qq.com" 这类串以前能存进列表，
+        // 却永远匹配不上任何 host——静默的死规则，用户只会觉得「我明明加了却没生效」。
+        if (bare.any { it.isWhitespace() }) return null
+        return com.mzstd.hxmyproxy.core.rules.RuleScope.format(scope, bare)
+    }
+
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
-        val d = domain.trim().lowercase().removePrefix("*.")
-        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。已存在则不重复加。
-        if ((!d.contains('.') && !d.contains(':')) || it.userDirectRules.any { e -> e.value == d }) it
+        val d = normalizeRule(domain)
+        if (d == null || it.userDirectRules.any { e -> e.value == d }) it
         else it.copy(userDirectRules = it.userDirectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
     }
 
     /** 添加快速拦截名单（域名/IP/CIDR/IPv6）；进 userReject 表，命中即拒绝连接。 */
     fun addUserRejectRule(rule: String) = update {
-        val d = rule.trim().lowercase().removePrefix("*.")
-        if ((!d.contains('.') && !d.contains(':')) || it.userRejectRules.any { e -> e.value == d }) it
+        val d = normalizeRule(rule)
+        if (d == null || it.userRejectRules.any { e -> e.value == d }) it
         else it.copy(userRejectRules = it.userRejectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
     }
 
@@ -224,32 +241,53 @@ class MainViewModel @Inject constructor(
     }
 
     // —— top domain 便捷设规则：统一写入 block/allow 列表（免手输），互斥（一个域名同刻只在一个列表）——
+    /**
+     * 点域名设规则时写成**单级**（`*.host`）：列表里点的是实际访问过的具体域名，用户意图是
+     * 「这个域名」而非它底下的整棵子树；单级既覆盖自身、又容忍一层子域，与输入框的默认档位一致。
+     */
+    private fun scopedHost(host: String): String? {
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
+        if (bare.isEmpty()) return null
+        // IP/CIDR 无作用域概念，原样写入。
+        if (com.mzstd.hxmyproxy.core.rules.IpCidrSet.looksLikeIpOrCidr(bare)) return bare
+        return com.mzstd.hxmyproxy.core.rules.RuleScope.format(
+            com.mzstd.hxmyproxy.core.rules.RuleScope.SINGLE, bare,
+        )
+    }
+
+    /** 互斥比较按**裸域名**：同一域名的不同作用域写法（`a.com` / `*.a.com` / `=a.com`）视为同一条，
+     *  否则「设直连」时移不掉 block 里前缀不同的同名规则，两边并存反而要靠具体度裁决。 */
+    private fun sameHost(entryValue: String, bare: String): Boolean =
+        com.mzstd.hxmyproxy.core.rules.RuleScope.parse(entryValue).second == bare
+
     /** 直连：进 allow 列表 + 从 block 互斥移除。 */
-    fun setDomainDirect(host: String) = update {
-        val h = host.trim().lowercase().removePrefix("*.")
-        if (h.isEmpty()) it else it.copy(
-            userRejectRules = it.userRejectRules.filterNot { e -> e.value == h },
-            userDirectRules = if (it.userDirectRules.any { e -> e.value == h }) it.userDirectRules
-            else it.userDirectRules + RuleEntry(h, addedAt = System.currentTimeMillis()),
+    fun setDomainDirect(host: String) = update { s ->
+        val v = scopedHost(host) ?: return@update s
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
+        s.copy(
+            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
+            userDirectRules = if (s.userDirectRules.any { sameHost(it.value, bare) }) s.userDirectRules
+            else s.userDirectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
         )
     }
 
     /** 拦截：进 block 列表 + 从 allow 互斥移除。 */
-    fun setDomainReject(host: String) = update {
-        val h = host.trim().lowercase().removePrefix("*.")
-        if (h.isEmpty()) it else it.copy(
-            userDirectRules = it.userDirectRules.filterNot { e -> e.value == h },
-            userRejectRules = if (it.userRejectRules.any { e -> e.value == h }) it.userRejectRules
-            else it.userRejectRules + RuleEntry(h, addedAt = System.currentTimeMillis()),
+    fun setDomainReject(host: String) = update { s ->
+        val v = scopedHost(host) ?: return@update s
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
+        s.copy(
+            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
+            userRejectRules = if (s.userRejectRules.any { sameHost(it.value, bare) }) s.userRejectRules
+            else s.userRejectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
         )
     }
 
-    /** 清除：从 block/allow 两列表都移除该域名（回默认判定）。 */
-    fun clearDomainRule(host: String) = update {
-        val h = host.trim().lowercase().removePrefix("*.")
-        it.copy(
-            userDirectRules = it.userDirectRules.filterNot { e -> e.value == h },
-            userRejectRules = it.userRejectRules.filterNot { e -> e.value == h },
+    /** 清除：从 block/allow 两列表都移除该域名（回默认判定），不论它是以哪种作用域写入的。 */
+    fun clearDomainRule(host: String) = update { s ->
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
+        s.copy(
+            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
+            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
         )
     }
 

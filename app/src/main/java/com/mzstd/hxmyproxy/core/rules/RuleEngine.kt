@@ -31,6 +31,8 @@ class RuleEngine {
         val ovrProxy: RuleMatcher = RuleMatcher(),
         val userDirect: RuleMatcher = RuleMatcher(),
         val userReject: RuleMatcher = RuleMatcher(),
+        /** 放行表里**最近添加**的那条比拦截表的更新 —— 仅用于具体度完全相同时的平手裁决。 */
+        val userDirectNewer: Boolean = true,
         /** 广告表误杀救济表（assets/rules/ads-allowlist.txt）：命中则**跳过** [reject] 判定，
          *  继续按内置直连组/兜底走。见该文件头部说明。 */
         val adsAllow: RuleMatcher = RuleMatcher(),
@@ -66,8 +68,22 @@ class RuleEngine {
         if (s.ovrDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.OVERRIDE)
         if (s.ovrReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.OVERRIDE)
         if (s.ovrProxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.OVERRIDE)
-        if (s.userDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.USER_ALLOW)
-        if (s.userReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.USER_BLOCK)
+        // 用户的放行 / 拦截两表**同级**，命中多条时按 most-specific-wins 裁决，而不是让某张表整体压过另一张：
+        // 先加 `*.apple.com` 放行、后加 `xxx.apple.com` 拦截时，对 xxx.apple.com 应当拦截（后者锚定更深）；
+        // 反过来先加具体的 `secret.apple.com` 拦截、后加宽泛的 `*.apple.com` 放行时，具体那条不会被无声抹掉。
+        // 具体度相同（同一锚定域名、同一档位）才看 [Snapshot.userDirectNewer] 决定谁更近添加。
+        val allow = s.userDirect.matchSpecificity(host)
+        val block = s.userReject.matchSpecificity(host)
+        if (allow >= 0 || block >= 0) {
+            val allowWins = when {
+                block < 0 -> true
+                allow < 0 -> false
+                allow != block -> allow > block
+                else -> s.userDirectNewer   // 平手：最近添加的那张表赢
+            }
+            return if (allowWins) RuleDecision(RuleAction.DIRECT, RuleSrc.USER_ALLOW)
+            else RuleDecision(RuleAction.REJECT, RuleSrc.USER_BLOCK)
+        }
         // 广告表判定前先过救济表：公共黑名单（oisd）会误收厂商的内容分发域名，而 ADS 又优先于
         // 内置 App 直连组 —— 结果是我们自己精选要直连的域族，子域反被拦掉（微信小程序/图片转圈的根因）。
         // 命中救济表则跳过广告表，继续往下走（通常落到 BUILTIN_APP 直连）。

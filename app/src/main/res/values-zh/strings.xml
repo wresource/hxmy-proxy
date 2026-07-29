@@ -226,7 +226,7 @@
     <string name="rules_reject_quick">快速拦截</string>
     <string name="rules_reject_quick_hint">加入的域名 / IP 会被拒绝连接，广告与追踪立刻失联</string>
     <string name="rules_reject_sets">拦截规则集</string>
-    <string name="rules_format_hint">example.com（含子域）· 1.2.3.4 · 192.168.0.0/16</string>
+    <string name="rules_format_hint">*.a.com 含一级 · a.com 含所有层级 · =a.com 仅此域 · 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
     <string name="warn_no_iface">未选网段 · 拒绝所有连接</string>
     <string name="warn_no_proto">未启用协议 · 无监听端口</string>
@@ -472,6 +472,17 @@
     <string name="refresh_dead_body">应用已完成全量重置，但最近的客户端仍无响应。陈旧状态大概率在系统 WLAN 层，应用无权重置它——开关一次 WLAN 或飞行模式即可清除。</string>
     <string name="refresh_open_panel">打开网络面板</string>
     <string name="notif_client_unreachable">客户端 %1$s 可能失联 · 点按处理</string>
+    <!-- 规则作用域三档 -->
+    <string name="rules_scope_exact">仅此域名</string>
+    <string name="rules_scope_single">下一级</string>
+    <string name="rules_scope_suffix">所有层级</string>
+    <string name="rules_scope_confirm_title">要对所有层级生效吗？</string>
+    <string name="rules_scope_confirm_body">不带前缀的「%1$s」会连同它下面的每一层一起处理——a.%2$s、a.b.%3$s 以及更深的都算。这通常超出你的本意；「下一级」只覆盖该域名本身和一层子域。</string>
+    <string name="rules_scope_confirm_use_single">改用 *.%1$s</string>
+    <string name="rules_scope_confirm_keep_suffix">仍用所有层级</string>
+    <string name="rules_scope_badge_exact">仅此域</string>
+    <string name="rules_scope_badge_single">下一级</string>
+    <string name="rules_scope_badge_suffix">所有层级</string>
     <string name="dash_selected_count">已选 %1$d/%2$d</string>
     <string name="monitor_last_60s">最近 60 秒</string>
     <string name="stat_unit_devices">台设备</string>
