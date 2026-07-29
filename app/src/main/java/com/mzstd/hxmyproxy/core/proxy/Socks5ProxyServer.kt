@@ -98,12 +98,14 @@ class Socks5ProxyServer(
         val bypass = action == RuleAction.DIRECT
         val limits = limitsProvider()
         val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
+        // 实际出口由建连层回填（含降级后的真实网络），历史流量统计据此分类累加。
+        val onEgress = tracker?.let { it::bindEgress }
 
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
             val upstreamCh = try {
-                if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass)
-                else connector.connectChannel(host!!, port, bypassVpn = bypass)
+                if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress)
+                else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress)
             } catch (e: ProxyException) {
                 reply(output, e.error.socksReply); return
             } catch (e: IOException) {
@@ -121,7 +123,8 @@ class Socks5ProxyServer(
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
-            if (addr != null) connector.connect(addr, port, bypassVpn = bypass) else connector.connect(host!!, port, bypassVpn = bypass)
+            if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress)
+            else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress)
         } catch (e: ProxyException) {
             reply(output, e.error.socksReply); return
         }

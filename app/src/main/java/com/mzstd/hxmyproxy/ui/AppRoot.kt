@@ -58,6 +58,7 @@ import com.mzstd.hxmyproxy.ui.monitor.HistoryDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.LogsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
 import com.mzstd.hxmyproxy.ui.monitor.TopDomainsDetailScreen
+import com.mzstd.hxmyproxy.ui.monitor.TrafficStatsScreen
 import com.mzstd.hxmyproxy.ui.protection.BlockedDetailScreen
 import com.mzstd.hxmyproxy.ui.protection.ProtectionScreen
 import com.mzstd.hxmyproxy.ui.rules.QuickRulesDetailScreen
@@ -215,8 +216,12 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenHistory = { navController.navigate("history_detail") },
                             onOpenLogs = { navController.navigate("logs_detail") },
                             onOpenDomains = { navController.navigate("top_domains") },
+                            onOpenTrafficStats = { navController.navigate("traffic_stats") },
                             contentPadding = padding,
                         )
+                    }
+                    composable("traffic_stats") {
+                        TrafficStatsScreen(onBack = { navController.popBackStack() })
                     }
                     composable("top_domains") {
                         TopDomainsDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })

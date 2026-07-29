@@ -91,6 +91,8 @@ class ProxyServerRepository @Inject constructor(
     private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
     private val ruleRepository: RuleRepository,
     private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider,
+    private val egressClassifier: com.mzstd.hxmyproxy.core.network.EgressClassifier,
+    private val trafficHistory: com.mzstd.hxmyproxy.core.stats.TrafficHistoryStore,
 ) {
     // 活跃连接数变化时即时推送到 UI（不必等 1s ticker）。
     private val registry = ConnectionRegistry(onChange = { active ->
@@ -104,9 +106,17 @@ class ProxyServerRepository @Inject constructor(
         if (down > 0) totalDown.addAndGet(down)
     }
     private val relay = RelayEngine(trafficSink)
-    private val connector = OutboundConnector(egressGuard, underlyingNetworkProvider = underlyingNetworkProvider)
-    // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down。
-    private val accounting = TrafficAccounting(globalSink = trafficSink)
+    private val connector = OutboundConnector(
+        egressGuard,
+        underlyingNetworkProvider = underlyingNetworkProvider,
+        egressClassifier = egressClassifier::classify,
+    )
+    // 按 IP/域名的流量记账（喂监控页会话/域名列表）；add 内部同时把增量喂全局 totalUp/Down，
+    // 以及跨会话的历史统计（按出口分类、落盘，不随会话边界清零）。
+    private val accounting = TrafficAccounting(
+        globalSink = trafficSink,
+        historySink = trafficHistory::record,
+    )
     /** 规则重建请求（CONFLATED：只保留最新设置）。串行 worker 消费，杜绝快速开关导致多个 rebuild 乱序覆盖、状态残留。 */
     private val rebuildRequests = kotlinx.coroutines.channels.Channel<ProxySettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
@@ -178,6 +188,10 @@ class ProxyServerRepository @Inject constructor(
         if (running) return
         running = true
         resetSessionCounters()
+        // 「一次共享」计数落在这里而不是 resetSessionCounters —— 那个函数 start/stop 两端都调，
+        // 放进去会把每次停止也算成一次新共享。start() 上面的 running 幂等闸保证一次共享只计一次
+        //（手动刷新走 stopServers/startServers，不重入 start，故不会多计）。
+        trafficHistory.noteSessionStart()
         // 跨会话恢复最近客户端：路径保活/手动刷新从会话第一秒就有探测目标——
         // 最需要被探的客户端恰恰是「本会话还没连上来的那台」。
         lastSeenClients = RecentClients.load(appContext).keys
@@ -260,6 +274,8 @@ class ProxyServerRepository @Inject constructor(
                 lastUp = up
                 lastDown = down
                 val sig = signalProvider.current()
+                // 历史流量：把热路径累加器的增量收进当前小时/天桶（内部 30s 才真正落一次盘）。
+                trafficHistory.tick()
                 accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
                 val snap = accounting.snapshot(TOP_DOMAINS)
                 // 段①（客户端→本机）链路时延：每 LINK_PROBE_TICKS 秒探一次在线客户端。
@@ -364,6 +380,9 @@ class ProxyServerRepository @Inject constructor(
      * 自动恢复（开机 / app 更新）走的是新进程，天然从这里重新开始，同样算新的一次共享。
      *
      * 新增任何"本次会话累计"性质的计量项，都必须加到这里。
+     *
+     * 反过来，**跨会话**的历史流量统计（[trafficHistory]）绝不能进这里——它按天落盘、不受启停影响，
+     * 清了就再也找不回来。两个数字口径不同是有意的，UI 上分别标注了周期。
      */
     private fun resetSessionCounters() {
         totalUp.set(0)
@@ -658,6 +677,8 @@ class ProxyServerRepository @Inject constructor(
         sessionScope?.cancel()
         sessionScope = null
         engineScope = null
+        // 历史统计先收干净再落盘：resetSessionCounters 只清会话计量，历史是跨会话的，一个字节都不能丢。
+        trafficHistory.flush()
         resetSessionCounters()   // 会话结束：计量归零，UI 立刻回到 0
         lastRecordedEntryKey = ""
         lastInterfaceIps = emptySet()

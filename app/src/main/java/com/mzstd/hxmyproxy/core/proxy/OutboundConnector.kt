@@ -53,6 +53,12 @@ class OutboundConnector(
     private val connectDispatcher: CoroutineDispatcher = DEFAULT_CONNECT_DISPATCHER,
     /** 非 VPN 底层网络提供者；为 DIRECT 出口分流把 socket 绑定到真实网络（绕过共享 VPN）。null=不支持分流。 */
     private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider? = null,
+    /**
+     * 出口归类器（历史流量统计用）：把本次连接实际绑定的 `Network` 归成 VPN/WiFi/蜂窝/以太网。
+     * 只有这里知道**降级后**真正走的是哪张网（非 bypass 的出口分流失败会回落默认路由），
+     * 所以归类必须在这一层做、而不是让调用方按 `bypassVpn` 自己猜。null=不归类。
+     */
+    private val egressClassifier: ((Network?) -> com.mzstd.hxmyproxy.core.stats.EgressKind)? = null,
 ) {
     /** 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。 */
     private val dnsCache = ConcurrentHashMap<String, CachedAddrs>()
@@ -94,11 +100,26 @@ class OutboundConnector(
         }
     }
 
+    /**
+     * 建连成功后把**实际出口**告诉调用方（历史流量统计据此分类累加）。
+     * 归类器缺席时不报告——由计量侧的默认值兜底，宁可归进「其他」也不假装知道走了哪张网。
+     */
+    private fun reportEgress(sink: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)?, network: Network?) {
+        val classifier = egressClassifier ?: return
+        sink?.invoke(classifier(network))
+    }
+
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
-    suspend fun connect(host: String, port: Int, bypassVpn: Boolean = false): Socket {
+    suspend fun connect(
+        host: String,
+        port: Int,
+        bypassVpn: Boolean = false,
+        onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+    ): Socket {
         val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAny(orderAddresses(resolve(host, network)), port, network)
+                .also { reportEgress(onEgress, network) }
         } catch (e: ProxyException) {
             // DIRECT(bypass) fail-closed：建连失败也**不**降级默认网络(=VPN)，宁可断、不泄漏。
             if (bypassVpn) {
@@ -112,6 +133,7 @@ class OutboundConnector(
             // 非 bypass 的出口分流(指定 WiFi/蜂窝出口)失败 → 降级默认重试(PROXY 场景「能上网」优先)。
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             connectAny(orderAddresses(resolve(host, null)), port, null)
+                .also { reportEgress(onEgress, null) }
         }
     }
 
@@ -224,10 +246,15 @@ class OutboundConnector(
     }
 
     /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
-    suspend fun connect(addr: InetAddress, port: Int, bypassVpn: Boolean = false): Socket {
+    suspend fun connect(
+        addr: InetAddress,
+        port: Int,
+        bypassVpn: Boolean = false,
+        onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+    ): Socket {
         // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
         val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
-        return connectAny(listOf(addr), port, network)
+        return connectAny(listOf(addr), port, network).also { reportEgress(onEgress, network) }
     }
 
     /**
@@ -236,10 +263,16 @@ class OutboundConnector(
      * 做出口分流——Phase 0 spike 已验证（见 BindSocketSpikeTest）。反射取 fd 失败则抛 [IOException]，
      * 调用方应回退到阻塞 [connect] + 阻塞 relay。
      */
-    suspend fun connectChannel(host: String, port: Int, bypassVpn: Boolean = false): SocketChannel {
+    suspend fun connectChannel(
+        host: String,
+        port: Int,
+        bypassVpn: Boolean = false,
+        onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+    ): SocketChannel {
         val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
+                .also { reportEgress(onEgress, network) }
         } catch (e: ProxyException) {
             // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
             // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
@@ -253,14 +286,20 @@ class OutboundConnector(
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
+                .also { reportEgress(onEgress, null) }
         }
     }
 
     /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
-    suspend fun connectChannel(addr: InetAddress, port: Int, bypassVpn: Boolean = false): SocketChannel {
+    suspend fun connectChannel(
+        addr: InetAddress,
+        port: Int,
+        bypassVpn: Boolean = false,
+        onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+    ): SocketChannel {
         // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
         val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
-        return connectAnyChannel(listOf(addr), port, network)
+        return connectAnyChannel(listOf(addr), port, network).also { reportEgress(onEgress, network) }
     }
 
     /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */

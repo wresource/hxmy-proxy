@@ -26,6 +26,11 @@ class TrafficAccounting(
     @Volatile var maxDomains: Int = 256,
     private val clock: () -> Long = System::currentTimeMillis,
     private val globalSink: (Long, Long) -> Unit = { _, _ -> },
+    /**
+     * 历史流量统计入口（跨会话、按出口分类累加）。与 [globalSink] 的区别：那个是「本次共享」的
+     * 会话计量，[reset] 会清零；这个是落盘的历史累计，**不随会话边界清零**。
+     */
+    private val historySink: (com.mzstd.hxmyproxy.core.stats.EgressKind, Long, Long) -> Unit = { _, _, _ -> },
 ) {
     private val perClient = ConcurrentHashMap<InetAddress, Acc>()
     // 按「域名 × 协议」聚合：键含协议，故同域名不同协议分桶 → 监控能体现"哪个域名走哪个协议"。
@@ -47,6 +52,20 @@ class TrafficAccounting(
         private val clientAcc = perClient.computeIfAbsent(clientIp) { Acc(clientIp.hostAddress ?: "?") }
             .also { it.conns.increment(); it.lastSeen = clock() }
         @Volatile private var domainAcc: Acc? = null
+
+        /**
+         * 本连接的上游出口，由 [OutboundConnector] 建连成功后回填（见 `onEgress`）。
+         *
+         * 默认 **OTHER 而非 null**：将来若有哪条新的建连路径忘了回填，字节会显式堆进「其他」这一档
+         * ——统计页上一眼就能看出「有路径没接上」。若默认成「不计」，漏的字节会静默消失，
+         * 而「统计里没有」和「根本没发生」在结果上长得一模一样（见记忆 absence-is-not-evidence）。
+         */
+        @Volatile private var egress = com.mzstd.hxmyproxy.core.stats.EgressKind.OTHER
+
+        /** 建连成功后回填实际出口；同连接可能因降级重连而改变，覆盖即可。 */
+        fun bindEgress(kind: com.mzstd.hxmyproxy.core.stats.EgressKind) {
+            egress = kind
+        }
 
         /** 目标解析出来后调用；按 (当前 host, 本连接协议) 归属。[direct]=规则决策为直连出口（绕过 VPN）。
          *  同连接协议固定、只 host 随 keep-alive 变。幂等。 */
@@ -75,6 +94,7 @@ class TrafficAccounting(
             clientAcc.lastSeen = now
             domainAcc?.let { it.lastSeen = now }
             globalSink(up, down)
+            historySink(egress, up, down)
         }
 
         /** 连接结束：活跃连接数 -1（累计字节保留到老化淘汰）。 */

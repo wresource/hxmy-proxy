@@ -8,6 +8,8 @@ import com.mzstd.hxmyproxy.core.network.LatencyProbe
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,7 @@ import javax.inject.Inject
 @HiltViewModel
 class MonitorViewModel @Inject constructor(
     private val underlyingNetworkProvider: com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider,
+    private val trafficHistory: com.mzstd.hxmyproxy.core.stats.TrafficHistoryStore,
 ) : ViewModel() {
 
     private val _latency = MutableStateFlow(DEFAULT_MONITORED_SERVICES.map { LatencyResult(it, null) })
@@ -29,8 +32,18 @@ class MonitorViewModel @Inject constructor(
     private val _measuring = MutableStateFlow(false)
     val measuring: StateFlow<Boolean> = _measuring.asStateFlow()
 
+    /** 流量统计入口卡：今日总量 + 昨日对比 + 近 7 日趋势。低频刷新即可（入口卡不是实时仪表）。 */
+    private val _trafficSummary = MutableStateFlow(com.mzstd.hxmyproxy.core.stats.TrafficSummary())
+    val trafficSummary: StateFlow<com.mzstd.hxmyproxy.core.stats.TrafficSummary> = _trafficSummary.asStateFlow()
+
     init {
         refreshLatency()
+        viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                _trafficSummary.value = trafficHistory.summary()
+                delay(TRAFFIC_SUMMARY_MS)
+            }
+        }
     }
 
     /**
@@ -63,5 +76,10 @@ class MonitorViewModel @Inject constructor(
                 _measuring.value = false
             }
         }
+    }
+
+    private companion object {
+        /** 入口卡刷新间隔：它只回答「今天用了多少」，秒级精度没有意义。 */
+        const val TRAFFIC_SUMMARY_MS = 5_000L
     }
 }

@@ -545,4 +545,40 @@
     <string name="flow_out">出口</string>
     <string name="start_short">开始</string>
     <string name="stop_short">停止</string>
+    <!-- 历史流量统计 -->
+    <string name="traffic_stats_title">流量统计</string>
+    <string name="traffic_period_today">今日</string>
+    <string name="traffic_period_week">本周</string>
+    <string name="traffic_period_month">本月</string>
+    <string name="traffic_period_year">今年</string>
+    <string name="traffic_period_all">总计</string>
+    <string name="traffic_since_today">今日 00:00 起</string>
+    <string name="traffic_since_week">本周一 00:00 起</string>
+    <string name="traffic_since_month">本月 1 日起</string>
+    <string name="traffic_since_year">今年 1 月 1 日起</string>
+    <string name="traffic_since_all">自 %1$s 起</string>
+    <string name="traffic_since_all_empty">全部记录</string>
+    <plurals name="traffic_sessions">
+        <item quantity="other">%1$d 次共享</item>
+    </plurals>
+    <string name="traffic_by_egress">按出口</string>
+    <string name="traffic_egress_note">出口＝流量离开手机时走的那张网，各项之和即上方总量。</string>
+    <string name="traffic_cellular_month">蜂窝用量 · 本月</string>
+    <string name="traffic_cellular_note">计费网络单列一格——这是最需要盯住的一个数字。</string>
+    <string name="traffic_empty_title">还没有流量记录</string>
+    <string name="traffic_empty_body">共享跑起来之后，这里会按天记下每条出口的用量。</string>
+    <string name="traffic_vs_yesterday">较昨日 %1$s</string>
+    <string name="traffic_axis_week_ago">7 天前</string>
+    <string name="traffic_bucket_empty">本周期还没有流量</string>
+    <string name="traffic_eg_vpn">VPN 出口</string>
+    <string name="traffic_eg_vpn_sub">经手机上的 VPN 隧道</string>
+    <string name="traffic_eg_wifi">Wi-Fi</string>
+    <string name="traffic_eg_wifi_sub">经手机的 Wi-Fi 出去，未走 VPN</string>
+    <string name="traffic_eg_cellular">蜂窝</string>
+    <string name="traffic_eg_cellular_sub">计费网络</string>
+    <string name="traffic_eg_ethernet">以太网 / USB</string>
+    <string name="traffic_eg_other">其他出口</string>
+    <string name="traffic_clear">清空</string>
+    <string name="traffic_clear_title">清空流量历史？</string>
+    <string name="traffic_clear_body">按天记录的用量与共享次数会全部删除，无法恢复。共享本身不受影响，新的流量从零开始记。</string>
 </resources>

@@ -116,5 +116,11 @@ val AvatarFgLight = listOf(0xFF315577, 0xFF125B5E, 0xFF345B38, 0xFF79452A, 0xFF5
 val AvatarBgDark = listOf(0xFF2A4E6F, 0xFF035457, 0xFF2D5432, 0xFF703E24, 0xFF4E4572, 0xFF125547).map { Color(it) }
 val AvatarFgDark = listOf(0xFFCFE5FF, 0xFFADEEF0, 0xFFC1EEC0, 0xFFFFDBCB, 0xFFE6DEFF, 0xFFB0EFDD).map { Color(it) }
 
+// ---- 出口分类色（历史流量统计的堆叠条/图例）：VPN=primary 蓝、蜂窝=tertiary 粉（占比通常极小，
+// 正好符合「粉只做点睛」的纪律）、以太网=secondary 蓝灰、其他=outline。只有 Wi-Fi 在既有色板里
+// 没有能与蓝区分开的位置，故单独取一支青绿（与蓝差 ~60° 色相，堆叠条相邻两段一眼可辨）。----
+val EgressWifiLight = Color(0xFF1F9A8A)
+val EgressWifiDark = Color(0xFF5FD3C0)
+
 /** 通知（Notification.setColor）等非 Compose 场景用的品牌蓝 seed（青春天蓝，与 primary 同色相）。 */
 const val BRAND_BLUE_ARGB = 0xFF2E90FA.toInt()

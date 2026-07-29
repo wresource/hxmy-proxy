@@ -548,4 +548,41 @@
     <string name="flow_out">out</string>
     <string name="start_short">Start</string>
     <string name="stop_short">Stop</string>
+    <!-- 历史流量统计（跨会话，按天落盘；与首页那个「本次共享」的 Total 是两个口径） -->
+    <string name="traffic_stats_title">Traffic history</string>
+    <string name="traffic_period_today">Today</string>
+    <string name="traffic_period_week">Week</string>
+    <string name="traffic_period_month">Month</string>
+    <string name="traffic_period_year">Year</string>
+    <string name="traffic_period_all">All time</string>
+    <string name="traffic_since_today">Since 00:00 today</string>
+    <string name="traffic_since_week">Since Monday 00:00</string>
+    <string name="traffic_since_month">Since the 1st</string>
+    <string name="traffic_since_year">Since Jan 1</string>
+    <string name="traffic_since_all">Since %1$s</string>
+    <string name="traffic_since_all_empty">Everything recorded</string>
+    <plurals name="traffic_sessions">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
+    <string name="traffic_by_egress">By egress</string>
+    <string name="traffic_egress_note">Egress = the network the traffic left this phone on. The rows add up to the total above.</string>
+    <string name="traffic_cellular_month">Cellular this month</string>
+    <string name="traffic_cellular_note">Metered network, broken out on its own — the one number worth watching.</string>
+    <string name="traffic_empty_title">Nothing recorded yet</string>
+    <string name="traffic_empty_body">Once sharing runs, daily usage per egress shows up here.</string>
+    <string name="traffic_vs_yesterday">%1$s vs yesterday</string>
+    <string name="traffic_axis_week_ago">7d ago</string>
+    <string name="traffic_bucket_empty">No traffic in this period</string>
+    <string name="traffic_eg_vpn">VPN tunnel</string>
+    <string name="traffic_eg_vpn_sub">Through the VPN on this phone</string>
+    <string name="traffic_eg_wifi">Wi-Fi</string>
+    <string name="traffic_eg_wifi_sub">Left this phone over Wi-Fi, not via a VPN</string>
+    <string name="traffic_eg_cellular">Cellular</string>
+    <string name="traffic_eg_cellular_sub">Metered network</string>
+    <string name="traffic_eg_ethernet">Ethernet / USB</string>
+    <string name="traffic_eg_other">Other</string>
+    <string name="traffic_clear">Clear</string>
+    <string name="traffic_clear_title">Clear traffic history?</string>
+    <string name="traffic_clear_body">All daily usage and session counts are deleted, and cannot be recovered. Sharing keeps running — new traffic starts counting from zero.</string>
 </resources>

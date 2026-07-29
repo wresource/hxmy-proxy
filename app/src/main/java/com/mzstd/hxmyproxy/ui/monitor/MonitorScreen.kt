@@ -105,9 +105,12 @@ private fun avatarPair(name: String): Pair<Color, Color> {
     return bg[i] to fg[i]
 }
 
-@Composable
-private fun fmtBytes(bytes: Long): String =
-    android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes)
+/**
+ * 全 app 统一走 [formatBytes]（1024 进制）。这里原先用 `Formatter.formatShortFileSize`，那是 SI 1000 进制，
+ * 于是同一笔流量在客户端行显示 `2.3 kB`、在首页 Total 与流量统计里显示 `2.2 KB` —— 同一屏两个数字，
+ * 用户没法判断哪个才是真的。口径由用户拍板统一为 1024（2026-07-29）。
+ */
+private fun fmtBytes(bytes: Long): String = formatBytes(bytes)
 
 /** "2.3 MB/s" → ("2.3","MB/s")：BigStat 数字与单位分排。 */
 private fun splitRate(rate: String): Pair<String, String> {
@@ -201,11 +204,13 @@ fun MonitorScreen(
     onOpenHistory: () -> Unit,
     onOpenLogs: () -> Unit,
     onOpenDomains: () -> Unit,
+    onOpenTrafficStats: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val vm: MonitorViewModel = hiltViewModel()
     val latency by vm.latency.collectAsStateWithLifecycle()
     val measuring by vm.measuring.collectAsStateWithLifecycle()
+    val trafficSummary by vm.trafficSummary.collectAsStateWithLifecycle()
     // 最近 60s 速率历史（1s 采样），速率大卡 sparkline 用。
     val rates by viewModel.rateHistory.collectAsStateWithLifecycle()
     var clientsExpanded by remember { mutableStateOf(false) }
@@ -561,7 +566,75 @@ fun MonitorScreen(
                 )
             }
         }
+
+        // —— 流量统计入口（整卡而非第三个 pill）：History/Error logs 是「去看列表」，
+        //    而流量统计本身就有一个值得当场读到的数字——不点进去也已回答「今天用了多少」。——
+        item { TrafficStatsEntryCard(trafficSummary, onOpenTrafficStats) }
     }
+}
+
+/** 流量统计入口卡：今日总量 + 较昨日涨跌 + 近 7 日迷你趋势条（最后一根＝今日，实色）。 */
+@Composable
+private fun TrafficStatsEntryCard(
+    summary: com.mzstd.hxmyproxy.core.stats.TrafficSummary,
+    onClick: () -> Unit,
+) {
+    BentoCard(tier = CardTier.Primary, onClick = onClick) {
+        CardHeader(
+            title = stringResource(R.string.traffic_stats_title),
+            icon = painterResource(R.drawable.ic_b_bars),
+            trailing = {
+                Icon(
+                    painterResource(R.drawable.ic_b_chevron_right),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(14.dp),
+                )
+            },
+        )
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val text = formatBytes(summary.todayBytes)
+            val sep = text.lastIndexOf(' ')
+            val num = if (sep > 0) text.substring(0, sep) else text
+            val unit = if (sep > 0) text.substring(sep + 1) else ""
+            BigStat(num, "$unit · ${stringResource(R.string.traffic_period_today)}", valueSize = 30)
+            Spacer(Modifier.weight(1f))
+            deltaText(summary.todayBytes, summary.yesterdayBytes)?.let {
+                Text(
+                    stringResource(R.string.traffic_vs_yesterday, it),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 3.dp),
+                    maxLines = 1,
+                )
+            }
+        }
+        if (summary.last7Days.any { it > 0 }) {
+            BarChart(
+                buckets = summary.last7Days.mapIndexed { i, v -> com.mzstd.hxmyproxy.core.stats.TrafficBucket(i.toLong(), v) },
+                highlightKey = (summary.last7Days.size - 1).toLong(),
+                color = MaterialTheme.colorScheme.primary,
+                height = 34.dp,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatLabel(stringResource(R.string.traffic_axis_week_ago))
+                StatLabel(stringResource(R.string.traffic_period_today))
+            }
+        } else {
+            Text(
+                stringResource(if (summary.hasAnyData) R.string.traffic_bucket_empty else R.string.traffic_empty_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 「较昨日」涨跌；昨日为 0 时返回 null——除零得不出百分比，硬写个「+∞%」只会误导。 */
+private fun deltaText(today: Long, yesterday: Long): String? {
+    if (yesterday <= 0L) return null
+    val pct = ((today - yesterday) * 100.0 / yesterday).toInt()
+    return if (pct >= 0) "+$pct%" else "$pct%"
 }
 
 /** 速率半列：方向角标小方块 + 标签、BigStat 大数字+单位、60s sparkline。 */

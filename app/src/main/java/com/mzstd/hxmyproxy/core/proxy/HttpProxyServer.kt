@@ -96,11 +96,13 @@ class HttpProxyServer(
         val bypass = action == RuleAction.DIRECT
         val limits = limitsProvider()
         val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else onTraffic
+        // 实际出口由建连层回填（含降级后的真实网络），历史流量统计据此分类累加。
+        val onEgress = tracker?.let { it::bindEgress }
 
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
             val upstreamCh = try {
-                connector.connectChannel(hp.first, hp.second, bypassVpn = bypass)
+                connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
             } catch (e: ProxyException) {
                 writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
             } catch (e: IOException) {
@@ -119,7 +121,7 @@ class HttpProxyServer(
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
-            connector.connect(hp.first, hp.second, bypassVpn = bypass)
+            connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
         }
@@ -162,7 +164,11 @@ class HttpProxyServer(
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
-            connector.connect(host, port, bypassVpn = action == RuleAction.DIRECT)
+            connector.connect(
+                host, port,
+                bypassVpn = action == RuleAction.DIRECT,
+                onEgress = tracker?.let { it::bindEgress },
+            )
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, "Bad Gateway"); return false
         }
