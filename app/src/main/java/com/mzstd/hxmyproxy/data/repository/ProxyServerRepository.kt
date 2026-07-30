@@ -405,6 +405,7 @@ class ProxyServerRepository @Inject constructor(
         registry.reset()
         accounting.reset()
         LinkProbe.reset()          // 上次会话的链路样本不带到这次
+        com.mzstd.hxmyproxy.core.proxy.RelayStallStats.reset()   // 背压窗口同理
         sessionStartedAt = System.currentTimeMillis()
         heartbeatN = 0
     }
@@ -663,6 +664,9 @@ class ProxyServerRepository @Inject constructor(
      */
     private fun heartbeat(clients: Int, sig: com.mzstd.hxmyproxy.core.network.SignalInfo) {
         heartbeatN++
+        // 背压归因（见 RelayStallStats）：取走并清零 → 这一窗口的聚合。无隧道结束则为 null，
+        // 此时整组字段省略，不打 0% 噪音。
+        val stall = com.mzstd.hxmyproxy.core.proxy.RelayStallStats.snapshotAndReset()
         val kv = arrayOf(
             "ports" to servers.mapNotNull { s -> s.boundPort.value?.let { "${s.protocol}:$it" } }
                 .joinToString(",").ifEmpty { "none" },
@@ -682,6 +686,13 @@ class ProxyServerRepository @Inject constructor(
             "rssi" to sig.dbm,
             "link" to (LinkProbe.stats()?.let { "${it.p50Ms}/${it.p95Ms}" } ?: "-"),
             "probe" to lastSelfProbe,
+            // 「慢，卡在哪一段」：stallIn=写客户端写不动(入口段)，stallOut=写上游写不动(出口段)，
+            // 均为本窗口内**时长加权**占比；maxStall 是单条隧道的最高占比（均值会被大量短连接稀释，
+            // 极值不会）；relayN 是本窗口结束的隧道数，用于判断样本量。
+            "stallIn" to stall?.let { "${it.inPct}%" },
+            "stallOut" to stall?.let { "${it.outPct}%" },
+            "maxStall" to stall?.let { "${it.maxPct}%" },
+            "relayN" to stall?.tunnels,
         )
         if (heartbeatN % HEARTBEAT_KEY_EVERY == 0L) Ev.k(LogCat.PERF, "hb", *kv) else Ev.i(LogCat.PERF, "hb", *kv)
         FileLog.flush()

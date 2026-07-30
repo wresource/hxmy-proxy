@@ -286,6 +286,24 @@ private class Pipe(
     var draining = false       // buf 处于读模式、尚有字节待写到 dst（src 暂停读、dst 需 OP_WRITE）
     var srcEof = false         // src 读到 EOF
     var done = false           // 本方向彻底结束（EOF 且 buf 排空、已 shutdownOutput dst）
+
+    /** 本方向进入「写不动」的时刻（0=当前不处于 stall）。见 [RelayStallStats]。 */
+    var stallSinceNs = 0L
+    /** 本方向累计「写不动」时长。 */
+    var stallTotalNs = 0L
+
+    /** 进入 stall（幂等：已在 stall 中不重置起点，否则长时间拥塞会被切成碎片而少算）。 */
+    fun enterStall(now: Long) {
+        if (stallSinceNs == 0L) stallSinceNs = now
+    }
+
+    /** 退出 stall 并结算（幂等：不在 stall 中则无操作）。 */
+    fun exitStall(now: Long) {
+        if (stallSinceNs != 0L) {
+            stallTotalNs += now - stallSinceNs
+            stallSinceNs = 0L
+        }
+    }
 }
 
 private class Tunnel(
@@ -302,6 +320,8 @@ private class Tunnel(
     private val up = Pipe(cCtx, uCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(it, 0) }
     private val down = Pipe(uCtx, cCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(0, it) }
     @Volatile private var lastActivity = System.nanoTime()
+    /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
+    private val startNs = System.nanoTime()
     private val closed = AtomicBoolean(false)
 
     init {
@@ -342,9 +362,13 @@ private class Tunnel(
         if (wrote > 0) { touch(); pipe.onBytes(wrote.toLong()) }
         if (pipe.buf.hasRemaining()) {
             // 没写完：dst 发送缓冲满 → 保持 draining（dst OP_WRITE on、src OP_READ off）。
+            // 这就是背压的定义时刻：**dst 那一端堵了**。哪个方向堵，直接指认哪一段是瓶颈
+            // （down 堵=写客户端写不动=入口段；up 堵=写上游写不动=出口段）。见 RelayStallStats。
+            pipe.enterStall(System.nanoTime())
         } else {
             pipe.buf.clear()
             pipe.draining = false
+            pipe.exitStall(System.nanoTime())
             if (pipe.srcEof) finishIfDrained(pipe, w)
         }
         w.rebuildInterest(pipe.src)
@@ -371,6 +395,13 @@ private class Tunnel(
     /** 幂等关闭：cancel key + close 两 channel + untrack + resume 协程（仅一次）。在 selector 线程调用。 */
     fun close(w: SelectorWorker) {
         if (!closed.compareAndSet(false, true)) return
+        // **关闭时仍在 stall 中要补结算**：客户端拔网线/断电正是这个场景——一直写不动直到隧道被拆，
+        // 那段时长恰恰是最能说明问题的，不补就整段丢失（只有「进入」没有「退出」）。
+        val endNs = System.nanoTime()
+        up.exitStall(endNs)
+        down.exitStall(endNs)
+        // up=client→upstream(写上游=出口段)，down=upstream→client(写客户端=入口段)。
+        RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs)
         cCtx.key?.cancel(); uCtx.key?.cancel()
         cCtx.channel.closeQuietly(); uCtx.channel.closeQuietly()
         w.untrack(this)
