@@ -27,16 +27,17 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Rule scope in three tiers** — how you write it decides how deep it reaches: `apple.com` (all levels) · `*.apple.com` (one level) · `=apple.com` (exact). Conflicts resolve **most-specific-wins**, not last-write-wins, so a broad rule added later can never silently erase a narrow one you added months ago.
 - **Ad-block false-positive rescue** — public blocklists are auto-aggregated and sweep up vendors' own content domains (mini-program assets, video CDNs); a curated, individually-audited allowlist un-blocks them, so "the app broke and you can't tell why" stops happening. Every entry is checked by tests against the shipped rule data.
 - **Toggle rules without deleting** — every block/allow entry has its own on/off switch and an Active/Off badge; disabled entries drop out of matching (they do *not* flip to the opposite action) and sort below the active ones.
+- **Edit any rule in place** — tap an entry to read its full value (long IPv6 literals and CIDRs are no longer truncated by the list), rewrite it, or move it to a different scope tier — no more delete-and-re-add to fix one character. An edit keeps the entry's original creation time, so most-specific-wins tie-breaks don't silently shift under you.
 - **Survives updates and reboots** — if sharing was on, it comes back by itself after an app update or a device restart (and only then — stopping it yourself keeps it off), so clients don't hit a dead proxy port.
 - **Client link latency** — measures the *client → phone* hop (the one that degrades first when the phone acts as a gateway, and the one nothing used to measure), shown as p50 with p95 alongside and colour-coded. Probed every 10 s, and only while a client is actually connected.
 - **Traffic history** — cross-session usage by period (today / week / month / year / all time) **and by egress**: VPN tunnel, Wi-Fi, cellular, Ethernet-USB. Cellular is broken out on its own — it's the one that costs money. Kept per day on-device; cleared only when you say so, never automatically.
 - **Settings backup** — export/import your whole configuration as JSON, so nothing is lost on reinstall or a new phone (system cloud backup is deliberately off — see Privacy).
-- **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. One master switch in Settings.
+- **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. After an unexpected stop it also reports **why the process died** (low memory / crash / killed by the system), recovered from the OS after the fact — including a small state note the system keeps for us, which survives even a `SIGKILL` that takes buffered log writes with it. One master switch in Settings.
 - **Self-diagnosing when clients can't connect** — a 60 s heartbeat (ports / accepts / admission / RSSI / link), accept-success logging, a loopback+LAN self-probe pair and client-probe loss events make an exported log tell you *which layer* failed; a one-tap **Refresh service** button fully resets the app-side stack, probes recent clients (refreshing on-path ARP entries) and, if they still don't answer, points you at the system Wi-Fi panel — the one thing apps can't reset themselves.
 - **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
-- **NIO non-blocking relay** — 2 selectors replace 128 threads.
+- **NIO non-blocking relay** — 2 selectors replace 128 threads, with per-tunnel **back-pressure attribution**: stall time is counted per direction, so a slow session tells you *which* hop is the bottleneck — the client link or the uplink.
 - **100% local** — no account, no cloud, no tracking SDK.
 
 ## The five screens
@@ -64,7 +65,7 @@ logcat output, so no visited domain or client IP is written to the system log.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.21.0**.
+Latest release: **1.24.0**.
 
 ## More
 
