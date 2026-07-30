@@ -357,15 +357,30 @@ class ProxyServerRepository @Inject constructor(
                 _state.update { it.copy(lockdownSuspected = !realOk && probeEgress(bypass = false)) }
             }
         }
-        // 热点(AP)接口出现**不走网络回调**（它不是上网网络，ConnectivityManager 不上报）→ 只能周期重扫捕捉。
-        // 换到「蜂窝+开热点」后,热点接口 up 时自动被 refresh 纳入入口+准入,无需手动重启共享。低频(数秒)且 refresh 幂等,耗电可忽略。
+        // 热点(AP)/USB 网络共享这类**共享出去的接口**,出现时不走网络回调:它们的 Network 没有
+        // NET_CAPABILITY_INTERNET（真机实测 ncm0 是 `Transports: USB` + `LOCAL_NETWORK`，不是上网网络），
+        // ConnectivityManager 不会把它当默认网络变化上报 → 只能周期重扫捕捉。
+        //
+        // 【1.22.1 修复】原条件是「仅走蜂窝上网时才扫」，其假设是「有 WiFi 入口时接口变化都由回调驱动」——
+        // 这对共享类接口**不成立**（同一段注释上一行就写着它们不走回调）。而 USB/热点可以在**任何**上行
+        // 模式下开启:WiFi 上网 + 插 USB 时该分支永不执行，接口永远进不了列表，用户以为勾了 USB 却没生效，
+        // 表现为「USB 那台设备不走 VPN」（真机实测:手动刷新后 ncm0 立刻出现）。
+        //
+        // 改为始终扫，但把成本压到最低:每轮只做一次接口枚举拼 key，**只有 key 变化才走完整 refresh**。
+        // 当初「每分钟 20 次空转」的开销不在扫描本身，而在 refresh 里的权限/信号 binder 查询与 state 重建——
+        // 把重活挪到「确实变了」之后，既恢复了发现能力，又不回退当时的性能修复。
         session.launch {
+            var lastIfaceKey = ""
             while (isActive) {
                 delay(HOTSPOT_RESCAN_MS)
-                // 仅「走蜂窝上网」时才需周期重扫捕捉热点(AP)接口(它不走网络回调);有 WiFi/以太网入口时
-                // 接口/IP 变化都由 ConnectivityObserver 回调驱动 refresh,无需每 3 秒空扫 —— 否则稳定态下
-                // scan+写盘 每 3 秒空转(实测每分钟 ~20 次),徒增 CPU/IO。加此条件后 WiFi 场景风暴归零。
-                if (connectivityObserver.uplinkIsCellular()) refresh()
+                val key = runCatching {
+                    interfaceScanner.scan(currentSettings.selectedInterfaceIds)
+                        .joinToString(",") { "${it.name}:${it.address.hostAddress}" }
+                }.getOrNull() ?: continue
+                if (key != lastIfaceKey) {
+                    lastIfaceKey = key
+                    refresh()
+                }
             }
         }
         _state.update { it.copy(running = true) }
@@ -659,6 +674,11 @@ class ProxyServerRepository @Inject constructor(
             "sessionSec" to (if (sessionStartedAt == 0L) -1 else (System.currentTimeMillis() - sessionStartedAt) / 1000),
             "clients" to clients,
             "localAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty>" },
+            // 出口配置态 + VPN 在线态:决定「流量到底从哪出去」的两个变量,此前都不在心跳里。
+            // 排障时「用户选了什么出口」「VPN 在不在」是最先要问的两件事,不该靠反推。
+            "egress" to currentSettings.egressChoice,
+            "direct" to currentSettings.directEgressChoice,
+            "vpn" to (if (_state.value.vpn.detected) (if (_state.value.vpn.validated) "on" else "on/unvalidated") else "off"),
             "rssi" to sig.dbm,
             "link" to (LinkProbe.stats()?.let { "${it.p50Ms}/${it.p95Ms}" } ?: "-"),
             "probe" to lastSelfProbe,
@@ -860,9 +880,27 @@ class ProxyServerRepository @Inject constructor(
         egressGuard.blockPrivateLan = s.blockPrivateLanEgress
         authenticator.enabled = s.authEnabled
         connector.backupDnsEnabled = s.backupDnsEnabled
+        // 出口选择的**变更**落盘（只记变化，`x=旧->新`）。此前它完全不落盘,属于「配置态不可见」——
+        // 比事件缺失更隐蔽:事件没了至少能感觉到日志断档,配置态没了连该问什么都不知道。
+        // 7-30 排查 mac 客户端时,判断「出口不是 Auto」全靠反推代码分支(只有非 AUTO 才会走 catch 里的
+        // `degrading to default` 那一支),绕了一大圈;有这两行就是直接读出来的事。
+        // 埋在 applyTunables 而不是 UI 点击处:这里才是**实际生效**的时刻,UI 点了但设置没推下来的情况
+        // 不该产生日志(同 refresh 只打生效值不打算出值的纪律)。
+        Ev.delta("egress", lastEgressChoice, s.egressChoice)?.let {
+            Ev.k(LogCat.EGRESS, "egress.choice", it)
+        }
+        Ev.delta("directEgress", lastDirectEgressChoice, s.directEgressChoice)?.let {
+            Ev.k(LogCat.EGRESS, "egress.choice", it)
+        }
+        lastEgressChoice = s.egressChoice
+        lastDirectEgressChoice = s.directEgressChoice
         underlyingNetworkProvider.setEgressChoice(s.egressChoice)
         underlyingNetworkProvider.setDirectEgressChoice(s.directEgressChoice)
     }
+
+    /** 上次生效的出口选择,用于只记变化（初始 null → 首次 applyTunables 会落一条基线）。 */
+    @Volatile private var lastEgressChoice: com.mzstd.hxmyproxy.core.model.EgressNetworkChoice? = null
+    @Volatile private var lastDirectEgressChoice: com.mzstd.hxmyproxy.core.model.DirectEgressChoice? = null
 
     /**
      * 按 FD 预算反推安全的最大连接数：每连接约占 [FD_PER_CONN] 个 FD,另预留 [FD_RESERVED] 给 App 自身。
