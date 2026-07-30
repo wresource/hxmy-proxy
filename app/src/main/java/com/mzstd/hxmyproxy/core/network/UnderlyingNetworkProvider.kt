@@ -6,7 +6,9 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
+import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.EgressStatus
@@ -228,7 +230,9 @@ class UnderlyingNetworkProvider(context: Context) {
             // 注意:只注册监听,不在此 requestNetwork——监听可在停止态常驻(出口卡显示在线态),
             // 而 requestNetwork「拉起蜂窝」只在共享运行时由 setEgressChoice 触发(省电)。
         } catch (e: Exception) {
-            Log.w(TAG, "egress network callbacks register failed: ${e.message}")
+            // 注册失败 = 四个出口句柄全部拿不到 → 出口选择器整体失效、DIRECT 分流 fail-closed 断开。
+            // 此前只有 logcat（release 下被剥离），用户看到的是「选了 Wi-Fi 出口却连不上」而日志无痕。
+            Ev.kw(LogCat.EGRESS, "egress.callbackRegisterFailed", "err" to e.toString())
         }
     }
 

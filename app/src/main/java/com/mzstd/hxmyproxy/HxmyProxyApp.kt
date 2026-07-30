@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy
 
 import android.app.Application
 import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.ExitReason
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.log.LogCat
 import dagger.hilt.android.HiltAndroidApp
@@ -40,6 +41,9 @@ class HxmyProxyApp : Application() {
                 "pid" to android.os.Process.myPid(),
             )
         }
+        // 紧跟 session.start：新会话开头先交代「上次是怎么没的」。进程被 SIGKILL 时我们自己的日志
+        // 结尾必然残缺（常驻 BufferedWriter），这条由系统侧记账补上，是唯一不受突然死亡影响的证据。
+        ExitReason.reportLastExit(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
             FileLog.e("crash", "Uncaught in thread ${thread.name}", ex)

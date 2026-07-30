@@ -665,6 +665,16 @@ class ProxyServerRepository @Inject constructor(
         )
         if (heartbeatN % HEARTBEAT_KEY_EVERY == 0L) Ev.k(LogCat.PERF, "hb", *kv) else Ev.i(LogCat.PERF, "hb", *kv)
         FileLog.flush()
+        // 同一节拍把状态摘要交给系统保管：进程被 SIGKILL 时，本地日志的最后几行随缓冲区蒸发，
+        // 而这份摘要会与系统记的死因一起活下来（见 ExitReason）。只有开关态与计数，无任何 PII。
+        com.mzstd.hxmyproxy.core.log.ExitReason.updateStateSummary(
+            appContext,
+            sharing = running,
+            clients = clients,
+            conns = registry.activeGlobal,
+            acceptTotal = servers.sumOf { it.acceptCount },
+            uptimeSec = if (sessionStartedAt == 0L) -1 else (System.currentTimeMillis() - sessionStartedAt) / 1000,
+        )
     }
 
     fun stop() {

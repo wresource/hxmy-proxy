@@ -2,6 +2,8 @@ package com.mzstd.hxmyproxy.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.rules.RuleMatcher
 import com.mzstd.hxmyproxy.core.rules.RuleAction
@@ -25,6 +27,8 @@ class RuleRepository @Inject constructor(
     private val ruleEngine: RuleEngine,
 ) {
     fun rebuild(settings: ProxySettings) {
+        val t0 = System.currentTimeMillis()
+        assetFailures = 0
         val reject = RuleMatcher()
         val direct = RuleMatcher()
         val proxy = RuleMatcher()
@@ -78,8 +82,21 @@ class RuleRepository @Inject constructor(
                 reject = reject, direct = direct, proxy = proxy,
             ),
         )
-        Log.i("hxmyproxy", "rules rebuilt: reject=${reject.size} direct=${direct.size} proxy=${proxy.size} userDirect=${userDirect.size} userReject=${userReject.size} adsAllow=${adsAllow.size} overrides=${settings.hostOverrides.size}")
+        // 规则表规模落盘：防护突然失灵时，「表里到底有多少条」是第一个要看的数字——
+        // 6.6 万条变成 3 条与「规则没生效」在 UI 上完全同形，只有这里能区分。
+        // 同时带 assetFail：任一内置组装载失败都会让它静默变空（见 loadAsset）。
+        Ev.i(
+            LogCat.RULE, "rules.rebuilt",
+            "reject" to reject.size, "direct" to direct.size, "proxy" to proxy.size,
+            "userDirect" to userDirect.size, "userReject" to userReject.size,
+            "adsAllow" to adsAllow.size, "overrides" to settings.hostOverrides.size,
+            "assetFail" to assetFailures.takeIf { it > 0 },
+            "ms" to (System.currentTimeMillis() - t0),
+        )
     }
+
+    /** 本轮 [rebuild] 中装载失败的 assets 数量（喂给 rules.rebuilt 的 assetFail 字段）。 */
+    private var assetFailures = 0
 
     private fun loadAsset(path: String, into: RuleMatcher) {
         try {
@@ -91,7 +108,11 @@ class RuleRepository @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Log.w("hxmyproxy", "load rule asset $path failed: ${e.message}")
+            // **静默失败最危险的一处**：某个规则集变成空表，广告照进、直连组失效，而 UI 上
+            // 开关仍显示「已启用」。此前只有 Log.w（release 下 logcat 还被剥离），导出日志里
+            // 一个字都没有。进 key.log。
+            assetFailures++
+            Ev.kw(LogCat.RULE, "rules.assetFailed", "path" to path, "err" to e.toString())
         }
     }
 

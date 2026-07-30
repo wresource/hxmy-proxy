@@ -43,6 +43,9 @@ private const val REJECT_LOG_INTERVAL_MS = 10_000L
  */
 private const val ACCEPT_LOG_INTERVAL_MS = 30_000L
 
+/** evict 汇总里最多列几个被踢的客户端 IP（超出只报数量，避免一行撑爆 key 环）。 */
+private const val EVICT_HOSTS_MAX = 8
+
 
 /**
  * 对端正常关闭类异常(客户端断开 / keep-alive 空闲取消 / 网站关连接):
@@ -137,8 +140,8 @@ abstract class TcpProxyServerBase(
                 // UI 据此提示用户换端口。
                 _bindError.value = ProxyError.PortInUse
                 _boundPort.value = null
-                Log.w(TAG, "$protocol bind :$port failed: ${lastError?.message}")
-                FileLog.w(TAG, "$protocol bind :$port failed", lastError)
+                // 已有 listen.up 表示监听起来了；失败侧同样走结构化门面，两者可对着 grep。
+                Ev.kw(LogCat.SVC, "listen.bindFailed", "proto" to protocol, "port" to port, "err" to lastError?.toString())
                 return@launch
             }
             serverChannel = server
@@ -161,7 +164,6 @@ abstract class TcpProxyServerBase(
                         // 无法证实也无法排除）。统一节流落盘（进 key.log）+ 统一退避。
                         val msg = (e.message ?: "").lowercase()
                         val emfile = "too many open files" in msg || "emfile" in msg
-                        Log.w(TAG, "$protocol accept error，退避重试: ${e.message}")
                         Ev.throttled(
                             LogCat.CONN, "accept.error", "acceptErr:$protocol", REJECT_LOG_INTERVAL_MS,
                             key = true,
@@ -212,7 +214,6 @@ abstract class TcpProxyServerBase(
                         client.closeQuietly(); continue
                     }
                     runCatching { sock.tcpNoDelay = true }
-                    Log.i(TAG, "$protocol accept ${remote.hostAddress} (active=${registry.activeGlobal})")
                     // 仅探针本身不落 accept 行、不进流量账（避免 30s 一次的自探把日志与 UI 客户端列表
                     // 噪音化：clients 里出现本机 IP、LinkProbe 反过来探自己）。真实的本机自用连接照常记。
                     if (!probeConn) {
@@ -270,15 +271,28 @@ abstract class TcpProxyServerBase(
         // 判定口径与 accept 准入完全一致（local 地址）。已关闭的 channel 跳过（等 handle/reactor sweep 清理，
         // 反复 close 只会刷日志）。NIO 隧道裸 close 不产生 selector 事件，reactor sweep 的
         // externallyClosed 检测会在 ≤1 周期内拆干净并 resume 协程。
+        // **汇总落一条而非逐条**：一次准入收缩可能踢掉几十条连接，逐条落盘会把 key 环冲掉，
+        // 而真正有判定价值的是「这一次踢了几条」——踢 1 条和踢 40 条是完全不同的事件。
+        var evicted = 0
+        val victims = LinkedHashSet<String>()
         inFlight.toList().forEach { ch ->
             if (!ch.isOpen) return@forEach
             val sock = runCatching { ch.socket() }.getOrNull()
             val local = (sock?.localSocketAddress as? InetSocketAddress)?.address
             val remote = (sock?.remoteSocketAddress as? InetSocketAddress)?.address
             if (local == null || remote == null || !admit(local, remote)) {
-                Log.i(TAG, "$protocol evict ${remote?.hostAddress ?: "?"} (准入集收缩)")
+                evicted++
+                if (victims.size < EVICT_HOSTS_MAX) victims.add(remote?.hostAddress ?: "?")
                 ch.closeQuietly()
             }
+        }
+        if (evicted > 0) {
+            Ev.k(
+                LogCat.ADMIT, "evict",
+                "proto" to protocol, "n" to evicted,
+                "hosts" to victims.joinToString(","),
+                "more" to (evicted - victims.size).takeIf { it > 0 },
+            )
         }
     }
 

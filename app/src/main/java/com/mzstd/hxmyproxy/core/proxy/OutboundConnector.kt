@@ -353,6 +353,16 @@ class OutboundConnector(
         val ok = fileDescriptorOf(probe) != null
         probe.closeQuietly()
         fdReflectionUsable = ok
+        // 落盘放在这个**一次性探测**里而不是调用方的 catch：后者每条走出口分流的连接都会命中，
+        // 落盘会刷屏且需要节流。这里进程内只执行一次，信息还更准确（是能力探测结果，
+        // 不是某条连接的偶发失败）。不可用意味着整机降级到阻塞 relay —— 性能特征完全变了，
+        // 而此前这件事只写 logcat，release 下连 logcat 都没有。
+        if (!ok) {
+            com.mzstd.hxmyproxy.core.log.Ev.kw(
+                com.mzstd.hxmyproxy.core.log.LogCat.EGRESS, "nio.fdReflect.unavailable",
+                "impact" to "egress-split falls back to blocking relay",
+            )
+        }
         return ok
     }
 

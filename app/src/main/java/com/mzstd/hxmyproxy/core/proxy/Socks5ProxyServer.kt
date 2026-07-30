@@ -109,7 +109,7 @@ class Socks5ProxyServer(
             } catch (e: ProxyException) {
                 reply(output, e.error.socksReply); return
             } catch (e: IOException) {
-                Log.w("hxmyproxy", "connectChannel 反射 fd 不可用，回退阻塞 relay: ${e.message}")
+                // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
                 null
             }
             if (upstreamCh != null) {
