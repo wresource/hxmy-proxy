@@ -480,6 +480,11 @@
     <string name="rules_scope_confirm_body">"%1$s" with no prefix covers every level below it — a.%2$s, a.b.%3$s and deeper. That is usually more than intended; "One level" covers the domain itself plus one level of subdomains.</string>
     <string name="rules_scope_confirm_use_single">Use *.%1$s</string>
     <string name="rules_scope_confirm_keep_suffix">Keep all levels</string>
+    <string name="rules_edit_title">Edit rule</string>
+    <string name="rules_edit_current">Current value</string>
+    <string name="rules_edit_scope">Scope</string>
+    <string name="rules_edit_result">Will become: %1$s</string>
+    <string name="rules_edit_added">Added %1$s</string>
     <string name="rules_scope_badge_exact">exact</string>
     <string name="rules_scope_badge_single">1 level</string>
     <string name="rules_scope_badge_suffix">all levels</string>

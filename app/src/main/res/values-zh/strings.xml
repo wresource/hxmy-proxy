@@ -480,6 +480,11 @@
     <string name="rules_scope_confirm_body">不带前缀的「%1$s」会连同它下面的每一层一起处理——a.%2$s、a.b.%3$s 以及更深的都算。这通常超出你的本意；「下一级」只覆盖该域名本身和一层子域。</string>
     <string name="rules_scope_confirm_use_single">改用 *.%1$s</string>
     <string name="rules_scope_confirm_keep_suffix">仍用所有层级</string>
+    <string name="rules_edit_title">编辑规则</string>
+    <string name="rules_edit_current">当前值</string>
+    <string name="rules_edit_scope">作用范围</string>
+    <string name="rules_edit_result">将变为：%1$s</string>
+    <string name="rules_edit_added">添加于 %1$s</string>
     <string name="rules_scope_badge_exact">仅此域</string>
     <string name="rules_scope_badge_single">下一级</string>
     <string name="rules_scope_badge_suffix">所有层级</string>

@@ -219,6 +219,29 @@ class MainViewModel @Inject constructor(
         else it.copy(userRejectRules = it.userRejectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
     }
 
+    /**
+     * 就地改写一条规则（改域名/IP 本身，或只改作用域档位——后者在数据上就是改前缀）。
+     *
+     * **保留 addedAt / enabled / disabledAt**:这是「修改同一条规则」，不是删了重加。
+     * addedAt 还是 most-specific-wins 同分时的兜底裁决依据（见 RuleEngine），改个作用域档位
+     * 就把它刷新成"最新"，会让规则间的相对优先级莫名其妙地变——用户完全无从察觉。
+     *
+     * 校验与新增同一条路径（[normalizeRule]）：非法值、与**其它**条目重复都原样返回不改。
+     * 改成自身值（只调了大小写/前缀又改回来）视为无操作，不算重复。
+     */
+    fun updateUserRejectRule(old: String, new: String) = update { s ->
+        val d = normalizeRule(new) ?: return@update s
+        if (d != old && s.userRejectRules.any { e -> e.value == d }) return@update s
+        s.copy(userRejectRules = s.userRejectRules.map { e -> if (e.value == old) e.copy(value = d) else e })
+    }
+
+    /** 就地改写一条白名单规则（语义同 [updateUserRejectRule]）。 */
+    fun updateUserDirectRule(old: String, new: String) = update { s ->
+        val d = normalizeRule(new) ?: return@update s
+        if (d != old && s.userDirectRules.any { e -> e.value == d }) return@update s
+        s.copy(userDirectRules = s.userDirectRules.map { e -> if (e.value == old) e.copy(value = d) else e })
+    }
+
     /** 移除快速拦截名单。 */
     fun removeUserRejectRule(rule: String) = update {
         it.copy(userRejectRules = it.userRejectRules.filterNot { e -> e.value == rule })

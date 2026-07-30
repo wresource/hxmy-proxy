@@ -81,6 +81,7 @@ import com.mzstd.hxmyproxy.ui.components.StatLabel
 import com.mzstd.hxmyproxy.ui.components.StatusDot
 import com.mzstd.hxmyproxy.ui.components.WarnBanner
 import com.mzstd.hxmyproxy.ui.components.stdSwitchColors
+import com.mzstd.hxmyproxy.ui.components.RuleEditDialog
 import com.mzstd.hxmyproxy.ui.theme.AvatarBgDark
 import com.mzstd.hxmyproxy.ui.theme.AvatarBgLight
 import com.mzstd.hxmyproxy.ui.theme.AvatarFgDark
@@ -107,6 +108,8 @@ fun RulesScreen(
     val s = ui.settings
     val rejectAcc = rejectAccent()
     val allowAcc = allowAccent()
+    // 正在编辑的条目 + 它属于哪张表（两张表的更新方法不同）。点条目打开，值看全与改写都在弹窗里。
+    var editing by remember { mutableStateOf<Pair<RuleEntry, Boolean>?>(null) }
     Column(
         // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
@@ -164,6 +167,7 @@ fun RulesScreen(
                 onAdd = { viewModel.addUserRejectRule(it) },
                 onToggle = { viewModel.toggleUserRejectRule(it) },
                 onRemove = { viewModel.removeUserRejectRule(it) },
+                onEdit = { editing = it to true },
                 onOpenDetail = onOpenRejectDetail,
             )
         }
@@ -198,6 +202,7 @@ fun RulesScreen(
                 onAdd = { viewModel.addUserDirectRule(it) },
                 onToggle = { viewModel.toggleUserDirectRule(it) },
                 onRemove = { viewModel.removeUserDirectRule(it) },
+                onEdit = { editing = it to false },
                 onOpenDetail = onOpenDirectDetail,
             )
         }
@@ -288,6 +293,24 @@ fun RulesScreen(
             }
         }
     }
+
+    // 编辑/详情弹窗：列表行放不下完整值（一行六个元素），改值与改作用域档位都在这里做。
+    editing?.let { (entry, isReject) ->
+        RuleEditDialog(
+            entry = entry,
+            onSave = {
+                if (isReject) viewModel.updateUserRejectRule(entry.value, it)
+                else viewModel.updateUserDirectRule(entry.value, it)
+                editing = null
+            },
+            onDelete = {
+                if (isReject) viewModel.removeUserRejectRule(entry.value)
+                else viewModel.removeUserDirectRule(entry.value)
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
 }
 
 // ---------- 语义配色（拦截=粉 / 放行=蓝，明暗跟主题 tertiary/primary 家族走） ----------
@@ -375,6 +398,7 @@ private fun QuickRuleCard(
     onAdd: (String) -> Unit,
     onToggle: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onEdit: (RuleEntry) -> Unit,
     onOpenDetail: () -> Unit,
 ) {
     // 视觉主角卡（HTML hero/flat 都落 Primary 档：浅色近白、深色 High 浮出）。
@@ -388,7 +412,12 @@ private fun QuickRuleCard(
         RuleFormatHint()
         rules.sortedForDisplay().take(2).forEach { entry ->
             HorizontalDivider(color = ruleHairline())
-            RuleEntryRow(entry, accent, onToggle = { onToggle(entry.value) }, onRemove = { onRemove(entry.value) })
+            RuleEntryRow(
+                entry, accent,
+                onToggle = { onToggle(entry.value) },
+                onRemove = { onRemove(entry.value) },
+                onEdit = { onEdit(entry) },
+            )
         }
         HorizontalDivider(color = ruleHairline())
         // 「管理全部」行：语义色文字 + 计数徽章 + 右进入尖角。
@@ -551,9 +580,20 @@ internal fun RuleFormatHint() {
 
 /** 条目行（HTML .prow）：类型小徽章（域名/IP 段）+ 等宽地址 + 删除图标。 */
 @Composable
-internal fun RuleEntryRow(entry: RuleEntry, accent: RuleAccent, onToggle: () -> Unit, onRemove: () -> Unit) {
+internal fun RuleEntryRow(
+    entry: RuleEntry,
+    accent: RuleAccent,
+    onToggle: () -> Unit,
+    onRemove: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+) {
     Row(
-        Modifier.fillMaxWidth(),
+        // 整行可点 → 编辑/详情。开关与删除是各自独立的点击目标，不会与整行冲突（子组件先消费事件）。
+        // 值在这一行里必然被省略（一行要放六个元素），看全与改写都在弹窗里做。
+        Modifier
+            .fillMaxWidth()
+            .then(if (onEdit != null) Modifier.clip(MaterialTheme.shapes.small).clickable(onClick = onEdit) else Modifier)
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
