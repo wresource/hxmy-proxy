@@ -65,7 +65,7 @@ logcat output, so no visited domain or client IP is written to the system log.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.24.0**.
+Latest release: **1.24.1**.
 
 ## More
 

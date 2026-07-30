@@ -1,6 +1,10 @@
 *.iml
 .gradle
 /local.properties
+# 正式签名凭据（模板见 keystore.properties.example，模板本身入库）
+/keystore.properties
+*.keystore
+*.jks
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml

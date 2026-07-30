@@ -161,7 +161,19 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 - **1.24.0（规则条目可编辑）**：自己加的域名 / IP 点进去能看全、能改写、能换作用域档位，不必删了重加
   （长 IPv6 与 CIDR 在列表里会被截断，而「想改一个字符」此前只能整条删掉重来）。改写**保留原 `addedAt`**——
   most-specific-wins 在同档位平手时用它决胜，重置了会静默改变裁决结果，这种错不会报错、只会让规则
-  某天开始不按预期生效——当前版本（versionCode 120）。
+  某天开始不按预期生效。
+- **1.24.1（发布链路维护）**：三条来自 Play Console 的告警,处置各不相同。
+  ① **native 符号**：产物里的 `.so` 全部来自 AndroidX（本项目无 NDK 代码），补 `debugSymbolLevel = "FULL"` 让符号进包。
+  ② **deprecated `setStatusBarColor`/`setNavigationBarColor`**：**修不掉,也不该修**——我们一次都没调过，
+  真实调用点是 `androidx.activity.EdgeToEdgeApi29.setUp`；查最新 androidx-main 源码，**每个** EdgeToEdge 实现
+  （含最新的 `EdgeToEdgeApi35`）都要设这两个属性。Play 另一条告警恰恰建议「调用 `enableEdgeToEdge()`」——
+  而它的实现方式就是被告警的那个 API，**两条建议自相矛盾**。向后兼容分支必须保留，静态扫描必然报。
+  ③ 顺带把 **activity 1.8.2 → 1.13.0**（落后两年半）。升级后在 API 36 上实测三条路径无回归：
+  浅色基线像素级一致、系统深色配置变化、**app 内切主题而系统不变**（后者靠 `DisposableEffect(darkTheme)` 手动重调，
+  是升级最可能打破的一条）。
+  同版修一个隐患：release 曾写死 debug 签名，现改为从 `keystore.properties` 读，缺失则**不签名**——
+  宁可拿到装不上的未签名包，也不要拿到「看着能用」的错签名包（它传不上 Play，装真机还会因签名不同要求先卸载、连带丢设置与日志）
+  ——当前版本（versionCode 121）。
 
 ## 7. 文档索引
 
