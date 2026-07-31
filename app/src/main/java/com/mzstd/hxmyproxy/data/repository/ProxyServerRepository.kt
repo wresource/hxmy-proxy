@@ -5,7 +5,6 @@ import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.network.LinkProbe
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.log.LogCat
-import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
@@ -13,9 +12,11 @@ import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
 import com.mzstd.hxmyproxy.core.network.InterfaceScanner
+import com.mzstd.hxmyproxy.core.network.Subnets
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
 import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
+import com.mzstd.hxmyproxy.core.proxy.FdBudget
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
 import com.mzstd.hxmyproxy.core.proxy.NioRelayReactor
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
@@ -57,11 +58,6 @@ private const val TAG = "hxmyproxy"
 
 /** accept 握手线程池固定大小：握手是短工，建连(suspend)与 relay 期间 handle 均挂起不占线程，无需随连接数放大。 */
 private const val ACCEPT_THREADS = 64
-
-/** 每连接约占的 FD 数（下行 client + 上行 upstream），用于按系统 FD 软上限反推安全的最大连接数。 */
-private const val FD_PER_CONN = 2
-/** 给 App 自身保留的 FD（DataStore/日志/线程 pipe/监听 socket 等）。 */
-private const val FD_RESERVED = 256
 
 /** 启用 NIO 非阻塞 relay（少量 selector 线程替代每隧道 2 阻塞线程）。过渡 flag，后续可提为设置项；
  *  false 回退旧阻塞 RelayEngine；connectChannel 反射 fd 不可用时也会单连接自动回退阻塞。 */
@@ -106,6 +102,8 @@ class ProxyServerRepository @Inject constructor(
         if (down > 0) totalDown.addAndGet(down)
     }
     private val relay = RelayEngine(trafficSink)
+    /** FD 预算：按系统 rlimit 反推安全的最大连接数（纯计算 + 一次文件读，见 [FdBudget]）。 */
+    private val fdBudget = FdBudget()
     private val connector = OutboundConnector(
         egressGuard,
         underlyingNetworkProvider = underlyingNetworkProvider,
@@ -133,8 +131,6 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var relayExecutor: ExecutorService? = null
     /** NIO 非阻塞 relay 反应堆（会话级：startServers 创建+start、stopServers stop）。 */
     @Volatile private var nioReactor: NioRelayReactor? = null
-    /** 系统单进程 FD 软上限（/proc/self/limits）。-1=未读，0=读取失败（则不钳制）。 */
-    @Volatile private var cachedFdLimit = -1
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
     /** 上次刷新时已选接口的 IP 集合；与本次比较，在 WiFi 切换/IP 变化时主动重发 mDNS（新 IP 的 A 记录）。 */
@@ -522,20 +518,6 @@ class ProxyServerRepository @Inject constructor(
         }
     }
 
-    /** IPv4 子网定向广播地址（ip | ~mask）；非 v4 或异常前缀返回 null。 */
-    private fun subnetBroadcast(addr: InetAddress, prefix: Int): InetAddress? {
-        val b = addr.address
-        if (b.size != 4 || prefix !in 1..31) return null
-        val ip = ((b[0].toInt() and 255) shl 24) or ((b[1].toInt() and 255) shl 16) or
-            ((b[2].toInt() and 255) shl 8) or (b[3].toInt() and 255)
-        val bc = ip or ((1 shl (32 - prefix)) - 1)
-        return runCatching {
-            InetAddress.getByAddress(
-                byteArrayOf((bc ushr 24).toByte(), (bc ushr 16).toByte(), (bc ushr 8).toByte(), bc.toByte()),
-            )
-        }.getOrNull()
-    }
-
     /** 对离线的 recent 客户端逐个探测：成功清零失败计数,失败累加;达阈值集合交给失联判定。 */
     private suspend fun keepPathProbe(offline: List<InetAddress>) {
         val unreachable = mutableListOf<String>()
@@ -639,22 +621,8 @@ class ProxyServerRepository @Inject constructor(
         } ?: run { healing = false }
     }
 
-    /** IPv4 地址转 Int；非 v4 返回 null。 */
-    private fun ipv4Int(addr: InetAddress): Int? {
-        val b = addr.address
-        if (b.size != 4) return null
-        return ((b[0].toInt() and 255) shl 24) or ((b[1].toInt() and 255) shl 16) or
-            ((b[2].toInt() and 255) shl 8) or (b[3].toInt() and 255)
-    }
-
-    /** 该地址是否落在当前某个入口子网内。 */
-    private fun inEntrySubnet(addr: InetAddress): Boolean {
-        val ip = ipv4Int(addr) ?: return false
-        return entrySubnets.any { (net, prefix) ->
-            val mask = if (prefix <= 0) 0 else (-1 shl (32 - prefix))
-            (ip and mask) == (net and mask)
-        }
-    }
+    /** 该地址是否落在当前某个入口子网内（几何计算见 [Subnets]，此处只提供当前快照）。 */
+    private fun inEntrySubnet(addr: InetAddress): Boolean = Subnets.inSubnets(addr, entrySubnets)
 
     /**
      * PERF 心跳：60s 一条进主环、每 [HEARTBEAT_KEY_EVERY] 条镜像进 key.log，随后 flush。
@@ -879,11 +847,11 @@ class ProxyServerRepository @Inject constructor(
         // 诊断日志总开关：关闭后 FileLog/Ev 一律不写盘（已有文件保留，可继续查看/导出）。
         com.mzstd.hxmyproxy.core.log.FileLog.enabled = s.logEnabled
         // 按系统 FD 预算反推安全上限：用户拉满 maxGlobal 时,2×FD/连接可能逼近 rlimit → EMFILE。
-        val fdCap = fdSafeMaxGlobal()
+        val fdCap = fdBudget.safeMaxGlobal()
         val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
         if (effectiveMax < s.limits.maxGlobalConnections) {
             FileLog.w(TAG, "maxGlobal=${s.limits.maxGlobalConnections} 超 FD 安全上限 $fdCap" +
-                "(每连接约 $FD_PER_CONN FD, rlimit=$cachedFdLimit),已钳制为 $effectiveMax")
+                "(每连接约 ${FdBudget.PER_CONN} FD, rlimit=${fdBudget.rlimit}),已钳制为 $effectiveMax")
         }
         registry.maxGlobal = effectiveMax
         registry.maxPerClient = s.limits.maxPerClientConnections.coerceAtMost(effectiveMax)
@@ -913,24 +881,6 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastEgressChoice: com.mzstd.hxmyproxy.core.model.EgressNetworkChoice? = null
     @Volatile private var lastDirectEgressChoice: com.mzstd.hxmyproxy.core.model.DirectEgressChoice? = null
 
-    /**
-     * 按 FD 预算反推安全的最大连接数：每连接约占 [FD_PER_CONN] 个 FD,另预留 [FD_RESERVED] 给 App 自身。
-     * 读不到 rlimit 时返回 Int.MAX（退回不钳制）,避免误限。结果缓存（rlimit 进程生命周期内不变）。
-     */
-    private fun fdSafeMaxGlobal(): Int {
-        if (cachedFdLimit < 0) cachedFdLimit = readFdSoftLimit()
-        if (cachedFdLimit <= 0) return Int.MAX_VALUE
-        return ((cachedFdLimit - FD_RESERVED) / FD_PER_CONN)
-            .coerceAtLeast(ConnectionLimits.RANGE_GLOBAL.first)
-    }
-
-    /** 读 /proc/self/limits 的 "Max open files" 软上限;失败返回 0。 */
-    private fun readFdSoftLimit(): Int = runCatching {
-        java.io.File("/proc/self/limits").readLines()
-            .firstOrNull { it.startsWith("Max open files") }
-            ?.split(Regex("\\s+"))?.getOrNull(3)?.toIntOrNull() ?: 0
-    }.getOrDefault(0)
-
     private fun refresh() {
         val s = currentSettings
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
@@ -942,8 +892,8 @@ class ProxyServerRepository @Inject constructor(
         val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
         // 存在通告的目标：各入口子网的定向广播地址。入口即客户端所在的网段——通告发给谁听不重要,
         // 广播帧被泛洪的过程本身就在刷新沿路转发表。
-        broadcastTargets = effective.mapNotNull { subnetBroadcast(it.address, it.prefixLength) }
-        entrySubnets = effective.mapNotNull { i -> ipv4Int(i.address)?.let { it to i.prefixLength } }
+        broadcastTargets = effective.mapNotNull { Subnets.subnetBroadcast(it.address, it.prefixLength) }
+        entrySubnets = effective.mapNotNull { i -> Subnets.ipv4Int(i.address)?.let { it to i.prefixLength } }
         // 带接口名与类型：7-26 排障时 scan 里冒出过一个只有 IP 的 10.168.249.89，是什么接口至今无解
         //（当时 scanKey 只拼 IP）。名字+类型是判定「陌生接口从哪来」的最起码信息。
         val scanKey = interfaces.joinToString(",") {
