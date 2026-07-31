@@ -37,6 +37,10 @@ class RuleMatcher {
      * 命中的**具体度**（越大越具体），未命中返回 -1。用于用户规则内部的 most-specific-wins 裁决。
      * 域名取锚定标签数；IP/CIDR 命中给一个高于任何域名的常量——IP 规则本就点名到主机/网段，
      * 且与域名规则不会同时命中同一个 host（host 要么是 IP 字面量要么是域名）。
+     *
+     * **具体度只看锚定深度，不含作用域档位**：`example.com` / `*.example.com` / `=example.com`
+     * 对 host=`example.com` 返回同一个值（都是 2），因为它们对「哪个域」的指定精度本就相同，
+     * 差别只在管不管子域。档位是作用范围、不是优先级——见 [RuleScope] 头部说明。
      */
     fun matchSpecificity(host: String): Int =
         if (IpCidrSet.isIpLiteral(host)) {

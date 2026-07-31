@@ -31,7 +31,8 @@ class RuleEngine {
         val ovrProxy: RuleMatcher = RuleMatcher(),
         val userDirect: RuleMatcher = RuleMatcher(),
         val userReject: RuleMatcher = RuleMatcher(),
-        /** 放行表里**最近添加**的那条比拦截表的更新 —— 仅用于具体度完全相同时的平手裁决。 */
+        /** 放行表里**最近添加**的那条比拦截表的更新 —— 仅用于锚定深度相同时的平手裁决
+         *  （档位不参与，见 [RuleScope]）。 */
         val userDirectNewer: Boolean = true,
         /** 广告表误杀救济表（assets/rules/ads-allowlist.txt）：命中则**跳过** [reject] 判定，
          *  继续按内置直连组/兜底走。见该文件头部说明。 */
@@ -71,7 +72,8 @@ class RuleEngine {
         // 用户的放行 / 拦截两表**同级**，命中多条时按 most-specific-wins 裁决，而不是让某张表整体压过另一张：
         // 先加 `*.apple.com` 放行、后加 `xxx.apple.com` 拦截时，对 xxx.apple.com 应当拦截（后者锚定更深）；
         // 反过来先加具体的 `secret.apple.com` 拦截、后加宽泛的 `*.apple.com` 放行时，具体那条不会被无声抹掉。
-        // 具体度相同（同一锚定域名、同一档位）才看 [Snapshot.userDirectNewer] 决定谁更近添加。
+        // 具体度只看锚定深度、不含档位，所以「同一锚定域名」的几条（不论 `a.com` / `*.a.com` / `=a.com`）
+        // 一律平手，此时才看 [Snapshot.userDirectNewer] 决定谁更近添加。
         val allow = s.userDirect.matchSpecificity(host)
         val block = s.userReject.matchSpecificity(host)
         if (allow >= 0 || block >= 0) {

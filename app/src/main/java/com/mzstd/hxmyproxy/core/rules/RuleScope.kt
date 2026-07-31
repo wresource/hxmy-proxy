@@ -12,9 +12,20 @@ package com.mzstd.hxmyproxy.core.rules
  * **无前缀＝全层级**是历史语义，必须保持：内置 6.6 万条（广告表 + 65 个 App 组）全是这个写法，
  * 靠它让 `ad.qq.com` 这类条目也能覆盖到更深层子域。新增的两档是纯增量，老数据零迁移。
  *
- * [specificity] 用于同一 host 命中多条时的裁决（most-specific-wins）：先比锚定域名的标签数，
- * 标签数相同再比档位。例如 host=`xxx.apple.com` 同时命中 `*.apple.com`(锚定 2 级) 与
- * `xxx.apple.com`(锚定 3 级) 时，后者胜出，与添加先后无关。
+ * ## 档位只决定作用范围，**不参与优先级裁决**
+ *
+ * 这两件事是正交的：档位回答「这条规则管哪些 host」，裁决回答「多条都管到时听谁的」。
+ * 裁决只看**锚定域名的标签数**（见 [DomainSuffixSet.matchDepth]）：锚定越深＝用户指定得越具体。
+ * 例如 host=`xxx.apple.com` 同时命中 `*.apple.com`(锚定 2 级) 与 `xxx.apple.com`(锚定 3 级)，
+ * 后者胜出，与添加先后无关。
+ *
+ * 而档位不同、锚定相同的几条（`example.com` / `*.example.com` / `=example.com`）对
+ * host=`example.com` 是**平手**——它们对「哪个域」的指定精度本来就一样，差别只在管不管子域。
+ * 平手时按「谁是用户最近的意图」裁决（见 [RuleEngine.Snapshot.userDirectNewer]）。
+ *
+ * 曾有过一个 `specificity` 属性想让「精确 > 单级 > 全层级」参与裁决，但它从未被任何代码调用，
+ * 且与上述模型冲突（档位不是优先级），已删除。UI 文案（「仅此域名 / 下一级 / 所有层级」、
+ * 「作用范围」）一直只讲范围、从未承诺优先级，这里与产品口径对齐。
  */
 enum class RuleScope(val prefix: String) {
     /** `example.com` —— 自身 + 任意深度子域。 */
@@ -23,13 +34,6 @@ enum class RuleScope(val prefix: String) {
     SINGLE("*."),
     /** `=example.com` —— 仅自身。 */
     EXACT("=");
-
-    /** 同锚定长度下的具体度权重：精确 > 单级 > 全层级。 */
-    val specificity: Int get() = when (this) {
-        SUFFIX -> 0
-        SINGLE -> 1
-        EXACT -> 2
-    }
 
     companion object {
         /**
