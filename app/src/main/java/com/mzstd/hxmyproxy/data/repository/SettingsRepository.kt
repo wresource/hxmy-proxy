@@ -20,8 +20,11 @@ import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,7 +38,24 @@ class SettingsRepository @Inject constructor(
 ) {
     private val ds get() = context.settingsDataStore
 
-    val settings: Flow<ProxySettings> = ds.data.map { it.toSettings() }
+    /**
+     * 设置流。两个操作符都不是可有可无的：
+     *
+     * **[distinctUntilChanged]** —— [onboardingCompleted] 与 [domainHistory] 跟本流**共用同一个
+     * DataStore**，写它们同样会让 `ds.data` 发一帧，而 [ProxySettings] 的值一个字段都没变。
+     * 下游 ProxyServerRepository 对每一帧都做 applyTunables + 规则重建 + refresh，
+     * 于是「删一条白名单」（会顺带写 domainHistory）就要多付一次全量重建。
+     * ProxySettings 及其成员全是 data class / 值类型，结构化 equals 可靠。
+     *
+     * **[flowOn]** —— 上游 `toSettings()` 里有 **5 次 org.json 解析**（两张规则表、自建集、
+     * 内置覆盖、host 覆盖）。冷流的操作符默认跑在**收集者**的上下文里，而 MainViewModel 经
+     * viewModelScope 收集 = Dispatchers.Main —— 也就是每次设置变更都在主线程上解析一遍 JSON。
+     * 这是「改个主题界面顿一下」最直接的来源，比 IO 线程上的规则重建更贴近用户感知。
+     */
+    val settings: Flow<ProxySettings> = ds.data
+        .map { it.toSettings() }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
 
     suspend fun update(transform: (ProxySettings) -> ProxySettings) {
         ds.edit { prefs -> transform(prefs.toSettings()).writeTo(prefs) }

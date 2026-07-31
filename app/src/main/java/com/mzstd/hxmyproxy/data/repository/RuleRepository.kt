@@ -5,7 +5,9 @@ import android.util.Log
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.ProxySettings
+import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.rules.RuleMatcher
+import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
@@ -26,7 +28,40 @@ class RuleRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val ruleEngine: RuleEngine,
 ) {
+    /**
+     * 按设置重建规则引擎快照。
+     *
+     * **记忆化早退**：只有 [RuleInputs] 里那 9 个字段变了才真重建。此前任何一次设置写入
+     * （改主题、切语言、隐藏一个 tab）都会走到这里全量重装 —— 实测启用广告表时
+     * `rules.rebuilt ... ms=1124`，即改个主题要花 1.1 秒重读 1.16MB assets、重建 61063 条后缀树，
+     * 而且发生在代理正在转发流量的时候。
+     *
+     * **[Synchronized] 不是可选的**：本方法阻塞且不可取消（`forEachLine` 读 1.16MB 全程无挂起点），
+     * 所以 stop() 的 `sessionScope.cancel()` 停不掉正在跑的 rebuild。用户在这 1.1 秒内停止再开启共享，
+     * 两个 rebuild 就会并发；交错成 `T1.update(X) → T2.update(Y) → T1.lastBuilt=X` 之后，
+     * 引擎里装的是 Y 而 memo 说装的是 X —— 此后任何 X 请求都被跳过，**规则静默停在旧版本**。
+     * 加锁同时也修掉了 [assetFailures] 原有的竞态。
+     *
+     * memo 记的是「引擎里现在装的是哪一份」而非「谁请求过什么」，所以跨 stop/start 不会失配
+     * （RuleEngine 与本类都是 @Singleton，快照跨会话存活）；顺带白赚一条：规则没改时重开共享
+     * 不再花那 1.1 秒。
+     */
+    @Synchronized
     fun rebuild(settings: ProxySettings) {
+        val key = RuleInputs.of(settings)
+        if (key == lastBuilt) {
+            // 跳过也要留痕，而且**必须带各表规模**：rules.rebuilt 是全仓唯一记录规则表条数的地方
+            // （见下方 rules.rebuilt 的注释：6.6 万条变成 3 条与「规则没生效」在 UI 上完全同形）。
+            // 只写一句 why=unchanged 的话，一次规则未变的长会话里就再也没有规模证据了。
+            val s = ruleEngine.snapshot
+            Ev.i(
+                LogCat.RULE, "rules.skipped", "why" to "unchanged",
+                "reject" to s.reject.size, "direct" to s.direct.size,
+                "userDirect" to s.userDirect.size, "userReject" to s.userReject.size,
+                "adsAllow" to s.adsAllow.size,
+            )
+            return
+        }
         val t0 = System.currentTimeMillis()
         assetFailures = 0
         val reject = RuleMatcher()
@@ -93,10 +128,53 @@ class RuleRepository @Inject constructor(
             "assetFail" to assetFailures.takeIf { it > 0 },
             "ms" to (System.currentTimeMillis() - t0),
         )
+        // 装载失败过就**不**记忆化：留住「下次设置变更时顺带重试」的机会。
+        // 否则一次 assets 读失败（见 loadAsset 的注释：这是静默失败最危险的一处）
+        // 会被永久固化成空表，而 UI 上开关仍显示「已启用」。
+        lastBuilt = if (assetFailures == 0) key else null
     }
 
     /** 本轮 [rebuild] 中装载失败的 assets 数量（喂给 rules.rebuilt 的 assetFail 字段）。 */
     private var assetFailures = 0
+
+    /** 引擎里当前装的是哪一份规则输入；null=未知/需重建。仅在 [rebuild] 的锁内读写。 */
+    private var lastBuilt: RuleInputs? = null
+
+    /**
+     * [rebuild] 真正读到的字段，一个不多一个不少。
+     *
+     * 多一个：无关变更也会触发重建，白白付掉那 1.1 秒。
+     * 少一个：改了规则却不重建 —— **静默失效**，UI 上开关一切正常，用户只会发现「我明明改了却没生效」。
+     * 所以这份清单必须对着 [rebuild] 正文逐行核，不能凭印象。
+     *
+     * 两张用户表存**整条 [RuleEntry]** 而不是 List<String>：`addedAt` 参与 userDirectNewer 的
+     * 平手裁决、`enabled` 决定是否装载，只比对 value 会漏掉这两类变更。
+     */
+    private data class RuleInputs(
+        val groups: Set<String>,
+        val rejectedGroups: Set<String>,
+        val overrides: Map<String, List<String>>,
+        val hostOverrides: Map<String, RuleAction>,
+        val userDirectEnabled: Boolean,
+        val userRejectEnabled: Boolean,
+        val userDirect: List<RuleEntry>,
+        val userReject: List<RuleEntry>,
+        val sets: List<UserRuleSet>,
+    ) {
+        companion object {
+            fun of(s: ProxySettings) = RuleInputs(
+                groups = s.enabledRuleGroups,
+                rejectedGroups = s.rejectedGroups,
+                overrides = s.ruleSetOverrides,
+                hostOverrides = s.hostOverrides,
+                userDirectEnabled = s.userDirectEnabled,
+                userRejectEnabled = s.userRejectEnabled,
+                userDirect = s.userDirectRules,
+                userReject = s.userRejectRules,
+                sets = s.userRuleSets,
+            )
+        }
+    }
 
     private fun loadAsset(path: String, into: RuleMatcher) {
         try {
