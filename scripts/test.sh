@@ -85,8 +85,27 @@ FAILED=0
 
 echo
 echo "${C}▶ JVM 单元测试${D}"
-./gradlew :app:testDebugUnitTest --continue -q > /tmp/hxmy-unit.log 2>&1 || true
-summarize "app/build/test-results/testDebugUnitTest" "unit" || FAILED=1
+# **先清报告目录**：否则编译失败时 gradle 不产出新报告，下面就会去读**上一次**的结果
+# 并报出「全部通过」。真事——1.24.4 那次删了个 enum 属性、漏改测试引用，编译已经失败，
+# 脚本却因为读到旧报告而全绿放行。清空后编译失败会落到「没有找到测试报告」那条硬失败上。
+rm -rf app/build/test-results/testDebugUnitTest 2>/dev/null
+./gradlew :app:testDebugUnitTest --continue -q > /tmp/hxmy-unit.log 2>&1
+GRADLE_RC=$?
+# 编译错误单独报：它与「测试跑了但断言失败」是两回事，混在一起会让人去查错方向。
+if grep -qE "^e: " /tmp/hxmy-unit.log; then
+  echo "  ${R}✗ 编译失败${D}"
+  grep -E "^e: " /tmp/hxmy-unit.log | head -8 | sed 's|^e: file://||' | sed 's|^|     |'
+  N=$(grep -cE "^e: " /tmp/hxmy-unit.log)
+  [ "$N" -gt 8 ] && echo "     …共 $N 条"
+  FAILED=1
+else
+  summarize "app/build/test-results/testDebugUnitTest" "unit" || FAILED=1
+  # gradle 非零但没有编译错、也没有失败用例 → 别当成通过，指出去看日志。
+  if [ "$GRADLE_RC" != "0" ] && [ "$FAILED" = "0" ]; then
+    echo "  ${Y}⚠ gradle 退出码 $GRADLE_RC，但没有失败用例——看 /tmp/hxmy-unit.log${D}"
+    FAILED=1
+  fi
+fi
 
 if [ "$RUN_DEVICE" = "1" ]; then
   DEV=$(adb devices | awk '/\tdevice$/{print $1}' | head -1)

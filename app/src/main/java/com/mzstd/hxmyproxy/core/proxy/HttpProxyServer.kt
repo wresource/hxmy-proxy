@@ -104,7 +104,7 @@ class HttpProxyServer(
             val upstreamCh = try {
                 connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
             } catch (e: ProxyException) {
-                writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
+                writeStatus(output, e.error.httpStatus, e.error.httpReason); return
             } catch (e: IOException) {
                 // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
                 null
@@ -123,7 +123,7 @@ class HttpProxyServer(
         val upstream = try {
             connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
         } catch (e: ProxyException) {
-            writeStatus(output, e.error.httpStatus, "Bad Gateway"); return
+            writeStatus(output, e.error.httpStatus, e.error.httpReason); return
         }
         output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
         output.flush()
@@ -170,7 +170,7 @@ class HttpProxyServer(
                 onEgress = tracker?.let { it::bindEgress },
             )
         } catch (e: ProxyException) {
-            writeStatus(output, e.error.httpStatus, "Bad Gateway"); return false
+            writeStatus(output, e.error.httpStatus, e.error.httpReason); return false
         }
         try {
             val limits = limitsProvider()

@@ -187,4 +187,23 @@ class AuthenticatorTest {
         assertFalse(a.verify("b", "pb"))
         assertFalse(b.verify("a", "pa"))
     }
+
+    /**
+     * 比较改用 [java.security.MessageDigest.isEqual] 且**不短路**后，行为必须完全不变。
+     *
+     * 这条守的是那次改动没改坏语义：安全加固最怕的就是"更安全了但也更松了"。
+     * 逐项覆盖长度不等、前缀相同、只有用户名对、只有密码对四种组合——
+     * 尤其「只有用户名对」必须为 false，若把 `and` 误写回 `&&` 之外的短路形式
+     * 或漏掉 passOk，这条会红。
+     */
+    @Test fun `常量时间比对不改变任何判定结果`() {
+        val a = SingleCredentialAuthenticator(username = "alice", password = "s3cret", enabled = true)
+        assertTrue(a.verify("alice", "s3cret"))
+        assertFalse("长度更短的前缀不得通过", a.verify("alice", "s3cre"))
+        assertFalse("长度更长的超集不得通过", a.verify("alice", "s3cretX"))
+        assertFalse("只有用户名对不得通过", a.verify("alice", "wrong"))
+        assertFalse("只有密码对不得通过", a.verify("bob", "s3cret"))
+        assertFalse("两者都错不得通过", a.verify("bob", "wrong"))
+        assertFalse("空凭据不得通过", a.verify("", ""))
+    }
 }

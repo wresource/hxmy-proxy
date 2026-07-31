@@ -126,17 +126,21 @@ class RuleScopeTest {
     }
 
     /**
-     * 档位权重的**定义**：精确 > 单级 > 全层级。
+     * 三档只有 prefix 一个维度，**没有权重字段**。
      *
-     * 注意现状：这个权重目前在引擎里**没有被使用** —— [RuleMatcher.matchSpecificity] 只返回
-     * 锚定标签数，[RuleScope] 文档承诺的「标签数相同再比档位」尚未接线（全仓 grep `specificity`
-     * 只有本文件与 RuleMatcher 各一处）。因此这里只锁定枚举自身的排序关系；真正的裁决行为见
-     * RuleMatcherTest 里「同锚定深度下档位不参与裁决」那条。日后把档位接进裁决时，两处应一起改。
+     * 1.24.4 删掉了 `specificity`（精确 2 > 单级 1 > 全层级 0）：它从未被任何代码调用，
+     * 且与产品模型冲突 —— 档位定的是作用范围（管多深），不是优先级。裁决只看锚定深度，
+     * 锚定同一域名的几条一律平手，由「谁是用户最近的意图」决胜。
+     * 详见 [RuleScope] 头部说明与 RuleMatcherTest 的「同锚定深度下档位不参与裁决」。
+     *
+     * 这条断言守的是「档位不应重新长出权重概念」：谁若再加一个排序字段，
+     * 应当先回答「用户加的精确规则是否就该压过他后来加的宽泛规则」。
      */
     @Test
-    fun `档位权重精确大于单级大于全层级`() {
-        assertTrue(RuleScope.EXACT.specificity > RuleScope.SINGLE.specificity)
-        assertTrue(RuleScope.SINGLE.specificity > RuleScope.SUFFIX.specificity)
-        assertEquals(0, RuleScope.SUFFIX.specificity)   // 全层级是基线 0，不是负数（调用方可能用 >=0 判有效）
+    fun `三档只有前缀这一个维度`() {
+        assertEquals("", RuleScope.SUFFIX.prefix)
+        assertEquals("*.", RuleScope.SINGLE.prefix)
+        assertEquals("=", RuleScope.EXACT.prefix)
+        assertEquals(3, RuleScope.entries.size)
     }
 }

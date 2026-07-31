@@ -202,6 +202,12 @@ class MainViewModel @Inject constructor(
         // 内部不得含空白：粘贴或输入法误入的 "by wxs.qq.com" 这类串以前能存进列表，
         // 却永远匹配不上任何 host——静默的死规则，用户只会觉得「我明明加了却没生效」。
         if (bare.any { it.isWhitespace() }) return null
+        // 裸域名里不得残留作用域符号。RuleScope.parse 只剥**一层**前缀，于是这几种手滑写法
+        // 会把符号留在 bare 里：`*apple.com`（漏了点，SUFFIX + "*apple.com"）、
+        // `==a.com`（EXACT + "=a.com"）、`=*.a.com`（EXACT + "*.a.com"）。
+        // 它们能通过上面全部校验、存进列表、显示在规则页、装进字典树，却永远匹配不到任何 host
+        // ——与上一条防的是同一类静默死规则，只是形态不同。
+        if (bare.any { it == '*' || it == '=' }) return null
         return com.mzstd.hxmyproxy.core.rules.RuleScope.format(scope, bare)
     }
 

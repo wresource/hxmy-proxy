@@ -160,6 +160,26 @@ class MainViewModelTest {
         assertTrue(rejects().isEmpty())
     }
 
+    @Test fun `前缀手滑写法被拒绝——它们会变成永不匹配的死规则`() {
+        // RuleScope.parse 只剥一层前缀，这三种手滑会把符号留在裸域名里：
+        //   *apple.com（漏了点）→ SUFFIX + "*apple.com"
+        //   ==a.com            → EXACT  + "=a.com"
+        //   =*.a.com           → EXACT  + "*.a.com"
+        // 从前它们能存进列表、显示在规则页、装进字典树，却永远匹配不到任何 host。
+        vm.addUserRejectRule("*apple.com")
+        vm.addUserRejectRule("==a.com")
+        vm.addUserRejectRule("=*.a.com")
+        assertTrue(rejects().isEmpty())
+    }
+
+    @Test fun `合法的前缀写法不受影响`() {
+        // 上一条的校验不能误伤正常的三档写法（* 与 = 作为**前缀**是合法的，只是不能残留在裸域名里）。
+        vm.addUserRejectRule("*.a.com")
+        vm.addUserRejectRule("=b.com")
+        vm.addUserRejectRule("c.com")
+        assertEquals(listOf("*.a.com", "=b.com", "c.com"), rejects().map { it.value })
+    }
+
     @Test fun `IPv4 CIDR 与 IPv6 都能收下`() {
         vm.addUserRejectRule("10.0.0.0/8")
         vm.addUserRejectRule("2001:db8::1")

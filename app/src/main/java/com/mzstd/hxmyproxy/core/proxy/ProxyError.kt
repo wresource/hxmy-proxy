@@ -32,6 +32,20 @@ sealed class ProxyError(val label: String) {
             RemoteTimeout -> 504
             else -> 502
         }
+
+    /**
+     * 与 [httpStatus] 配对的 reason phrase。
+     *
+     * 调用方此前把短语写死成 "Bad Gateway"，于是 403 会发出 `403 Bad Gateway`、
+     * 504 发出 `504 Bad Gateway` 这种自相矛盾的状态行。客户端只看状态码所以不影响行为，
+     * 但抓包排障时会把人往"上游挂了"的方向带——而 403 的真实原因是被规则/护栏拒绝。
+     */
+    val httpReason: String
+        get() = when (httpStatus) {
+            403 -> "Forbidden"
+            504 -> "Gateway Timeout"
+            else -> "Bad Gateway"
+        }
 }
 
 /** 携带 [ProxyError] 的受检异常，贯穿握手/连接路径。 */

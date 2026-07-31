@@ -44,7 +44,8 @@ data class RuleGroup(
 )
 
 /**
- * 内置规则组目录（64 个 App/服务 DIRECT 组 + 广告 REJECT 组）。
+ * 内置规则组目录（65 个 App/服务 DIRECT 组 + 广告 REJECT 组）。
+ * 数量由 RuleCatalogTest 与 assets/rules/app-*.txt 双向校验，不要手工同步这个数字。
  *
  * 数据来源：blackmatrix7/ios_rule_script(GPL-2) + v2fly/domain-list-community(MIT)
  * 双基线合并，再经多源调研补全验证（官网/开放平台/whois/TLS 证书交叉确认，剔除
