@@ -4,10 +4,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.RuleEntry
+import com.mzstd.hxmyproxy.core.rules.IpCidrSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.data.repository.RuleRepository
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -87,5 +90,19 @@ class RuleRepositoryTest {
         )
         assertEquals(RuleAction.DIRECT, engine.decide("custom.example"))  // 覆盖版生效
         assertEquals(RuleAction.PROXY, engine.decide("music.163.com"))    // 原 assets 被覆盖、不再生效
+    }
+
+    /**
+     * IP / CIDR 的识别**只能在设备上验**：它走 `android.net.InetAddresses.isNumericAddress`，
+     * 而 JVM 单测里 android.jar 是 stub、配合 isReturnDefaultValues=true 会静默返回 false。
+     * 后果不是报错而是**判定翻转**——IP 被当成域名，规则页点一个 IP 会写成 `*.192.168.1.1`
+     * 这种永远匹配不上的死规则（MainViewModelTest 里实测到过，因此那条用例挪到了这里）。
+     */
+    @Test fun ipAndCidrRecognizedOnDevice() {
+        assertTrue(IpCidrSet.looksLikeIpOrCidr("192.168.1.1"))
+        assertTrue(IpCidrSet.looksLikeIpOrCidr("10.0.0.0/8"))
+        assertTrue(IpCidrSet.looksLikeIpOrCidr("2001:db8::1"))
+        assertFalse(IpCidrSet.looksLikeIpOrCidr("example.com"))
+        assertFalse(IpCidrSet.looksLikeIpOrCidr("*.example.com"))
     }
 }

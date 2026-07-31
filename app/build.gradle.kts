@@ -158,6 +158,11 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.profileinstaller)
     testImplementation(libs.junit)
+    // ViewModel 的 5 个依赖都是要 Context/DataStore 的具体类（Kotlin 默认 final），JVM 里造不出来，
+    // 只能 mock —— mockk 能 mock final 类，mockito 需要额外的 inline mock maker。
+    testImplementation(libs.mockk)
+    // viewModelScope 默认跑在 Dispatchers.Main，JVM 单测里没有主循环，必须用 setMain 换成测试调度器。
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
