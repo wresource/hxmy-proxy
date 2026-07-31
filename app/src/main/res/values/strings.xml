@@ -198,6 +198,9 @@
     <string name="settings_backup_imported">Restored %1$d items</string>
     <string name="settings_backup_failed">Operation failed</string>
     <string name="stat_link">Link</string>
+    <string name="stat_loss">Loss</string>
+    <!-- 建议是**物理层**的：这一段是空口质量，软件层修不了（见 LinkLossBanner 的说明） -->
+    <string name="link_loss_banner">%1$d%% of probes to your devices are lost. Connect them to this phone\'s hotspot instead of the shared Wi-Fi, or move the phone closer to the router.</string>
     <string name="settings_log_enabled">Diagnostic log</string>
     <string name="settings_log_enabled_sub">Records events locally (about 10 MB, never uploaded) for troubleshooting via Monitor → Error log</string>
     <string name="rules_none_enabled">No rule sets enabled yet — tap Manage to browse by category.</string>
@@ -265,6 +268,11 @@
     <string name="direct_fail_reason_unreachable">host unreachable</string>
     <string name="direct_fail_reason_denied">blocked by egress guard</string>
     <string name="direct_fail_reason_other">connection failed</string>
+    <!-- 三态覆盖：每个选项的**后果**（chip 字面只说了做什么，没说会怎样） -->
+    <string name="override_hint_proxy">Goes out through the proxy\'s egress — usually what you want when you just don\'t want it blocked.</string>
+    <string name="override_hint_direct">Goes out through the phone\'s own network instead of the proxy egress.</string>
+    <string name="override_hint_direct_vpn">⚠ Bypasses your VPN (currently connected). If this domain only answers through the VPN, every request will wait out a timeout instead of loading.</string>
+    <string name="override_hint_reject">Connections are refused immediately.</string>
     <string name="protection_top_blocked">Most blocked</string>
     <string name="protection_how_title">How protection works</string>
     <string name="protection_how_body">Requests are filtered right at the proxy, so every device on your network gets ads &amp; trackers stripped — no per-device setup, and it works with or without a VPN. Tap any blocked host to allow it if it was caught by mistake.</string>

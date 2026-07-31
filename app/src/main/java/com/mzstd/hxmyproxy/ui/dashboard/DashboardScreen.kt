@@ -288,6 +288,7 @@ private fun DashboardContent(
     // 行2 仅「真·共享中」显示（含端口部分被占的 porterror 态）；停止/未就绪整体移除。
     if (heroState == HeroState.Running) RateRow(ui, viewModel)
     PortBindBanner(ui)
+    LinkLossBanner(ui)
     EntryCard(ui)
     FlowDiagram()
     InterfacesCard(ui, viewModel, Modifier.fillMaxWidth())
@@ -669,6 +670,23 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
                 extra = "p95 ${ls.p95Ms}",
             )
         }
+        // 丢包率：与时延**并列但独立**的一格。时延窗口只收成功样本，所以「p50 很漂亮但一半包丢了」
+        // 在上面那格里完全看不出来——8-01 真机日志正是这个形状（p50 <20ms 占 34.8%，
+        // 而自愈突发每 10 发只回 3~5 发）。这条链路真正的病是丢包，不是延迟。
+        if (ls.lossSamples > 0) {
+            HorizontalDivider(color = hairline)
+            StatCell(
+                Modifier.weight(1f),
+                stringResource(R.string.stat_loss),
+                "${ls.lossPct}",
+                "%",
+                valueColor = when {
+                    ls.lossPct < LinkStats.LOSS_WARN_PCT -> StatusColors.good()
+                    ls.lossPct < LinkStats.LOSS_BAD_PCT -> StatusColors.warn()
+                    else -> MaterialTheme.colorScheme.error
+                },
+            )
+        }
         HorizontalDivider(color = hairline)
         val total = com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes)
         StatCell(
@@ -722,6 +740,26 @@ private fun StatCell(
 }
 
 // ══════════ 端口占用告警 + 入口配置 ══════════
+
+/**
+ * 链路丢包告警 + **物理层**建议。
+ *
+ * 为什么给的是"挪设备"而不是软件设置：这一段是空口质量问题，软件层修不了。客户端与手机连同一 AP 时，
+ * 一个下行字节要穿越弱链路 4 次（≈p⁴），而手机自己只穿 2 次（≈p²）——p=0.85 时 0.52 vs 0.72，
+ * 这就是「手机自己上网正常、连它的设备却卡」的算术必然（8-01 日志实测每 10 发只回 3~5 发）。
+ * 建议按收益排序：客户端直连手机热点（消掉 AP 中继，质变）> 手机挪近路由器 > 客户端插网线。
+ */
+@Composable
+private fun LinkLossBanner(ui: MainUiState) {
+    val ls = ui.share.linkStats
+    // 要有足够样本才报，否则刚连上的一两次超时就会吓人一跳。
+    if (!ui.share.running || ls.lossSamples < 8 || ls.lossPct < LinkStats.LOSS_WARN_PCT) return
+    WarnBanner(
+        text = stringResource(R.string.link_loss_banner, ls.lossPct),
+        level = if (ls.lossPct >= LinkStats.LOSS_BAD_PCT) BannerLevel.Error else BannerLevel.Warn,
+        icon = painterResource(R.drawable.ic_b_alert_circle),
+    )
+}
 
 /** 端口占用告警：某协议 bind 失败（端口被占）→ 该代理未启动，全宽 errorContainer 行。 */
 @Composable

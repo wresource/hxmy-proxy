@@ -38,12 +38,27 @@ data class LinkStats(
     val p50Ms: Long = 0,
     val p95Ms: Long = 0,
     val samples: Int = 0,
+    /**
+     * 窗口内的丢包率（0-100）。
+     *
+     * 为什么它必须与时延分开看：时延窗口只收**成功**样本，失败的探测根本不进去，
+     * 于是「p50 很漂亮但一半的包丢了」在时延数字上完全看不出来。8-01 真机日志正是这个形状：
+     * p50 <20ms 占 34.8%（看着很健康），而自愈突发实测每 10 发只回 3~5 发。
+     * 这条链路真正的问题是丢包，不是延迟。
+     */
+    val lossPct: Int = 0,
+    /** 丢包率的样本数（0 表示还没探过，UI 应显示占位而非 0%）。 */
+    val lossSamples: Int = 0,
 ) {
     companion object {
         /** 绿：空载同网段的正常范围上沿（实测量级 4~15ms）。 */
         const val GOOD_MS = 20L
         /** 黄：已明显退化，网页会有顿挫感；超过 [WARN_MS] 转红（TCP+TLS 要 2~3 个 RTT，页面大概率打不开）。 */
         const val WARN_MS = 60L
+        /** 丢包率黄线：TCP 在此之上开始明显重传、体感变卡。 */
+        const val LOSS_WARN_PCT = 5
+        /** 丢包率红线：双跳放大的典型区间（p⁴），网页会大面积转圈。 */
+        const val LOSS_BAD_PCT = 20
     }
 }
 

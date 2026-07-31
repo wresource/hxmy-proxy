@@ -308,6 +308,7 @@ fun ProtectionScreen(
             onSet = { a -> viewModel.setHostOverride(host, a); editHost = null },
             onClear = { viewModel.clearHostOverride(host); editHost = null },
             onDismiss = { editHost = null },
+            vpnActive = ui.share.vpn.detected,
         )
     }
 }

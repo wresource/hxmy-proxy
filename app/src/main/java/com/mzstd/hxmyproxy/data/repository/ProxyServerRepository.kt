@@ -611,11 +611,21 @@ class ProxyServerRepository @Inject constructor(
                 val results = targets.map { ip ->
                     val addr = runCatching { InetAddress.getByName(ip) }.getOrNull() ?: return@map "$ip:-"
                     var okCount = 0
-                    repeat(HEAL_BURST_PROBES) {
+                    var sent = 0
+                    for (i in 0 until HEAL_BURST_PROBES) {
                         if (LinkProbe.probe(addr) != null) okCount++
-                        delay(HEAL_BURST_GAP_MS)
+                        sent++
+                        // **有响应就早退**：突发的前提是「路径不通、需要强刷转发表」，可 8-01 真机日志
+                        // 显示 158 轮突发里 97% 都有响应（典型 3~5/10）—— 那不是路径不通，是**丢包**
+                        // （客户端与手机连同一 AP 时穿越弱链路 4 次，p=0.85 时 p⁴≈0.52，正好对上）。
+                        // 对着一条本来就通、只是丢包的路径再密集发 7 个包，除了耗电没有任何作用。
+                        // 前 [HEAL_EARLY_EXIT_AFTER] 发里只要有一发通就停；全不通才跑满。
+                        if (sent >= HEAL_EARLY_EXIT_AFTER && okCount > 0) break
+                        if (sent < HEAL_BURST_PROBES) delay(HEAL_BURST_GAP_MS)
                     }
-                    "$ip:$okCount/$HEAL_BURST_PROBES"
+                    // 分母打**实际发出数**而非常量：这样日志能区分「早退(路径通、丢包)」与
+                    // 「跑满(真不通)」，否则两者在 x/10 的形状上完全同形。
+                    "$ip:$okCount/$sent"
                 }
                 val line = results.joinToString(",")
                 if (round == 1) Ev.k(LogCat.CONN, "path.heal.done", "result" to line)
@@ -659,6 +669,9 @@ class ProxyServerRepository @Inject constructor(
             "vpn" to (if (_state.value.vpn.detected) (if (_state.value.vpn.validated) "on" else "on/unvalidated") else "off"),
             "rssi" to sig.dbm,
             "link" to (LinkProbe.stats()?.let { "${it.p50Ms}/${it.p95Ms}" } ?: "-"),
+            // 丢包率单列：link= 那个 p50/p95 只统计**成功**样本，全丢时它反而是「-」或很漂亮的数字。
+            // 8-01 日志的教训——时延看着健康，实际每 10 发只回 3~5 发。
+            "loss" to (LinkProbe.stats()?.takeIf { it.lossSamples > 0 }?.let { "${it.lossPct}%" }),
             "probe" to lastSelfProbe,
             // 「慢，卡在哪一段」：stallIn=写客户端写不动(入口段)，stallOut=写上游写不动(出口段)，
             // 均为本窗口内**时长加权**占比；maxStall 是单条隧道的最高占比（均值会被大量短连接稀释，
@@ -1060,6 +1073,8 @@ class ProxyServerRepository @Inject constructor(
          *  冷却必须大于「进 90s + 出迟滞 60s」的最短振荡周期,否则半收敛链路上每个振荡都撞上突发。 */
         const val HEAL_COOLDOWN_MS = 240_000L
         const val HEAL_BURST_PROBES = 10
+        /** 突发早退门槛：前几发里只要有响应就停（路径本来就通，见 maybeHealBurst 的说明）。 */
+        const val HEAL_EARLY_EXIT_AFTER = 3
         const val HEAL_BURST_GAP_MS = 500L
         const val HEAL_MAX_ROUNDS = 3
         /** 失联解除需要连续这么多轮（×30s）无嫌疑（出向迟滞,与进入 3 连败对称）。 */

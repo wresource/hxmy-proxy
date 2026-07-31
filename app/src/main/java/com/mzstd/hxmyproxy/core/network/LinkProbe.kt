@@ -34,6 +34,16 @@ object LinkProbe {
     private const val MAX_TRACKED = 64
 
     private val window = ArrayDeque<Long>()
+
+    /**
+     * 最近 [WINDOW] 次探测的**成败**（true=通）。
+     *
+     * 必须与 [window] 分开记：那个窗口只收成功样本的耗时，失败的探测**根本不进去**——
+     * 于是「p50 很漂亮但一半的包丢了」这种情况在时延数字上完全看不出来。
+     * 8-01 真机日志正是这个形状：p50 <20ms 占 34.8%（看着很好），而自愈突发实测每 10 发
+     * 只回 3~5 发。丢包率是这条链路真实质量的唯一直接指标。
+     */
+    private val okWindow = ArrayDeque<Boolean>()
     /** 各客户端连续失败次数 / 最近一次成功时刻（ms）。会话边界随 [reset] 清空。 */
     private val failStreak = HashMap<String, Int>()
     private val lastOkAt = HashMap<String, Long>()
@@ -69,6 +79,7 @@ object LinkProbe {
     suspend fun sample(ips: List<InetAddress>) {
         ips.forEach { ip ->
             val ms = probe(ip)
+            addOutcome(ms != null)
             if (ms != null) add(ms)
             ip.hostAddress?.let { key -> if (ms != null) onOk(key) else onFail(key) }
         }
@@ -104,20 +115,33 @@ object LinkProbe {
         while (window.size > WINDOW) window.removeFirst()
     }
 
-    /** 当前窗口的 p50/p95；无样本返回 null。 */
+    private fun addOutcome(ok: Boolean) = synchronized(lock) {
+        okWindow.addLast(ok)
+        while (okWindow.size > WINDOW) okWindow.removeFirst()
+    }
+
+    /**
+     * 当前窗口的 p50/p95 与丢包率；**无成功样本时也可能有丢包数据**——
+     * 全丢的链路 [window] 是空的，但那恰恰是最该报出来的情况，所以判空只看 [okWindow]。
+     */
     fun stats(): LinkStats? = synchronized(lock) {
-        if (window.isEmpty()) return null
+        if (window.isEmpty() && okWindow.isEmpty()) return null
+        val loss = if (okWindow.isEmpty()) 0 else 100 * okWindow.count { !it } / okWindow.size
+        if (window.isEmpty()) return LinkStats(lossPct = loss, lossSamples = okWindow.size)
         val sorted = window.sorted()
         LinkStats(
             p50Ms = sorted[sorted.size / 2],
             p95Ms = sorted[(sorted.size - 1) * 95 / 100],
             samples = sorted.size,
+            lossPct = loss,
+            lossSamples = okWindow.size,
         )
     }
 
     /** 会话边界清空（stop/start 时调用），避免上次会话的数字带到这次。 */
     fun reset() = synchronized(lock) {
         window.clear()
+        okWindow.clear()
         failStreak.clear()
         lastOkAt.clear()
     }

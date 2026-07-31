@@ -132,6 +132,7 @@ fun BlockedDetailScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () ->
             onSet = { action -> viewModel.setHostOverride(host, action); editHost = null },
             onClear = { viewModel.clearHostOverride(host); editHost = null },
             onDismiss = { editHost = null },
+            vpnActive = ui.share.vpn.detected,
         )
     }
 }
