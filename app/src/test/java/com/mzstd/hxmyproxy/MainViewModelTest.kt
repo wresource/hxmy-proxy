@@ -1,9 +1,18 @@
 package com.mzstd.hxmyproxy
 
+import com.mzstd.hxmyproxy.core.model.ConnectionLimits
+import com.mzstd.hxmyproxy.core.model.HistoryEndpoint
+import com.mzstd.hxmyproxy.core.model.InterfaceStatus
+import com.mzstd.hxmyproxy.core.model.InterfaceType
+import com.mzstd.hxmyproxy.core.model.PerformancePreset
+import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.RuleEntry
+import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.RuleCatalog
+import com.mzstd.hxmyproxy.core.rules.RuleCategory
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
@@ -12,12 +21,16 @@ import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -28,35 +41,49 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 
 /**
- * [MainViewModel] 的规则写入语义。
+ * [MainViewModel] 的设置写入语义与派生状态。
  *
- * 为什么重点在这里：ViewModel 里这批方法本质是 `(ProxySettings) -> ProxySettings` 的纯变换，
+ * 为什么值得测：ViewModel 里这批方法本质是 `(ProxySettings) -> ProxySettings` 的纯变换，
  * 而它们管的都是**错了也看不出来**的东西——规则归一化写歪了会静默生成永不匹配的死规则；
  * 互斥漏了会让同一域名同时躺在 block 与 allow 两张表里；编辑时重置 addedAt 会悄悄改变
- * most-specific-wins 的平手裁决结果。这些在 UI 上全都毫无异样，只有用户某天发现
- * 「我明明加了却没生效」。
+ * most-specific-wins 的平手裁决结果；批量开关的差集写成清空会连坐别的分类。这些在 UI 上
+ * 全都毫无异样，只有用户某天发现「我明明加了却没生效」。
  *
  * 做法：把 SettingsRepository.update 接成一个内存里的 MutableStateFlow，
  * 于是每次调用后可以直接断言变换后的 ProxySettings —— 不碰 DataStore、不需要设备。
+ * 派生状态（历史入口可用性 / 引导显示与否）走 [observe] 订阅后再读。
+ *
+ * 覆盖分四块：规则写入（归一化/编辑/互斥/启停/规则集/端口）、历史入口可用性、
+ * 性能预设与上限钳制、集合型开关（tab/接口/内置组/分类/总闸）。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
 
+    private val mainDispatcher = UnconfinedTestDispatcher()
+
     private lateinit var settingsFlow: MutableStateFlow<ProxySettings>
+    private lateinit var shareFlow: MutableStateFlow<ShareState>
+    private lateinit var historyFlow: MutableStateFlow<List<HistoryEndpoint>>
+    private lateinit var onboardingFlow: MutableStateFlow<Boolean>
+    private lateinit var settingsRepo: SettingsRepository
     private lateinit var vm: MainViewModel
 
     @Before
     fun setUp() {
         // viewModelScope 默认在 Dispatchers.Main；JVM 单测里没有主循环，必须换掉。
         // Unconfined：update{} 里的协程立即执行，断言不必再 advance。
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         settingsFlow = MutableStateFlow(ProxySettings())
+        shareFlow = MutableStateFlow(ShareState())
+        historyFlow = MutableStateFlow(emptyList<HistoryEndpoint>())
+        onboardingFlow = MutableStateFlow(true)
 
-        val settingsRepo = mockk<SettingsRepository>(relaxed = true)
+        settingsRepo = mockk<SettingsRepository>(relaxed = true)
         every { settingsRepo.settings } returns settingsFlow
-        every { settingsRepo.onboardingCompleted } returns flowOf(true)
+        every { settingsRepo.onboardingCompleted } returns onboardingFlow
         every { settingsRepo.domainHistory } returns flowOf(emptySet())
         // 把真实的 transform 应用到内存状态上——这样测的是 ViewModel 的变换逻辑本身，
         // 而不是「有没有调用 repository」这种无信息量的断言。
@@ -64,13 +91,15 @@ class MainViewModelTest {
             val transform = firstArg<(ProxySettings) -> ProxySettings>()
             settingsFlow.value = transform(settingsFlow.value)
         }
+        // 引导完成标志同样接回内存，才能验证「看完就不再弹」而不是只验证「调了一下」。
+        coEvery { settingsRepo.setOnboardingCompleted(any()) } answers { onboardingFlow.value = firstArg() }
 
         val proxyRepo = mockk<ProxyServerRepository>(relaxed = true)
-        every { proxyRepo.state } returns MutableStateFlow(ShareState())
+        every { proxyRepo.state } returns shareFlow
         every { proxyRepo.resetState } returns MutableStateFlow(ManualResetPhase.IDLE)
 
         val historyRepo = mockk<EndpointHistoryRepository>(relaxed = true)
-        every { historyRepo.history } returns flowOf(emptyList())
+        every { historyRepo.history } returns historyFlow
 
         val credStore = mockk<CredentialStore>(relaxed = true)
         every { credStore.credentials } returns flowOf(CredentialStore.Credentials())
@@ -84,6 +113,19 @@ class MainViewModelTest {
     private fun rejects() = s().userRejectRules
     private fun directs() = s().userDirectRules
     private fun seed(v: ProxySettings) { settingsFlow.value = v }
+
+    /**
+     * 读一个 `stateIn(WhileSubscribed)` 暴露的状态。
+     *
+     * 这类流**没有订阅者时上游根本不跑**，直接读 `.value` 只会拿到 stateIn 的初始占位值——
+     * 于是「历史入口可用性」这种派生状态怎么测都是空列表，测试会以「什么都没验」的方式假通过。
+     * 这里订阅一次、抽干调度队列后取值再退订。
+     */
+    private fun <T> observe(flow: StateFlow<T>): T {
+        val job = CoroutineScope(mainDispatcher).launch { flow.collect { } }
+        mainDispatcher.scheduler.runCurrent()
+        return flow.value.also { job.cancel() }
+    }
 
     // ==================== 归一化：写法决定作用域，不能被吃掉 ====================
 
@@ -296,5 +338,309 @@ class MainViewModelTest {
         assertEquals(65535, s().socksPort)
         vm.setPacPort(8899)
         assertEquals(8899, s().pacPort)
+    }
+
+    // ==================== 历史入口可用性：标错了用户就点到一个连不上的地址 ====================
+    //
+    // 首页历史入口是「一键回到上次用的地址」。可用性标记错在两个方向都很难受：
+    // 标成不可用 → 明明能连却被劝退；标成可用 → 点了连不上，用户第一反应是「这软件坏了」。
+    // 判定只有两条：IP 仍是当前某个接口地址，且端口与当前**对应协议**的配置一致。
+
+    private fun iface(ip: String) = ShareInterface(
+        id = "wlan0/$ip", name = "wlan0", type = InterfaceType.WIFI,
+        address = InetAddress.getByName(ip), prefixLength = 24,
+        gatewayLike = false, isSelected = true, status = InterfaceStatus.UP,
+    )
+
+    private fun ep(protocol: ProxyProtocol, ip: String, port: Int) =
+        HistoryEndpoint(protocol, ip, port, lastUsedMillis = 1L)
+
+    /** 历史视图（经 uiState 观察，含可用性判定）。 */
+    private fun historyViews() = observe(vm.uiState).history
+
+    @Test fun `历史入口要 IP 与端口同时吻合才算可用`() {
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34")))
+        historyFlow.value = listOf(
+            ep(ProxyProtocol.HTTP, "192.168.1.34", 8080),   // 接口在、端口是当前 http 端口
+            ep(ProxyProtocol.HTTP, "10.0.0.7", 8080),       // 换了网，这个 IP 已经不是本机地址
+            ep(ProxyProtocol.HTTP, "192.168.1.34", 9999),   // 地址还在，但端口早改了
+        )
+        assertEquals(listOf(true, false, false), historyViews().map { it.available })
+        // 条目本身只是被套上可用性，顺序与内容都不该被加工（列表按最近使用排序）。
+        assertEquals(historyFlow.value, historyViews().map { it.entry })
+    }
+
+    @Test fun `改了监听端口后旧历史入口立刻变不可用`() {
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34")))
+        historyFlow.value = listOf(ep(ProxyProtocol.HTTP, "192.168.1.34", 8080))
+        assertTrue(historyViews().single().available)
+
+        vm.setHttpPort(8081)
+        // 若可用性只看 IP 不看端口，这条会继续显示成可用，用户点进去连的是一个没人监听的端口。
+        assertFalse(historyViews().single().available)
+    }
+
+    @Test fun `接口消失后历史入口变不可用`() {
+        historyFlow.value = listOf(ep(ProxyProtocol.HTTP, "192.168.1.34", 8080))
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34")))
+        assertTrue(historyViews().single().available)
+
+        // 断网/切网后接口列表被重扫空——历史条目还在，但已经不指向任何本机地址。
+        shareFlow.value = ShareState(interfaces = emptyList())
+        assertFalse(historyViews().single().available)
+    }
+
+    @Test fun `每条历史各自比对自己协议的端口`() {
+        // 默认 http=8080 / socks=1080 / pac=8899。前三条都写成「别的协议的端口」：
+        // when 分支一旦接错线（比如 SOCKS5 去比 httpPort），错标的就是这三条。
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34")))
+        historyFlow.value = listOf(
+            ep(ProxyProtocol.SOCKS5, "192.168.1.34", 8080),
+            ep(ProxyProtocol.HTTP, "192.168.1.34", 1080),
+            ep(ProxyProtocol.PAC, "192.168.1.34", 1080),
+            ep(ProxyProtocol.SOCKS5, "192.168.1.34", 1080),
+            ep(ProxyProtocol.HTTP, "192.168.1.34", 8080),
+            ep(ProxyProtocol.PAC, "192.168.1.34", 8899),
+        )
+        assertEquals(
+            listOf(false, false, false, true, true, true),
+            historyViews().map { it.available },
+        )
+    }
+
+    // ==================== 首次引导：只该在该弹的时候弹 ====================
+
+    @Test fun `引导未完成时显示，走完后不再显示`() {
+        onboardingFlow.value = false
+        assertEquals(true, observe(vm.showOnboarding))
+        vm.completeOnboarding()
+        // 完成标志没被持久化的话，用户每次冷启动都要重看一遍引导。
+        assertEquals(false, observe(vm.showOnboarding))
+    }
+
+    @Test fun `重新查看引导会再弹一次，且看完后不影响已完成标志`() {
+        assertEquals(false, observe(vm.showOnboarding))   // 已完成
+        vm.replayOnboarding()
+        assertEquals(true, observe(vm.showOnboarding))
+        vm.completeOnboarding()
+        // 「重看」是一次性请求：不清掉就会永远卡在引导页出不来。
+        assertEquals(false, observe(vm.showOnboarding))
+        assertTrue(onboardingFlow.value)
+    }
+
+    // ==================== 性能预设：切档不能偷偷吞掉用户调好的参数 ====================
+
+    @Test fun `切到非自定义档时上限跟随预设联动`() {
+        seed(ProxySettings(
+            preset = PerformancePreset.CUSTOM,
+            limits = ConnectionLimits(maxGlobalConnections = 111, relayParallelism = 7),
+        ))
+        vm.setPreset(PerformancePreset.BATTERY)
+        assertEquals(PerformancePreset.BATTERY, s().preset)
+        // 只改档位标签、不改实际上限，就会出现「显示省电档、跑的还是高吞吐参数」的分裂状态。
+        assertEquals(PerformancePreset.BATTERY.toLimits(), s().limits)
+
+        vm.setPreset(PerformancePreset.HIGH_THROUGHPUT)
+        assertEquals(PerformancePreset.HIGH_THROUGHPUT.toLimits(), s().limits)
+    }
+
+    @Test fun `切到自定义档保留用户已调好的上限`() {
+        val mine = ConnectionLimits(maxGlobalConnections = 333, relayParallelism = 48)
+        seed(ProxySettings(preset = PerformancePreset.BALANCED, limits = mine))
+        vm.setPreset(PerformancePreset.CUSTOM)
+        assertEquals(PerformancePreset.CUSTOM, s().preset)
+        // CUSTOM.toLimits() 返回的是均衡档：这里若跟着联动，用户逐项调过的参数会在
+        // 点一下「自定义」时被静默重置回默认，且界面上的滑块会一起跳回去。
+        assertEquals(mine, s().limits)
+    }
+
+    @Test fun `自定义上限越界被钳到合法区间并切到自定义档`() {
+        vm.setCustomLimits(ConnectionLimits(
+            maxGlobalConnections = 10_000,   // 上溢：FD 会先于连接数耗尽（EMFILE）
+            maxPerClientConnections = 1,     // 下溢：单浏览器就能把自己卡死
+            relayParallelism = 1_000,
+            relayBufferBytes = 1,
+            idleTimeoutSeconds = 100_000,
+            maxTrackedDomains = 0,
+        ))
+        val l = s().limits
+        assertEquals(PerformancePreset.CUSTOM, s().preset)
+        assertEquals(ConnectionLimits.RANGE_GLOBAL.last, l.maxGlobalConnections)
+        assertEquals(ConnectionLimits.RANGE_PER_CLIENT.first, l.maxPerClientConnections)
+        assertEquals(ConnectionLimits.RANGE_PARALLELISM.last, l.relayParallelism)
+        assertEquals(ConnectionLimits.RANGE_BUFFER_BYTES.first, l.relayBufferBytes)
+        assertEquals(ConnectionLimits.RANGE_IDLE_SECONDS.last, l.idleTimeoutSeconds)
+        assertEquals(ConnectionLimits.RANGE_TRACKED_DOMAINS.first, l.maxTrackedDomains)
+    }
+
+    @Test fun `区间内的自定义上限原样保留`() {
+        val ok = ConnectionLimits(128, 64, 16, 32 * 1024, 90, 512)
+        vm.setCustomLimits(ok)
+        assertEquals(ok, s().limits)
+    }
+
+    // ==================== 集合增删：漏了「减」的一半就是关不掉的开关 ====================
+
+    @Test fun `隐藏与恢复顶层 tab 是集合增删且幂等`() {
+        vm.setTabHidden("monitor", true)
+        vm.setTabHidden("monitor", true)       // 重复隐藏不产生第二份
+        vm.setTabHidden("rules", true)
+        assertEquals(setOf("monitor", "rules"), s().hiddenTabs)
+
+        vm.setTabHidden("monitor", false)
+        assertEquals(setOf("rules"), s().hiddenTabs)
+        vm.setTabHidden("home", false)         // 恢复一个本就没隐藏的，不该炸也不该改动集合
+        assertEquals(setOf("rules"), s().hiddenTabs)
+    }
+
+    @Test fun `勾选与取消接口只动对应的 id`() {
+        vm.toggleInterface("wlan0/192.168.1.34", true)
+        vm.toggleInterface("ap0/192.168.43.1", true)
+        assertEquals(setOf("wlan0/192.168.1.34", "ap0/192.168.43.1"), s().selectedInterfaceIds)
+
+        vm.toggleInterface("wlan0/192.168.1.34", false)
+        // 取消一个不能连坐其它接口：准入是 fail-closed 的，集合被清空 = 所有网段全被拒，
+        // 表现为「客户端全部连不上」而界面上开关看着还开着。
+        assertEquals(setOf("ap0/192.168.43.1"), s().selectedInterfaceIds)
+    }
+
+    @Test fun `内置组的启用与拦截归属是两个独立集合`() {
+        vm.toggleRuleGroup("app-tencent", true)
+        vm.setGroupRejected("app-tencent", true)
+        // 「移到拦截行」只改这一组的动作，不等于把组关掉——若顺手从 enabledRuleGroups 拿掉，
+        // 整组域名会回落成默认代理，用户看到的是「我明明把它拉到拦截行了，却照样能上」。
+        assertEquals(setOf("app-tencent"), s().enabledRuleGroups)
+        assertEquals(setOf("app-tencent"), s().rejectedGroups)
+
+        vm.setGroupRejected("app-tencent", false)
+        assertTrue(s().rejectedGroups.isEmpty())
+        assertEquals(setOf("app-tencent"), s().enabledRuleGroups)
+
+        vm.toggleRuleGroup("app-tencent", false)
+        assertTrue(s().enabledRuleGroups.isEmpty())
+    }
+
+    @Test fun `按分类一键开关只影响该分类的组`() {
+        val video = RuleCatalog.all.filter { it.category == RuleCategory.VIDEO }.map { it.id }.toSet()
+        val social = RuleCatalog.all.filter { it.category == RuleCategory.SOCIAL }.map { it.id }.toSet()
+        assertTrue("目录里得真有这两类组，否则这条测试什么都没验", video.size > 1 && social.size > 1)
+
+        vm.setCategoryEnabled(RuleCategory.VIDEO, true)
+        assertEquals(video, s().enabledRuleGroups)
+        vm.setCategoryEnabled(RuleCategory.SOCIAL, true)
+        assertEquals(video + social, s().enabledRuleGroups)
+
+        vm.setCategoryEnabled(RuleCategory.VIDEO, false)
+        // 关一个分类顺手把别的分类也关掉，是这类批量开关最容易写出的错（差集写成清空）；
+        // 用户只会发现「我关了视频，社交那一排也全灭了」。
+        assertEquals(social, s().enabledRuleGroups)
+    }
+
+    @Test fun `一键全开覆盖目录全集，一键全关只清目录内的 id`() {
+        seed(ProxySettings(enabledRuleGroups = setOf("legacy-group-from-older-build")))
+        vm.setAllBuiltinEnabled(true)
+        assertTrue(RuleCatalog.all.map { it.id }.all { it in s().enabledRuleGroups })
+        assertEquals(RuleCatalog.all.size + 1, s().enabledRuleGroups.size)
+
+        vm.setAllBuiltinEnabled(false)
+        // 全关是「按目录做差集」而不是「清空」：目录里没有的 id（降级安装/旧版本残留）保留，
+        // 否则在旧版本上点一次全关，升回新版本时那些组的启用状态就凭空没了。
+        assertEquals(setOf("legacy-group-from-older-build"), s().enabledRuleGroups)
+    }
+
+    // ==================== 总闸与单条：两者不能互相污染 ====================
+
+    @Test fun `整组总闸只切开关，列表数据与单条启停状态原样保留`() {
+        seed(ProxySettings(
+            userDirectRules = listOf(RuleEntry("cdn.example.com", addedAt = 3L)),
+            userRejectRules = listOf(RuleEntry("ads.example.com", enabled = false, addedAt = 4L)),
+        ))
+        vm.toggleUserDirectEnabled(false)
+        assertFalse(s().userDirectEnabled)
+        // 总闸若是靠「逐条 enabled=false」实现，再打开时用户原本手动停用的那几条会被一起点亮，
+        // 数据无法还原——所以总闸必须是独立的一位，列表一个字节都不动。
+        assertEquals(1, directs().size)
+        assertTrue(directs().single().enabled)
+        assertTrue("白名单总闸不该动拦截表总闸", s().userRejectEnabled)
+
+        vm.toggleUserRejectEnabled(false)
+        assertFalse(s().userRejectEnabled)
+        assertEquals(1, rejects().size)
+        assertFalse("原本就停用的单条不该被总闸改写", rejects().single().enabled)
+
+        vm.toggleUserDirectEnabled(true)
+        assertTrue(s().userDirectEnabled)
+        assertFalse("重新打开白名单总闸不该顺手打开拦截表", s().userRejectEnabled)
+    }
+
+    @Test fun `白名单单条停用只动白名单那张表`() {
+        seed(ProxySettings(
+            userDirectRules = listOf(RuleEntry("a.example.com", addedAt = 1L)),
+            userRejectRules = listOf(RuleEntry("a.example.com", addedAt = 2L)),
+        ))
+        vm.toggleUserDirectRule("a.example.com")
+        assertFalse(directs().single().enabled)
+        assertTrue(directs().single().disabledAt > 0)
+        // 两张表各管各的启停。这对方法是对称复制出来的，写错表的后果是
+        // 「点了放行那条的开关，实际灭掉的是拦截那条」——UI 上两个开关都会显示成错的。
+        assertTrue(rejects().single().enabled)
+    }
+
+    // ==================== 删除白名单要留痕：「从历史添加」的唯一数据来源 ====================
+
+    @Test fun `移除白名单会记入域名历史`() {
+        seed(ProxySettings(userDirectRules = listOf(
+            RuleEntry("cdn.example.com"), RuleEntry("*.img.example.com"),
+        )))
+        vm.removeUserDirectRule("cdn.example.com")
+        assertEquals(listOf("*.img.example.com"), directs().map { it.value })
+        // 不记的话，规则页「从历史添加」里永远看不到刚删掉的那条，误删只能靠手打原样敲回来。
+        coVerify(exactly = 1) { settingsRepo.addDomainHistory(listOf("cdn.example.com")) }
+    }
+
+    @Test fun `移除拦截规则不写域名历史`() {
+        seed(ProxySettings(userRejectRules = listOf(RuleEntry("ads.example.com"))))
+        vm.removeUserRejectRule("ads.example.com")
+        assertTrue(rejects().isEmpty())
+        // 历史是给白名单「加回来」用的候选池；把拦截项也塞进去，用户从历史里挑一条放行
+        // 就等于把自己刚拦掉的广告域名放了行。
+        coVerify(exactly = 0) { settingsRepo.addDomainHistory(any()) }
+    }
+
+    @Test fun `白名单新增与拦截新增共用同一套归一化与去重`() {
+        vm.addUserDirectRule("  *.CDN.Example.com  ")
+        vm.addUserDirectRule("*.cdn.example.com")   // 归一化后重复
+        vm.addUserDirectRule("com")                 // 单段整段 TLD：收下就是全网放行
+        vm.addUserDirectRule("by wxs.qq.com")       // 含空白的死规则
+        assertEquals(listOf("*.cdn.example.com"), directs().map { it.value })
+    }
+
+    // ==================== 自建规则集：批量操作必须认准目标集 ====================
+
+    @Test fun `自建集的启停删域名与整表覆盖都只作用于目标集`() {
+        vm.addRuleSet("A", RuleAction.DIRECT)
+        vm.addRuleSet("B", RuleAction.REJECT)
+        val a = s().userRuleSets[0].id
+        val b = s().userRuleSets[1].id
+        vm.addDomainToSet(a, "a1.example.com")
+        vm.addDomainToSet(a, "a2.example.com")
+        vm.addDomainToSet(b, "b1.example.com")
+
+        vm.toggleRuleSet(a, false)
+        assertFalse(s().userRuleSets.first { it.id == a }.enabled)
+        // 少了 `if (s.id == id)` 这层判断，一次操作会横扫所有集——用户停用一个集，
+        // 结果全部自建规则一起失效，而列表上只有一个开关是灭的。
+        assertTrue(s().userRuleSets.first { it.id == b }.enabled)
+
+        vm.removeDomainFromSet(a, "a1.example.com")
+        assertEquals(listOf("a2.example.com"), s().userRuleSets.first { it.id == a }.domains)
+        assertEquals(listOf("b1.example.com"), s().userRuleSets.first { it.id == b }.domains)
+
+        vm.setRuleSetDomains(a, listOf("x.example.com", "y.example.com"))
+        assertEquals(
+            listOf("x.example.com", "y.example.com"),
+            s().userRuleSets.first { it.id == a }.domains,
+        )
+        assertEquals(listOf("b1.example.com"), s().userRuleSets.first { it.id == b }.domains)
     }
 }
