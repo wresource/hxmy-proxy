@@ -88,4 +88,19 @@ data class ShareState(
     val egressStatus: EgressStatus = EgressStatus(),
     /** 走蜂窝上网且没有可共享入口（没开热点）：提示用户「开启个人热点后才能共享」。 */
     val needsHotspotHint: Boolean = false,
+    /**
+     * 直连(DIRECT)持续失败的域名。DIRECT 是 fail-closed 的——连不上宁可断也不降级到 VPN，
+     * 于是失败对用户完全静默，只表现为「这个 app 有时候卡」（每次白等一个连接超时）。
+     * 真机日志实证过 237 次这样的超时，全是用户在防护页设过「直连」的域名。
+     * 非空时防护页给出提示与「改回走代理」的一键操作。
+     */
+    val directFailures: List<DirectFailure> = emptyList(),
+)
+
+/** 某个域名的直连连续失败情况（见 [ShareState.directFailures]）。 */
+data class DirectFailure(
+    val host: String,
+    val fails: Int,
+    /** 最近一次的失败原因（ProxyError.label，如「远程连接超时」）。 */
+    val lastError: String,
 )

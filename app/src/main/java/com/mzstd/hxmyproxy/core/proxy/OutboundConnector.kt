@@ -119,10 +119,17 @@ class OutboundConnector(
         val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAny(orderAddresses(resolve(host, network)), port, network)
-                .also { reportEgress(onEgress, network) }
+                .also {
+                    reportEgress(onEgress, network)
+                    // 通了就清零：连续失败被打断说明该 host 的直连当前是好的（见 DirectEgressFailures）。
+                    if (bypassVpn) DirectEgressFailures.recordSuccess(host)
+                }
         } catch (e: ProxyException) {
             // DIRECT(bypass) fail-closed：建连失败也**不**降级默认网络(=VPN)，宁可断、不泄漏。
             if (bypassVpn) {
+                // 计数给 UI：fail-closed 的失败对用户是静默的（只表现为"这个 app 有时候卡"），
+                // 必须让它在防护页可见，否则用户不导出日志根本不知道自己设的「直连」连不通。
+                DirectEgressFailures.recordFailure(host, e.error.code)
                 throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
                 throw e
             }
@@ -272,11 +279,15 @@ class OutboundConnector(
         val network = egressNetworkFor(bypassVpn, host)
         return try {
             connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
-                .also { reportEgress(onEgress, network) }
+                .also {
+                    reportEgress(onEgress, network)
+                    if (bypassVpn) DirectEgressFailures.recordSuccess(host)
+                }
         } catch (e: ProxyException) {
             // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
             // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
             if (bypassVpn) {
+                DirectEgressFailures.recordFailure(host, e.error.code)
                 throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
                 throw e
             }

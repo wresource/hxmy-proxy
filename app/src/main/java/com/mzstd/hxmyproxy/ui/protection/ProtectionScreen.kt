@@ -52,6 +52,7 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.BannerLevel
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
@@ -60,6 +61,7 @@ import com.mzstd.hxmyproxy.ui.components.OverrideBadge
 import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.RatioBar
 import com.mzstd.hxmyproxy.ui.components.StatLabel
+import com.mzstd.hxmyproxy.ui.components.WarnBanner
 import com.mzstd.hxmyproxy.ui.components.StatusDot
 import com.mzstd.hxmyproxy.ui.components.stdSwitchColors
 import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
@@ -135,6 +137,66 @@ fun ProtectionScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+
+        // 直连不通：仅在确有持续失败时出现。
+        // 为什么必须给这张卡：DIRECT 是 fail-closed 的（连不上宁可断也不降级到 VPN），失败对用户
+        // **完全静默**——只表现为「这个 app 有时候卡」，因为每次访问都在白等一个连接超时。
+        // 真机日志实证过 237 次这样的超时，全是被设成「直连」的遥测域名；不导出日志根本发现不了。
+        val directFails = ui.share.directFailures
+        if (directFails.isNotEmpty()) {
+            BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Default, spacing = 10.dp) {
+                WarnBanner(
+                    text = stringResource(R.string.direct_fail_banner, directFails.size),
+                    level = BannerLevel.Warn,
+                    icon = painterResource(R.drawable.ic_b_alert_circle),
+                )
+                Text(
+                    stringResource(R.string.direct_fail_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    directFails.take(5).forEach { f ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    f.host,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // 原因走 ProxyError.code 映射到本地化文案：ProxyError.label 是硬编码中文
+                                // （给日志用的），直接上界面会在英文 UI 里冒出「远程连接超时」。
+                                val reason = when (f.lastError) {
+                                    "timeout" -> stringResource(R.string.direct_fail_reason_timeout)
+                                    "dns" -> stringResource(R.string.direct_fail_reason_dns)
+                                    "refused" -> stringResource(R.string.direct_fail_reason_refused)
+                                    "unreachable" -> stringResource(R.string.direct_fail_reason_unreachable)
+                                    "denied" -> stringResource(R.string.direct_fail_reason_denied)
+                                    else -> stringResource(R.string.direct_fail_reason_other)
+                                }
+                                Text(
+                                    stringResource(R.string.direct_fail_row_sub, f.fails, reason),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            // 一键改回：把覆盖从「直连」换成「走代理」（走 VPN，通常正是用户本意），
+                            // 并立刻清掉计数让本行消失，不必等下一次连接成功。
+                            DetailChip(stringResource(R.string.direct_fail_switch)) {
+                                viewModel.switchToProxyEgress(f.host)
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -16,6 +16,26 @@ sealed class ProxyError(val label: String) {
     data object TooManyConnections : ProxyError("连接数超限")
     data class Unknown(val detail: String) : ProxyError(detail)
 
+    /**
+     * 稳定的机器可读标识，供 UI 查本地化文案。
+     *
+     * **不要拿 [label] 上界面**：它是硬编码中文（给日志用的），直接显示会在英文界面上冒出
+     * 「远程连接超时」——实测过一次，端到端截图才发现，单测抓不到。
+     */
+    val code: String
+        get() = when (this) {
+            RemoteTimeout -> "timeout"
+            DnsFailure -> "dns"
+            ConnectionRefused -> "refused"
+            RemoteUnreachable -> "unreachable"
+            AccessDenied -> "denied"
+            VpnUnavailable -> "vpn"
+            LocalNetworkPermissionDenied -> "perm"
+            PortInUse -> "port"
+            TooManyConnections -> "limit"
+            is Unknown -> "other"
+        }
+
     /** SOCKS5 REP 码 (RFC1928 §6)。 */
     val socksReply: Int
         get() = when (this) {

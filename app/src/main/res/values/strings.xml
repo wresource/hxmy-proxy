@@ -254,6 +254,17 @@
     <string name="override_reject">Block</string>
     <string name="protection_hero_sub">Blocked this session</string>
     <string name="protection_view_blocked">View list</string>
+    <!-- 直连不通提示（DIRECT fail-closed 的失败对用户静默，必须在此现形） -->
+    <string name="direct_fail_banner">%1$d domain(s) set to Direct can\'t be reached</string>
+    <string name="direct_fail_desc">Direct bypasses your VPN. These domains don\'t answer on the physical network, so every request waits out a timeout. Switching them back to Via proxy sends them through the VPN instead.</string>
+    <string name="direct_fail_row_sub">failed %1$d times in a row · %2$s</string>
+    <string name="direct_fail_switch">Via proxy</string>
+    <string name="direct_fail_reason_timeout">connection timed out</string>
+    <string name="direct_fail_reason_dns">DNS lookup failed</string>
+    <string name="direct_fail_reason_refused">connection refused</string>
+    <string name="direct_fail_reason_unreachable">host unreachable</string>
+    <string name="direct_fail_reason_denied">blocked by egress guard</string>
+    <string name="direct_fail_reason_other">connection failed</string>
     <string name="protection_top_blocked">Most blocked</string>
     <string name="protection_how_title">How protection works</string>
     <string name="protection_how_body">Requests are filtered right at the proxy, so every device on your network gets ads &amp; trackers stripped — no per-device setup, and it works with or without a VPN. Tap any blocked host to allow it if it was caught by mistake.</string>

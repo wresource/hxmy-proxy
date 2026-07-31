@@ -389,6 +389,19 @@ class MainViewModel @Inject constructor(
         if (h.isEmpty()) it else it.copy(hostOverrides = it.hostOverrides + (h to action))
     }
 
+    /**
+     * 把某 host 从「直连」改回「走代理」，用于防护页的「直连不通」一键修复。
+     *
+     * 语义要点：用户点「允许」时想要的是「别拦它」，而三态里对应的其实是 **PROXY（走 VPN）**；
+     * 「直连」是绕过 VPN——在 VPN 在线时这两个是相反的结果。真机上正是这个错配导致
+     * 遥测域名被设成直连后连不通，每次白等一个超时（237 次）。
+     * 同时清掉失败计数，让该行立刻从提示里消失，不必等下一次连接成功。
+     */
+    fun switchToProxyEgress(host: String) {
+        setHostOverride(host, com.mzstd.hxmyproxy.core.rules.RuleAction.PROXY)
+        com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.forget(host)
+    }
+
     /** 移除某 host 的覆盖（回归默认规则链）。 */
     fun clearHostOverride(host: String) = update {
         it.copy(hostOverrides = it.hostOverrides - host.trim().lowercase())

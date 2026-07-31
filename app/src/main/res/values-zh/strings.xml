@@ -254,6 +254,17 @@
     <string name="override_reject">拦截</string>
     <string name="protection_hero_sub">本次已拦截 · 有没有 VPN 都生效</string>
     <string name="protection_view_blocked">查看拦截明细</string>
+    <!-- 直连不通提示（DIRECT fail-closed 的失败对用户静默，必须在此现形） -->
+    <string name="direct_fail_banner">%1$d 个设为「直连」的域名连不上</string>
+    <string name="direct_fail_desc">「直连」会绕过 VPN。这些域名在物理网络上没有响应，于是每次访问都要白等一次连接超时。改回「走代理」就会经 VPN 出去。</string>
+    <string name="direct_fail_row_sub">连续失败 %1$d 次 · %2$s</string>
+    <string name="direct_fail_switch">走代理</string>
+    <string name="direct_fail_reason_timeout">连接超时</string>
+    <string name="direct_fail_reason_dns">DNS 解析失败</string>
+    <string name="direct_fail_reason_refused">连接被拒绝</string>
+    <string name="direct_fail_reason_unreachable">主机不可达</string>
+    <string name="direct_fail_reason_denied">被出口护栏拦下</string>
+    <string name="direct_fail_reason_other">连接失败</string>
     <string name="protection_top_blocked">拦得最多</string>
     <string name="protection_how_title">防护如何工作</string>
     <string name="protection_how_body">请求在代理层就被过滤，所以网络里每台设备的广告与追踪都会被拦掉——无需逐台设置，有没有 VPN 都能用。若某项被误拦，点它即可放行。</string>

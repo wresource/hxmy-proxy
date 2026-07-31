@@ -341,6 +341,11 @@ class ProxyServerRepository @Inject constructor(
                         topDomains = snap.topDomains,
                         blockedTotal = snap.blockedTotal,
                         topBlockedDomains = snap.topBlocked,
+                        // 直连持续不通的域名（fail-closed 的失败对用户静默，必须让它在 UI 上现形）
+                        directFailures = com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.snapshot()
+                            .map {
+                                com.mzstd.hxmyproxy.core.model.DirectFailure(it.host, it.fails, it.lastError)
+                            },
                     )
                 }
             }
@@ -402,6 +407,7 @@ class ProxyServerRepository @Inject constructor(
         accounting.reset()
         LinkProbe.reset()          // 上次会话的链路样本不带到这次
         com.mzstd.hxmyproxy.core.proxy.RelayStallStats.reset()   // 背压窗口同理
+        com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.reset()   // 直连失败计数同理
         sessionStartedAt = System.currentTimeMillis()
         heartbeatN = 0
     }
