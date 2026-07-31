@@ -139,6 +139,11 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var lastAdmitKey: Set<String> = emptySet()
     /** 上次 refresh 的接口扫描快照（只在变化时落盘，避免刷屏淹没关键事件）。 */
     @Volatile private var lastScanKey: String = ""
+    /** 上次接口扫描是否为空。为空时 [lastAdmitKey] 是被保留的旧值（见 refresh 的保护分支），
+     *  此时它不代表当前真实存在的本机地址——自探据此把 LAN 腿记为「无法判定」而非失败。 */
+    @Volatile private var lastScanEmpty = false
+    /** 「扫不到接口」的落盘边沿态（只在进出时各记一条，持续期间零噪音）。 */
+    @Volatile private var scanEmptyLogged = false
     /** 最近见过的客户端地址（在线时更新,**跨会话持久化**到 [RecentClients]）：手动刷新与路径保活的
      *  探测目标——最需要被探的客户端恰恰是「这个会话还没连上来的那台」（7-27 教训）。 */
     @Volatile private var lastSeenClients: List<InetAddress> = emptyList()
@@ -470,10 +475,18 @@ class ProxyServerRepository @Inject constructor(
      * 这一对探针把它从外面切开）。注意 LAN 自探同样走内核本机路径、不经无线，所以它**不能**
      * 证明无线层可达——它的价值恰恰是把「app/内核」与「无线/对端」两个世界分开。
      * 只在状态变化时落 key.log（正常运行零噪音）；最近结果随心跳可见。
+     *
+     * **LAN 腿在「本轮扫不到接口」时必须记 `-` 而不是 `fail`**：
+     * [lastAdmitKey] 在扫描为空时会被 refresh 的保护分支**原样保留**（那是为了不让瞬态空集
+     * fail-closed 拒掉在连的客户端，见 refresh 里的说明），于是自探会拿着一个当前并不存在的
+     * 地址去连、必然失败。8-01 真机日志里 12 次 `ok/ok->ok/fail` **每一次**前面都紧跟一条
+     * `scan=` 为空的 refresh（间隔最短 4 秒）——也就是说那些告警全部是这个成因，
+     * 而不是上面写的「内核入站被拦」。把「无法判定」误报成「拦截」比不报更糟：
+     * 它会把排查引向内核与防火墙，而真正该看的是接口为什么扫不到。
      */
     private fun selfProbe() {
         val port = servers.firstNotNullOfOrNull { it.boundPort.value } ?: return
-        val lan = lastAdmitKey.firstOrNull()
+        val lan = if (lastScanEmpty) null else lastAdmitKey.firstOrNull()
         val loopOk = tcpSelfProbe("127.0.0.1", port)
         val lanOk = lan?.let { tcpSelfProbe(it, port) }
         val state = (if (loopOk) "ok" else "fail") + "/" + (lanOk?.let { if (it) "ok" else "fail" } ?: "-")
@@ -728,6 +741,8 @@ class ProxyServerRepository @Inject constructor(
         // 跳过准入更新（保护分支判据正是 lastAdmitKey.isEmpty()），准入停在上个会话的旧值。
         lastAdmitKey = emptySet()
         lastScanKey = ""
+        lastScanEmpty = false
+        scanEmptyLogged = false
         lastSelfProbe = "-"
         lastSelfProbeLogged = null   // 下个会话第一次自探必落一条基线（"-->ok/ok"）
         _state.value = ShareState()
@@ -919,6 +934,8 @@ class ProxyServerRepository @Inject constructor(
             "${it.name}(${it.type}):${it.address.hostAddress ?: "?"}" + if (it.isSelected) "*" else ""
         }
         val prevAllow = lastAdmitKey
+        // 记下「本轮扫不到任何接口」——自探的 LAN 腿据此不再拿被保留的旧地址去连（见 selfProbe）。
+        lastScanEmpty = interfaces.isEmpty()
         // 【换网中断修复】scan 返回空(换网/换热点瞬间网卡短暂无接口)且曾有准入 → **保留上次 admit,不清空**，
         // 否则瞬态空集 fail-closed 会把正在连的老客户端(如 192.168.50.65)拒掉,等新接口稳定后正常更新即可。
         // 「没选=全拒」不受影响:那种情况 interfaces 非空(扫得到接口只是没选)→ 照常走下面更新为空。
@@ -949,6 +966,19 @@ class ProxyServerRepository @Inject constructor(
             )
         }
         lastScanKey = scanKey
+        // 「一个接口都扫不到」的进出边沿单独记一条。8-01 真机日志里它出现 12 次、每次持续
+        // 7~42 分钟（中位数约 12 分），而此前只能从 `scan=` 后面那截空白反推——太隐蔽，
+        // 以至于它引发的 12 次自探 lan=fail 被误读成了「内核入站被拦」。
+        // 准入本身有保护分支兜着（保留上次 admit，不会 fail-closed 拒掉在连的客户端），
+        // 所以这不是故障告警，而是一条「这段时间系统没报告任何可共享接口」的事实记录。
+        if (interfaces.isEmpty() != scanEmptyLogged) {
+            scanEmptyLogged = interfaces.isEmpty()
+            Ev.kw(
+                LogCat.IFACE, "iface.scanEmpty",
+                "state" to (if (interfaces.isEmpty()) "enter" else "exit"),
+                "keptAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty>" },
+            )
+        }
         publishMdns(s)
         // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
         // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
