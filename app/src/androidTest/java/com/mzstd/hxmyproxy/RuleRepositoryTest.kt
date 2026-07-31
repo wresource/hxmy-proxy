@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mzstd.hxmyproxy.core.model.ProxySettings
+import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.data.repository.RuleRepository
@@ -36,7 +37,7 @@ class RuleRepositoryTest {
         RuleRepository(context, engine).rebuild(
             ProxySettings(
                 enabledRuleGroups = setOf("ads-oisd-small"),
-                userDirectRules = setOf("googlesyndication.com"),
+                userDirectRules = listOf(RuleEntry("googlesyndication.com")),
             ),
         )
         // 用户白名单优先级最高,覆盖广告表(防误杀)→ DIRECT

@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -65,7 +66,11 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onFinish) { Text(stringResource(R.string.ob_skip)) }
+            // testTag 与语言无关：UI 测试要能在中英文下都跳过引导页进主界面
+            // （用文案定位会在切语言的测试里自己把自己锁死）。
+            TextButton(onClick = onFinish, modifier = Modifier.testTag("onboarding_skip")) {
+                Text(stringResource(R.string.ob_skip))
+            }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
             Column(

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kover)
 }
 
 // 正式签名凭据从 keystore.properties 读（该文件不入库，格式见 keystore.properties.example）。
@@ -30,8 +31,8 @@ android {
         // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
         //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
         //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
-        versionCode = 121
-        versionName = "1.24.1"
+        versionCode = 122
+        versionName = "1.24.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -81,6 +82,57 @@ android {
             // 否则代理 accept 循环里的 android.util.Log.i 在 JVM 单测中抛异常，
             // 连接处理协程未响应即崩溃，导致 ProxyIntegrationTest 全部超时。
             isReturnDefaultValues = true
+        }
+    }
+}
+
+/**
+ * 覆盖率口径：**分母只留逻辑层**。
+ *
+ * ui/ 有约 7000 行 Compose 屏幕代码。把它算进分母，core 层从 80% 掉到 60% 时总数字可能只动
+ * 两个百分点——退化被稀释成噪音，那个数字就既不能反映安全程度、也不能驱动任何行动。
+ * 而且界面的错一眼能看见，逻辑的错是静默的（规则表变空但开关仍显示「已启用」、准入停在上个会话），
+ * 后者才是「改完之后用不了却不知道」的来源。
+ *
+ * **例外必须保留**：ui/ 根目录的 4 个 ViewModel 与 Format.kt 虽在 ui 包下却是纯逻辑
+ * （规则归一化、block/allow 互斥、编辑保留 addedAt、字节进制换算），错了没人看得出来，
+ * 所以只排除具体的界面子包与 AppRoot/NavTab，不能图省事写成 `ui.**`。
+ */
+kover {
+    reports {
+        filters {
+            excludes {
+                classes(
+                    // —— 界面：Compose 屏幕与组件 ——
+                    "com.mzstd.hxmyproxy.ui.AppRootKt*",   // 带 * 才能连内部 lambda 类一起排除
+                    "com.mzstd.hxmyproxy.ui.NavTab*",
+                    "com.mzstd.hxmyproxy.ui.components.*",
+                    "com.mzstd.hxmyproxy.ui.dashboard.*",
+                    "com.mzstd.hxmyproxy.ui.help.*",
+                    "com.mzstd.hxmyproxy.ui.locale.*",
+                    "com.mzstd.hxmyproxy.ui.monitor.*",
+                    "com.mzstd.hxmyproxy.ui.onboarding.*",
+                    "com.mzstd.hxmyproxy.ui.protection.*",
+                    "com.mzstd.hxmyproxy.ui.rules.*",
+                    "com.mzstd.hxmyproxy.ui.settings.*",
+                    "com.mzstd.hxmyproxy.ui.theme.*",
+                    // —— 框架入口与 DI 装配：没有可测的分支 ——
+                    "com.mzstd.hxmyproxy.MainActivity*",
+                    "com.mzstd.hxmyproxy.HxmyProxyApp*",
+                    "com.mzstd.hxmyproxy.di.*",
+                    // —— 生成代码 ——
+                    // 注意：模式匹配的是**全限定名**，所以 "Hilt_*" 只能命中默认包下的类。
+                    // 要排掉 com.mzstd.hxmyproxy.Hilt_MainActivity 必须写成 "*Hilt_*"。
+                    // 同理内部类（如 X_Factory$InstanceHolder）结尾不是 _Factory，得补尾部 *。
+                    "*.BuildConfig",
+                    "*ComposableSingletons*",
+                    "*Hilt_*", "*_Factory*", "*_HiltModules*", "*_MembersInjector*",
+                    "*Dagger*", "*_Impl*",
+                    // Hilt/Dagger 把聚合元数据生成到自己的顶层包里，不排掉会以 0% 混进分母
+                    "dagger.hilt.*", "hilt_aggregated_deps.*",
+                )
+                annotatedBy("androidx.compose.runtime.Composable")
+            }
         }
     }
 }

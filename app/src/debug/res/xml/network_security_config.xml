@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅 debug 构建：放行到本机 loopback 的明文 HTTP。
+
+  为什么需要：仪器测试要以**客户端**身份连自己的代理端口（http://127.0.0.1:8080），
+  而 targetSdk 28+ 默认 cleartextTrafficPermitted=false，okhttp 层直接抛
+  「Cleartext HTTP traffic to 127.0.0.1 not permitted」——8 个代理主链路端到端测试
+  （含吞吐与 50 并发）全部因此跑不起来，且失败信息与「代理坏了」完全同形。
+
+  为什么不影响产品：代理转发本身走 OutboundConnector 的原始 Socket，
+  不经 java.net.URL/okhttp，本策略管不到它。所以放行与否都不改变转发行为。
+
+  为什么只放 loopback：测试只连 127.0.0.1（见 ProxyLoadTest 的 httpProxy()/socksProxy()）。
+  release 构建不含本文件，线上策略保持默认的「全面禁止明文」。
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>

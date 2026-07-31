@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -9,6 +10,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.printToLog
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +25,39 @@ class MainUiTest {
 
     @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+
+    /**
+     * 等首屏真正画出来再断言。
+     *
+     * 首屏内容取决于 onboarding 标志，它要从 DataStore 经 Flow 回到 composition；在这之前
+     * `when(showOnboarding)` 的 null 分支**什么都不画**，导航栏并不存在。不等就断言，
+     * 拿到的是「还没画」的那一帧 —— 报错是 "nav_dashboard is not displayed"，
+     * 与「导航栏真的坏了」完全同形，会把人往错的方向带。
+     */
+    @Before
+    fun ensureMainUi() {
+        try {
+            // 不假设初始状态：首屏可能是引导页（首次启动，或 DataStore 被同轮其他仪器测试改写过——
+            // 实测就撞上过），也可能直接是主界面。两者都等，谁先出现认谁。
+            // 在这之前 `when(showOnboarding)` 的 null 分支什么都不画，此时断言只会拿到空树，
+            // 报错文本与「导航栏真的坏了」完全同形。
+            rule.waitUntil(timeoutMillis = 15_000) {
+                rule.onAllNodesWithTag("nav_dashboard").fetchSemanticsNodes().isNotEmpty() ||
+                    rule.onAllNodesWithTag("onboarding_skip").fetchSemanticsNodes().isNotEmpty()
+            }
+            if (rule.onAllNodesWithTag("onboarding_skip").fetchSemanticsNodes().isNotEmpty()) {
+                rule.onNodeWithTag("onboarding_skip").performClick()
+                rule.waitUntil(timeoutMillis = 15_000) {
+                    rule.onAllNodesWithTag("nav_dashboard").fetchSemanticsNodes().isNotEmpty()
+                }
+            }
+        } catch (e: Throwable) {
+            // 超时时把语义树打进 logcat：区分「画的是引导页」「画的是空」「画了但没 testTag」，
+            // 这三种在报错文本上完全同形。
+            rule.onRoot(useUnmergedTree = true).printToLog("UITREE_NO_NAV")
+            throw e
+        }
+    }
 
     @Test
     fun bottomNavTabsShown() {

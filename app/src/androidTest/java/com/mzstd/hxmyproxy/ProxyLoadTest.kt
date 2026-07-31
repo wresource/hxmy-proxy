@@ -4,6 +4,7 @@ import android.util.Log
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
+import com.mzstd.hxmyproxy.core.proxy.NioRelayReactor
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
 import com.mzstd.hxmyproxy.core.proxy.PacServer
 import com.mzstd.hxmyproxy.core.proxy.ProxyServer
@@ -56,6 +57,7 @@ class ProxyLoadTest {
     private val allowAll = object : EgressGuard { override fun isAllowed(addr: InetAddress) = true }
 
     private lateinit var scope: CoroutineScope
+    private lateinit var reactor: NioRelayReactor
     private lateinit var origin: ServerSocket
     private var originPort = 0
     private lateinit var http: ProxyServer
@@ -71,13 +73,20 @@ class ProxyLoadTest {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         origin = startOrigin()
         originPort = origin.localPort
+        // **必须显式打开 NIO relay**：两个参数的默认值是 nioReactor=null / useNioRelay=false，
+        // 而生产里 ProxyServerRepository.startServers 恒传 reactor + USE_NIO_RELAY=true。
+        // 不传就等于让端到端测试去测一条生产根本不走的旧阻塞路径——覆盖率照拿，
+        // 真正跑在用户设备上的那条却一行没测到，属于最坏的一类假安全感。
+        reactor = NioRelayReactor(workerCount = 2).also { it.start() }
         http = HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
             OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
+            nioReactor = reactor, useNioRelay = true,
         ).also { it.start(scope, 0) }
         socks = Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
             OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
+            nioReactor = reactor, useNioRelay = true,
         ).also { it.start(scope, 0) }
         pac = PacServer(Dispatchers.IO, AllowAllAccessController, ConnectionRegistry()) {
             "function FindProxyForURL(url, host) { return \"PROXY 127.0.0.1:$httpPort; DIRECT\"; }"
@@ -88,6 +97,8 @@ class ProxyLoadTest {
 
     @After fun tearDown() {
         runCatching { http.stop() }; runCatching { socks.stop() }; runCatching { pac.stop() }
+        // 顺序同生产 stopServers：先停各 server（关在途 socket），再拆 reactor，最后收 scope。
+        runCatching { reactor.stop() }
         runCatching { scope.cancel() }; runCatching { origin.close() }
     }
 

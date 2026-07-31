@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 专用 manifest 覆盖：挂上放行 loopback 明文的网络安全配置（见 res/xml/network_security_config.xml）。
+  release 不合并本文件，线上策略不变。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>
