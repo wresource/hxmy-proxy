@@ -34,7 +34,8 @@ it as turning your phone into a network relay — point a device's proxy at the 
 - **Settings backup** — export/import your whole configuration as JSON, so nothing is lost on reinstall or a new phone (system cloud backup is deliberately off — see Privacy).
 - **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. After an unexpected stop it also reports **why the process died** (low memory / crash / killed by the system), recovered from the OS after the fact — including a small state note the system keeps for us, which survives even a `SIGKILL` that takes buffered log writes with it. One master switch in Settings.
 - **Self-diagnosing when clients can't connect** — a 60 s heartbeat (ports / accepts / admission / RSSI / link), accept-success logging, a loopback+LAN self-probe pair and client-probe loss events make an exported log tell you *which layer* failed; a one-tap **Refresh service** button fully resets the app-side stack, probes recent clients (refreshing on-path ARP entries) and, if they still don't answer, points you at the system Wi-Fi panel — the one thing apps can't reset themselves.
-- **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks.
+- **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks. When a host you set to *Direct* stops answering, it surfaces here with a one-tap switch back to *Via proxy* — Direct bypasses your VPN and fails closed, so without this the only symptom is "the app feels slow sometimes" while every request waits out a timeout.
+- **Link quality you can see** — packet loss to your devices is measured alongside latency, because they fail independently: a link can show a healthy 12 ms p50 while dropping half the packets (the latency window only holds *successful* probes). Past a threshold the app suggests the fix that actually works — it's a physical-layer problem, so: connect devices to the phone's hotspot instead of the shared Wi-Fi.
 - **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
 - **Fail-closed admission** — with no network selected, no connections are accepted.
 - **NIO non-blocking relay** — 2 selectors replace 128 threads, with per-tunnel **back-pressure attribution**: stall time is counted per direction, so a slow session tells you *which* hop is the bottleneck — the client link or the uplink.
@@ -65,7 +66,7 @@ logcat output, so no visited domain or client IP is written to the system log.
 ## Requirements
 
 Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.24.1**.
+Latest release: **1.24.10**.
 
 ## More
 
