@@ -368,7 +368,11 @@ private class Tunnel(
         } else {
             pipe.buf.clear()
             pipe.draining = false
-            pipe.exitStall(System.nanoTime())
+            // **先判状态再取时间戳**：参数在调用点求值，写成 exitStall(System.nanoTime()) 会让
+            // nanoTime 在每次 drain 都被调用——而 RelayStallStats 的说明写的是「只在状态翻转时取」，
+            // 实现与自述不符。单次约 20~30ns（vDSO），高吞吐下每秒数千次，量级上可忽略，
+            // 但没有理由为一个绝大多数时候用不到的值买单。
+            if (pipe.stallSinceNs != 0L) pipe.exitStall(System.nanoTime())
             if (pipe.srcEof) finishIfDrained(pipe, w)
         }
         w.rebuildInterest(pipe.src)

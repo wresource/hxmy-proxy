@@ -200,6 +200,30 @@ class ProxyLoadTest {
         assertTrue("吞吐应 > 1 MB/s（loopback）", mbps > 1.0)
     }
 
+    /**
+     * **吞吐对照基线**：不经代理、直接从 origin 下载同样的 8MB。
+     *
+     * 没有这条，[httpProxy_throughputLargeDownload] 的绝对数字无法解读。origin 每次请求都要
+     * **现场生成** 8MB（`ByteArray(size) { … }` 是 800 万次循环），在模拟器上这本身就是几百毫秒；
+     * 再加上 loopback 收发与 HttpURLConnection 的开销，代理那点转发成本会被完全淹没。
+     * 于是「经代理 10 MB/s」既可能说明代理很慢，也可能说明环境本来就只有这个速度——
+     * 两者在单个数字上完全同形。
+     *
+     * 正确读法是看**比值**：经代理 / 直连。接近 1 说明转发几乎不花钱；明显小于 1 才说明 relay 是瓶颈。
+     */
+    @Test fun baseline_directDownloadWithoutProxy() {
+        val conn = (URL("http://127.0.0.1:$originPort/download").openConnection(Proxy.NO_PROXY) as HttpURLConnection)
+        conn.connectTimeout = 8000; conn.readTimeout = 20000
+        val start = System.nanoTime()
+        val total: Long
+        conn.inputStream.use { total = drain(it) }
+        val ms = (System.nanoTime() - start) / 1_000_000
+        conn.disconnect()
+        assertEquals("下载字节数应一致", downloadBytes.toLong(), total)
+        val mbps = if (ms > 0) (total.toDouble() / (1024 * 1024)) / (ms / 1000.0) else Double.NaN
+        Log.i(tag, "baseline-direct: ${total / (1024 * 1024)}MB in ${ms}ms = %.1f MB/s".format(mbps))
+    }
+
     // ---------- 真实外网容错冒烟（不通则跳过，不判失败）----------
 
     @Test fun httpProxy_realInternetSmokeTolerant() {
