@@ -278,7 +278,7 @@ class ProxyServerRepository @Inject constructor(
                 // 历史流量：把热路径累加器的增量收进当前小时/天桶（内部 30s 才真正落一次盘）。
                 trafficHistory.tick()
                 accounting.ageOut(ACCOUNTING_AGE_OUT_MS)
-                val snap = accounting.snapshot(TOP_DOMAINS)
+                val snap = accounting.snapshot()
                 // 段①（客户端→本机）链路时延：每 LINK_PROBE_TICKS 秒探一次在线客户端。
                 // 独立协程跑，绝不阻塞这个 1s 速率 ticker；没有客户端就不探（省电、不对着空气发包）。
                 val online = snap.clients.map { it.clientIp }
@@ -918,6 +918,7 @@ class ProxyServerRepository @Inject constructor(
         lastDirectEgressChoice = s.directEgressChoice
         underlyingNetworkProvider.setEgressChoice(s.egressChoice)
         underlyingNetworkProvider.setDirectEgressChoice(s.directEgressChoice)
+        underlyingNetworkProvider.setDohEgressChoice(s.dohEgressChoice)
     }
 
     /** 上次生效的出口选择,用于只记变化（初始 null → 首次 applyTunables 会落一条基线）。 */

@@ -44,6 +44,8 @@ class UnderlyingNetworkProvider(context: Context) {
 
     @Volatile private var choice: EgressNetworkChoice = EgressNetworkChoice.AUTO
     @Volatile private var directChoice: DirectEgressChoice = DirectEgressChoice.AUTO
+    @Volatile private var dohChoice: com.mzstd.hxmyproxy.core.model.DohEgressChoice =
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.FOLLOW_DIRECT
 
     /**
      * DIRECT 分流用的底层物理网络（绕过共享 VPN），按用户的 [directChoice]：
@@ -58,6 +60,28 @@ class UnderlyingNetworkProvider(context: Context) {
     }
 
     /** PROXY 出站按用户选择的出口网络；AUTO 返回 null（走系统默认，含 VPN）。 */
+    /**
+     * 备用 DNS(DoH)请求走哪张网。返回 null = 跟随进程默认路由(旧行为)。
+     *
+     * 为什么 DoH 需要单独选一张网:它是「系统 DNS 已经失败之后」的救济手段,而默认路由在
+     * egress=VPN 时正是刚出问题的那条 VPN——DoH 于是和它要救的业务走同一条正在死的路、一起失败
+     * (0803 实测救援成功率仅 6.5%)。绑到物理网才能在 VPN 半死时仍问得到答案。
+     * 注意这与端点选择是配套的:绑物理网后是国内直连,必须有国内可达的端点(见 DOH_ENDPOINTS)。
+     */
+    fun dohNetwork(): Network? = when (dohChoice) {
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.FOLLOW_DIRECT -> current()
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.DEFAULT -> null
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.ETHERNET -> ethernetNet
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI -> wifiNet
+        com.mzstd.hxmyproxy.core.model.DohEgressChoice.CELLULAR -> cellularNet
+    }
+
+    /**
+     * 由 applyTunables 推入 DoH 出口选择。**不做 requestNetwork 保活**——DoH 只在解析失败时
+     * 偶发使用,复用已有的被动句柄即可;为它常驻拉起一张网不值得(耗电)。
+     */
+    fun setDohEgressChoice(c: com.mzstd.hxmyproxy.core.model.DohEgressChoice) { dohChoice = c }
+
     fun egressNetwork(): Network? = when (choice) {
         EgressNetworkChoice.AUTO -> null
         EgressNetworkChoice.VPN -> vpnNet

@@ -237,7 +237,7 @@
     <string name="status_idle">未就绪</string>
     <string name="warn_no_port_up">没有端口在监听</string>
     <string name="backup_dns">备用 DNS（DoH）</string>
-    <string name="backup_dns_sub">解析失败时改走 8.8.8.8 / 1.1.1.1 加密重试</string>
+    <string name="backup_dns_sub">解析失败时改走加密 DNS 重试</string>
     <string name="override_adjust">调整</string>
     <string name="rules_row_empty">暂无</string>
     <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>
@@ -605,4 +605,12 @@
     <string name="traffic_clear">清空</string>
     <string name="traffic_clear_title">清空流量历史？</string>
     <string name="traffic_clear_body">按天记录的用量与共享次数会全部删除，无法恢复。共享本身不受影响，新的流量从零开始记。</string>
+    <string name="doh_egress_title">备用 DNS 出口</string>
+    <string name="doh_egress_sub">DoH 查询从哪张网发出</string>
+    <string name="doh_egress_follow_direct">跟随直连</string>
+    <string name="doh_egress_default">系统默认</string>
+    <string name="doh_egress_hint">DoH 是解析失败后的救济手段。走系统默认路由时，它与要救的那条链路同路——链路坏了它也一起失效。</string>
+    <string name="domains_sort_recent">最近访问</string>
+    <string name="domains_sort_traffic">流量</string>
+    <string name="domains_sort_label">排序</string>
 </resources>

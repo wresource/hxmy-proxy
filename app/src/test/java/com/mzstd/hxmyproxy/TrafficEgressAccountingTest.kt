@@ -87,6 +87,6 @@ class TrafficEgressAccountingTest {
 
         // 历史侧已经收到的字节不会被 reset 撤回（它按天落盘、跨会话累计）
         assertEquals(500L, r.byKind[EgressKind.VPN]!![1])
-        assertEquals(0, acc.snapshot(10).topDomains.size)
+        assertEquals(0, acc.snapshot().topDomains.size)
     }
 }

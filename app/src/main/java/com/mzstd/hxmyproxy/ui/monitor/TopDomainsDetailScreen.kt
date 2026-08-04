@@ -35,7 +35,14 @@ fun TopDomainsDetailScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
 ) {
-    val domains = ui.share.topDomains.sortedByDescending { it.lastSeenAtEpochMs }
+    // 默认「最近访问」，与首页那张卡同口径——从卡片点进来看到的顺序不该变。
+    // 但明细页是用来排查的，所以允许切到「流量」找出谁在占带宽。
+    var byTraffic by remember { mutableStateOf(false) }
+    val domains = if (byTraffic) {
+        ui.share.topDomains.sortedByDescending { it.uploadBytes + it.downloadBytes }
+    } else {
+        ui.share.topDomains.sortedByDescending { it.lastSeenAtEpochMs }
+    }
     val ruleVersion by viewModel.ruleVersion.collectAsStateWithLifecycle()
     var editHost by remember { mutableStateOf<String?>(null) }
 
@@ -55,6 +62,28 @@ fun TopDomainsDetailScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                item {
+                    androidx.compose.foundation.layout.Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.domains_sort_label),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        androidx.compose.material3.FilterChip(
+                            selected = !byTraffic,
+                            onClick = { byTraffic = false },
+                            label = { Text(stringResource(R.string.domains_sort_recent)) },
+                        )
+                        androidx.compose.material3.FilterChip(
+                            selected = byTraffic,
+                            onClick = { byTraffic = true },
+                            label = { Text(stringResource(R.string.domains_sort_traffic)) },
+                        )
+                    }
+                }
                 items(domains, key = { it.host }) { d ->
                     DomainRow(d, maxBytes, ruleVersion.let { viewModel.decideHost(d.host) }.takeIf { it != RuleAction.PROXY }, onEdit = { editHost = it })
                 }

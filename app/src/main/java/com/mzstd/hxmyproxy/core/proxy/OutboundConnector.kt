@@ -410,7 +410,11 @@ class OutboundConnector(
     private suspend fun resolveLastResort(host: String, cause: UnknownHostException): List<InetAddress> {
         throttledFileLog("dns-both:$host", "DNS fail $host on system paths (${cause.message})")
         if (backupDnsEnabled) {
-            val doh = withContext(dnsDispatcher) { dohResolve(host) }
+            // 总预算封顶：单请求超时管不住 4 个端点的累加（见 DOH_TOTAL_BUDGET_MS）。
+            // runInterruptible 而非 withContext——超时要能真正中断那条阻塞在 socket 上的线程。
+            val doh = withTimeoutOrNull(DOH_TOTAL_BUDGET_MS) {
+                runInterruptible(dnsDispatcher) { dohResolve(host) }
+            } ?: emptyList()
             if (doh.isNotEmpty()) {
                 throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup")
                 return doh
@@ -431,7 +435,13 @@ class OutboundConnector(
             for (type in intArrayOf(1, 28)) {           // 1=A, 28=AAAA
                 try {
                     val url = java.net.URL("$base?name=${java.net.URLEncoder.encode(host, "UTF-8")}&type=$type")
-                    val conn = url.openConnection() as javax.net.ssl.HttpsURLConnection
+                    // **绑到用户选定的那张网**（默认跟随「直连出口」）。此前用裸的 url.openConnection()，
+                    // 跟随进程默认路由——egress=VPN 时那正是刚刚解析失败的那条 VPN，于是 DoH 与它要救的
+                    // 业务同路同死（0803 实测救援成功率 6.5%、72 次失败）。dohNetwork() 返回 null 表示
+                    // 用户选了「跟随默认路由」，保持旧行为。
+                    val dohNet = underlyingNetworkProvider?.dohNetwork()
+                    val conn = (dohNet?.openConnection(url) ?: url.openConnection())
+                        as javax.net.ssl.HttpsURLConnection
                     conn.connectTimeout = DOH_TIMEOUT_MS
                     conn.readTimeout = DOH_TIMEOUT_MS
                     if (accept != null) conn.setRequestProperty("Accept", accept)
@@ -753,11 +763,40 @@ class OutboundConnector(
         private const val LOG_THROTTLE_MAX_KEYS = 512
 
         /** DoH 端点（IP 直连免自举）：Google JSON API 与 Cloudflare（需 Accept 头）。 */
+        /**
+         * DoH 端点，**按序尝试、先成功者胜出**。前两个是零污染的权威源，后两个是国内直连可达的兜底。
+         *
+         * 顺序即策略：VPN 活着时 Google/Cloudflare 能通且答案未被污染，优先用它们；
+         * 只有它们不可达（=绑了物理网、走国内直连）才轮到国内端点——不需要任何污染检测逻辑。
+         * 加国内端点与「DoH 绑物理网」是配套的：绑物理网后请求变成国内直连，而 8.8.8.8 / 1.1.1.1
+         * 在国内直连不可达，只改其一都会让 DoH 更糟（要么永远不可用，要么照样跟着 VPN 一起死）。
+         *
+         * 国内端点实测（2026-08-04）：阿里 223.5.5.5 中位 52ms、腾讯 1.12.12.12 中位 162ms，
+         * 两者都用 IP 直连免自举、证书含 IP SAN 故主机名校验通过、响应是 Google 风格 JSON
+         * （Answer / type / data 三个字段逐字相同）⇒ 现有解析器零改动兼容。
+         * **刻意不收 360（101.226.4.6）**：它对 twitter/facebook/instagram 直接返回 127.0.0.1，
+         * 而解析器会把回环地址当成有效结果交给连接层——代理会去连自己。
+         */
         private val DOH_ENDPOINTS = listOf(
             "https://8.8.8.8/resolve" to null,
             "https://1.1.1.1/dns-query" to "application/dns-json",
+            "https://223.5.5.5/resolve" to null,
+            "https://1.12.12.12/dns-query" to null,
         )
-        private const val DOH_TIMEOUT_MS = 3_000
+        /**
+         * 单个 DoH 请求的 connect/read 超时。3000 降到 1200：端点从 2 个增到 4 个后，
+         * 全败路径的最坏耗时本会翻倍到 24s（4 端点 × 2 记录类型 × 3s）。
+         * 国内端点实测 tcp+tls 中位 52~162ms，1200ms 留了 7 倍余量；
+         * 墙外那两个在墙内本就必然吃满超时，缩短只有好处。
+         */
+        private const val DOH_TIMEOUT_MS = 1_200
+
+        /**
+         * 整个 DoH 阶段（遍历全部端点 × 记录类型）的总预算。
+         * 单请求超时只约束一次往返，挡不住「4 个端点全部吃满」的累加；而 DoH 是救济手段，
+         * 它花掉的每一秒都直接加在用户等待上。超预算即放弃剩余端点，由上层按 DnsFailure 收场。
+         */
+        private const val DOH_TOTAL_BUDGET_MS = 3_000L
         /**
          * 单步系统解析的硬上限。netd 的重试策略下 getAllByName 最坏能等几十秒，
          * 而排队是无声的——宁可这一路快速判负、让互援/DoH 接手，也不要把线程按住。

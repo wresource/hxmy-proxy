@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.ui.settings
 
+import com.mzstd.hxmyproxy.core.model.DohEgressChoice
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -337,13 +338,64 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
             onCommitPort = viewModel::setPacPort,
         )
         RowDivider()
-        // DoH 行：绿徽章、无端口（固定上游 8.8.8.8 / 1.1.1.1）。
+        // DoH 行：绿徽章、无端口（上游为一组 DoH 端点，见 OutboundConnector.DOH_ENDPOINTS）。
         ProtoPortRow(
             badge = { DohBadge() },
             name = stringResource(R.string.backup_dns),
             sub = stringResource(R.string.backup_dns_sub),
             checked = s.backupDnsEnabled,
             onToggle = viewModel::setBackupDnsEnabled,
+        )
+        // 出口选择只在 DoH 开着时才有意义，关掉就不占版面（避免堆一堵无效旋钮的墙）。
+        if (s.backupDnsEnabled) DohEgressPicker(s.dohEgressChoice, viewModel::setDohEgressChoice)
+    }
+}
+
+/**
+ * 备用 DNS 走哪张网。
+ *
+ * 为什么这个旋钮必须存在：DoH 是「系统解析已经失败」之后的救济手段，而它此前跟随**进程默认路由**
+ * ——egress=VPN 时那正是刚刚失败的那条 VPN，于是它与要救的业务同路同死（实测救援成功率仅 6.5%）。
+ * 默认 FOLLOW_DIRECT（跟随「直连出口」），语义与 DIRECT 一致：绕开可能坏掉的 VPN 走物理网。
+ */
+@Composable
+private fun DohEgressPicker(
+    choice: DohEgressChoice,
+    onPick: (DohEgressChoice) -> Unit,
+) {
+    Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)) {
+        Text(
+            stringResource(R.string.doh_egress_title),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            stringResource(R.string.doh_egress_sub),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(top = 6.dp),
+        ) {
+            listOf(
+                DohEgressChoice.FOLLOW_DIRECT to R.string.doh_egress_follow_direct,
+                DohEgressChoice.DEFAULT to R.string.doh_egress_default,
+                DohEgressChoice.WIFI to R.string.egress_wifi,
+                DohEgressChoice.CELLULAR to R.string.egress_cellular,
+                DohEgressChoice.ETHERNET to R.string.egress_ethernet,
+            ).forEach { (c, labelRes) ->
+                FilterChip(
+                    selected = choice == c,
+                    onClick = { onPick(c) },
+                    label = { Text(stringResource(labelRes)) },
+                )
+            }
+        }
+        Text(
+            stringResource(R.string.doh_egress_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }

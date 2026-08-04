@@ -154,6 +154,7 @@ class SettingsRepository @Inject constructor(
         val SELECTED = stringSetPreferencesKey("selected_interface_ids")
         val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val DIRECT_EGRESS_CHOICE = stringPreferencesKey("direct_egress_choice")
+        val DOH_EGRESS_CHOICE = stringPreferencesKey("doh_egress_choice")
         val CELLULAR_EGRESS_CONFIRMED = booleanPreferencesKey("cellular_egress_confirmed")
         val MDNS = booleanPreferencesKey("mdns_enabled")
         val AUTH = booleanPreferencesKey("auth_enabled")
@@ -209,6 +210,7 @@ class SettingsRepository @Inject constructor(
             selectedInterfaceIds = this[SELECTED] ?: d.selectedInterfaceIds,
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
+            dohEgressChoice = this[DOH_EGRESS_CHOICE]?.let { runCatching { com.mzstd.hxmyproxy.core.model.DohEgressChoice.valueOf(it) }.getOrNull() } ?: d.dohEgressChoice,
             cellularEgressConfirmed = this[CELLULAR_EGRESS_CONFIRMED] ?: d.cellularEgressConfirmed,
             mdnsEnabled = this[MDNS] ?: d.mdnsEnabled,
             backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
@@ -245,6 +247,7 @@ class SettingsRepository @Inject constructor(
         prefs[SELECTED] = selectedInterfaceIds
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
+        prefs[DOH_EGRESS_CHOICE] = dohEgressChoice.name
         prefs[CELLULAR_EGRESS_CONFIRMED] = cellularEgressConfirmed
         prefs[MDNS] = mdnsEnabled
         prefs[BACKUP_DNS] = backupDnsEnabled

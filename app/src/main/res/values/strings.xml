@@ -609,4 +609,12 @@
     <string name="traffic_clear">Clear</string>
     <string name="traffic_clear_title">Clear traffic history?</string>
     <string name="traffic_clear_body">All daily usage and session counts are deleted, and cannot be recovered. Sharing keeps running — new traffic starts counting from zero.</string>
+    <string name="doh_egress_title">Backup DNS egress</string>
+    <string name="doh_egress_sub">Which network DoH queries go out on</string>
+    <string name="doh_egress_follow_direct">Follow direct</string>
+    <string name="doh_egress_default">System default</string>
+    <string name="doh_egress_hint">DoH is a rescue for failed lookups. On system default it shares the same (possibly broken) route it is trying to rescue.</string>
+    <string name="domains_sort_recent">Recent</string>
+    <string name="domains_sort_traffic">Traffic</string>
+    <string name="domains_sort_label">Sort by</string>
 </resources>

@@ -24,6 +24,8 @@ data class ProxySettings(
     val mdnsEnabled: Boolean = false,
     /** 备用 DNS（DoH）：系统解析双路全败后经 8.8.8.8/1.1.1.1 的 DoH 端点兜底重试（IP 直连 443）。 */
     val backupDnsEnabled: Boolean = true,
+    /** 备用 DNS(DoH)走哪张网。默认跟随「直连出口」——见 [DohEgressChoice] 的说明。 */
+    val dohEgressChoice: DohEgressChoice = DohEgressChoice.FOLLOW_DIRECT,
     val authEnabled: Boolean = false,
     /** 反 SSRF：默认放行私网出口；置 true 则连私网也禁（loopback/链路本地始终禁）。 */
     val blockPrivateLanEgress: Boolean = false,

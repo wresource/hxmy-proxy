@@ -29,5 +29,24 @@ enum class EgressNetworkChoice { AUTO, VPN, WIFI, CELLULAR, ETHERNET }
  */
 enum class DirectEgressChoice { AUTO, ETHERNET, WIFI, CELLULAR }
 
+/**
+ * 备用 DNS（DoH）走哪张网。
+ *
+ * 为什么需要独立于 [EgressNetworkChoice]：DoH 是「系统 DNS 已经失败之后」才被调用的救济手段，
+ * 而此前它用 `url.openConnection()`、跟随**进程默认路由**——egress=VPN 时那正是刚刚出问题的
+ * 那条 VPN。于是 DoH 与它要救的业务走同一条正在死的路，一起失败（0803 实测：救援成功率仅 6.5%，
+ * 72 次失败）。把它绑到物理网，才能在 VPN 半死时仍然问得到答案。
+ *
+ * [FOLLOW_DIRECT]（默认）=跟随「直连出口」那套选择（[DirectEgressChoice]），语义天然一致：
+ * 两者要的都是「绕开可能坏掉的 VPN，走真实物理网」。
+ * [DEFAULT] =保持旧行为，跟随系统默认路由（VPN 在线时即走 VPN）——需要经 VPN 才能到达
+ * 境外 DoH 端点时用它。其余为手动钉死某张物理网。
+ *
+ * **注意与端点选择的配套关系**：绑到物理网后请求变成国内直连，而 8.8.8.8 / 1.1.1.1 在国内
+ * 直连不可达，所以端点表里必须同时有国内可直连的（见 OutboundConnector.DOH_ENDPOINTS）。
+ * 只改其一都会让 DoH 更糟。
+ */
+enum class DohEgressChoice { FOLLOW_DIRECT, DEFAULT, ETHERNET, WIFI, CELLULAR }
+
 /** 外观（深浅色）。默认 [SYSTEM] 跟随系统。 */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

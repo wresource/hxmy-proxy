@@ -113,7 +113,7 @@ class TrafficAccounting(
     }
 
     /** 单线程 ticker 调用：产出客户端会话与域名 Top-N 快照（客户端含 1s 窗口速率差分）。 */
-    fun snapshot(topN: Int): Snapshot {
+    fun snapshot(): Snapshot {
         val clients = perClient.map { (ip, a) ->
             val up = a.up.sum(); val down = a.down.sum()
             val last = lastClientBytes[ip]
@@ -135,7 +135,11 @@ class TrafficAccounting(
 
         val domains = perDomain.values.map { a ->
             DomainTraffic(a.key, a.protocol ?: ProxyProtocol.HTTP, a.up.sum(), a.down.sum(), a.conns.sum().coerceAtLeast(0), a.lastSeen, a.direct)
-        }.sortedByDescending { it.uploadBytes + it.downloadBytes }.take(topN)
+        }.sortedByDescending { it.uploadBytes + it.downloadBytes }
+        // **不按 topN 截断**（与下面的 topBlocked 同口径）：完整返回（≤ maxTrackedDomains），
+        // 由 UI 层各自 take。此前后端按【流量】截断、前端却按【最近访问】重排，两次口径不一致——
+        // 结果是零散但活跃的小流量域名（浏览器的多数请求）在后端就被丢掉，用户永远看不到，
+        // 而列表看着又像「最近访问」。明细页要「显示全部域名」也必须靠这个完整集合。
         // 被拦域名不按 topN 截断：完整返回（≤ maxDomains），供拦截明细页排查误封；首页/监控 UI 层各自 take。
         val topBlocked = perBlocked.map { (h, c) -> BlockedDomain(h, c.sum()) }
             .sortedByDescending { it.count }

@@ -433,6 +433,10 @@ class MainViewModel @Inject constructor(
     fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
 
     fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }
+
+    /** 备用 DNS(DoH)走哪张网。见 [com.mzstd.hxmyproxy.core.model.DohEgressChoice]。 */
+    fun setDohEgressChoice(c: com.mzstd.hxmyproxy.core.model.DohEgressChoice) =
+        update { it.copy(dohEgressChoice = c) }
     fun setBlockPrivateLan(v: Boolean) = update { it.copy(blockPrivateLanEgress = v) }
 
     private fun Int.coercePort(): Int = coerceIn(1024, 65535)
