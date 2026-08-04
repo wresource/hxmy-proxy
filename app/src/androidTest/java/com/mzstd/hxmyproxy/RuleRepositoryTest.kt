@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.RuleEntry
+import com.mzstd.hxmyproxy.core.proxy.HttpParsing
 import com.mzstd.hxmyproxy.core.rules.IpCidrSet
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
@@ -173,5 +174,16 @@ class RuleRepositoryTest {
         assertTrue(IpCidrSet.looksLikeIpOrCidr("2001:db8::1"))
         assertFalse(IpCidrSet.looksLikeIpOrCidr("example.com"))
         assertFalse(IpCidrSet.looksLikeIpOrCidr("*.example.com"))
+    }
+
+    /**
+     * 明文 HTTP 的 IPv6 绕过规则那个 bug 的**根因断言**：带方括号的串在设备上也**不**被认作 IP 字面量。
+     * `URI.getHost()` 恰恰返回带括号的形式，于是它会被当成域名丢进后缀字典树、匹配不到任何规则、
+     * 一律落默认 PROXY。修法是在 [com.mzstd.hxmyproxy.core.proxy.HttpParsing.bareHost] 处先剥括号；
+     * 这条用例守的是「不剥就一定废」这个前提，别哪天以为 InetAddresses 会自己剥。
+     */
+    @Test fun bracketedIpv6IsNotRecognizedAsIpLiteral() {
+        assertFalse(IpCidrSet.looksLikeIpOrCidr("[2001:db8::1]"))
+        assertTrue(IpCidrSet.looksLikeIpOrCidr(HttpParsing.bareHost("[2001:db8::1]")))
     }
 }

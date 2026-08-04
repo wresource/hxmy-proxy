@@ -12,7 +12,9 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -175,6 +177,110 @@ class OutboundConnectorTest {
             assertEquals("第 7 个地址被尝试了 —— 扇出上限失效", 0, echo.accepted.get())
             assertTrue("6 个不可达地址全部失败后应抛 ProxyException，实际：${r.exceptionOrNull()}",
                 r.exceptionOrNull() is ProxyException)
+        } finally { echo.close() }
+    }
+
+    /**
+     * 截断**不得把某一族整体挤出候选池** —— 上一条用例的镜像，也是本组里唯一能抓住那个缺陷的方向。
+     *
+     * 前 6 个是 RFC5737 黑洞（IPv4）、第 7 个是 IPv6 上的 echo。旧实现按 IPv4 优先排序后一刀切前 6，
+     * **IPv6 被整体删除**，于是 6 个黑洞全超时、连接彻底失败；而它本该是 IPv4 全挂时的救命稻草。
+     * 依据 RFC 8305 §3.1「必须截断时每族至少留一个」。
+     *
+     * 方向不能反过来写成「6 个 v6 黑洞 + 1 个 v4 echo」：那样 IPv4 优先排序会把 echo 顶到 index 0，
+     * 改动前后都必然连上，用例恒绿、证明不了任何东西。
+     */
+    @Test(timeout = 30000) fun `截断不得把 IPv6 整族挤出候选池`() = runBlocking {
+        val echo = try {
+            CountingEcho("::1")
+        } catch (e: Exception) {
+            // 无 IPv6 loopback 的环境（部分 CI 容器）跳过，而不是红——本用例测的是选址，不是本机有没有 v6。
+            org.junit.Assume.assumeNoException("本机没有 IPv6 loopback，跳过", e)
+            return@runBlocking
+        }
+        try {
+            val blackholes = (1..6).map { InetAddress.getByName("192.0.2.$it") }
+            val v6 = InetAddress.getByName("::1")
+            val r = runCatching {
+                OutboundConnector(allowAll).connectAny(blackholes + v6, echo.port)
+            }
+            r.getOrNull()?.close()
+            delay(300)
+            assertEquals(
+                "IPv6 被截断整族丢掉了 —— IPv4 全是黑洞时它本该救场（RFC 8305 §3.1）",
+                1, echo.accepted.get(),
+            )
+        } finally { echo.close() }
+    }
+
+    /** 按族配额截断的边界：单族不受影响、族内与族间顺序不变、次要族不得挤光主要族。 */
+    @Test fun `按族配额截断的边界行为`() {
+        val c = OutboundConnector(allowAll)
+        val v4 = (1..8).map { InetAddress.getByName("203.0.113.$it") }
+        val v6 = (1..3).map { InetAddress.getByName("2001:db8::$it") }
+
+        // 未超限：原样返回，一个不动。
+        assertEquals(v4.take(4), c.capByFamily(v4.take(4), max = 6))
+
+        // 单族超限：没有族要保，仍是原样截断（钉住上一条「扇出上限」用例的行为不被本改动带偏）。
+        assertEquals(v4.take(6), c.capByFamily(v4, max = 6))
+
+        // 双族超限：次要族保底 1 个，且**顺序不变**（v4 仍全部在 v6 之前）。
+        val mixed = v4 + v6
+        val capped = c.capByFamily(mixed, max = 6)
+        assertEquals(6, capped.size)
+        assertEquals("次要族应恰好保底 1 个", 1, capped.count { it !is Inet4Address })
+        assertEquals("主要族应拿到剩余名额", v4.take(5), capped.filterIsInstance<Inet4Address>())
+        assertEquals("保留下来的地址必须维持原相对顺序", capped.sortedBy { mixed.indexOf(it) }, capped)
+
+        // max=1 的极端：次要族名额不得挤光主要族，主要族至少留 1 个。
+        assertEquals(listOf(v4[0]), c.capByFamily(mixed, max = 1))
+    }
+
+    /**
+     * **指定出口时也必须走 DNS 缓存** —— 此前这是一段死代码。
+     *
+     * 缓存的读与写都写在 `network == null` 分支里，而 `egress=VPN`（→ vpnNet）与
+     * `direct=WIFI`（→ wifiNet）都让 network 非空 ⇒ 用户一旦选了具体出口，
+     * **100% 的流量都绕开缓存**，每条连接都要重新解析一次。0804 实测的卡死就是这么攒出来的：
+     * 6 条并发打同一域名 = 6 个各自阻塞一条 dns 线程的独立解析任务。
+     * 修法是把缓存键改成 (netId, host)、两个分支共用同一套读写。
+     */
+    @Test(timeout = 15000) fun `指定出口时也走 DNS 缓存`() = runBlocking {
+        val echo = CountingEcho()
+        val dns = CountingDispatcher()
+        try {
+            val net = mockk<Network>()
+            every { net.networkHandle } returns 201L
+            every { net.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            every { net.socketFactory } returns SocketFactory.getDefault()
+            val provider = mockk<UnderlyingNetworkProvider>()
+            every { provider.egressNetwork() } returns net
+            every { provider.current() } returns null
+
+            val c = OutboundConnector(allowAll, dnsDispatcher = dns, underlyingNetworkProvider = provider)
+            c.connect("cached.example", echo.port).close()
+            val n1 = dns.dispatches.get()
+            assertTrue("首次必须真的解析一次", n1 >= 1)
+            c.connect("cached.example", echo.port).close()
+            assertEquals("第二次应命中缓存，不该再派发解析", n1, dns.dispatches.get())
+        } finally { echo.close() }
+    }
+
+    /**
+     * **同域名并发解析必须去重（单飞）**。浏览器对一个域名开 6~8 条连接是常态，
+     * 没有单飞就是 6~8 个独立解析任务各占一条 dns 线程；池只有 16 条，
+     * 一个页面几十个域名即可填满，而排队无声无息（无日志、无指标、队列无界）。
+     */
+    @Test(timeout = 20000) fun `同域名并发解析只发一次`() = runBlocking {
+        val echo = CountingEcho()
+        val dns = CountingDispatcher()
+        try {
+            val c = OutboundConnector(allowAll, dnsDispatcher = dns)
+            coroutineScope {
+                repeat(6) { launch { runCatching { c.connect("localhost", echo.port).close() } } }
+            }
+            assertEquals("6 条并发对同一域名应只触发 1 次真实解析", 1, dns.dispatches.get())
         } finally { echo.close() }
     }
 
@@ -348,10 +454,12 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         try {
             val net = mockk<Network>()
+            every { net.networkHandle } returns 101L   // 缓存键按 netId 分桶，mock 必须给
             every { net.getAllByName(any()) } throws UnknownHostException("模拟出口网络 DNS 失败")
             every { net.socketFactory } returns SocketFactory.getDefault()
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns net
+            every { provider.current() } returns null   // 本例只验「默认网络」这一路，物理网缺席
 
             val kinds = mutableListOf<EgressKind>()
             val c = OutboundConnector(
@@ -367,6 +475,48 @@ class OutboundConnectorTest {
     }
 
     /**
+     * **0803 实证缺陷的回归**：出口网与「进程默认网络」**同源**失效时，物理网必须能救回解析。
+     *
+     * 现场是这样的：用户配 `egress=VPN`，系统 VPN 半死。第一路 `network.getAllByName` 死在 VPN 上；
+     * 而第二路的「进程默认网络」**就是那条同样的 VPN**（app 的 uid 落在系统 VPN 的 uidrange 内），
+     * 于是「双路互援」两路同源、必然一起失败，第三路 DoH 也走默认网络出去、同样死在那条 VPN 上。
+     * 唯一活着的物理网在那个分支里一次都没被用到 —— 日志自证：同一个 accounts.google.com
+     * 在该分支三路全败，VPN 句柄消失走到另一分支后被物理网一次救回。
+     *
+     * 用 `.invalid`（RFC 2606 保留 TLD）保证「默认网络」这一路真的解析不出来，
+     * 只有物理网 mock 能给出地址。改动前这里必然是 DnsFailure。
+     * 同时复用上一条的判别器：连接必须**仍绑在出口网上**（归类=WIFI），
+     * 证明是在 resolve 内被救回的，而不是被外层降级到默认路由。
+     */
+    @Test(timeout = 15000) fun `出口网与默认网络同源失效时物理网必须能救回解析`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            val host = "nonexistent-hxmy-probe.invalid"
+            val egress = mockk<Network>()
+            every { egress.networkHandle } returns 102L   // 缓存键按 netId 分桶，mock 必须给
+            every { egress.getAllByName(any()) } throws UnknownHostException("模拟出口网(VPN) DNS 失败")
+            every { egress.socketFactory } returns SocketFactory.getDefault()
+            val phy = mockk<Network>()
+            every { phy.networkHandle } returns 103L   // 缓存键按 netId 分桶，mock 必须给
+            every { phy.getAllByName(host) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            val provider = mockk<UnderlyingNetworkProvider>()
+            every { provider.egressNetwork() } returns egress
+            every { provider.current() } returns phy
+
+            val kinds = mutableListOf<EgressKind>()
+            val c = OutboundConnector(
+                allowAll,
+                underlyingNetworkProvider = provider,
+                egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
+            ).apply { backupDnsEnabled = false }   // 单测不打真实 DoH
+            val s = c.connect(host, echo.port, onEgress = { kinds.add(it) })
+            assertEquals("hi", echoRoundTrip(s))
+            s.close()
+            assertEquals("连接必须仍绑在出口网上，而不是被外层降级", listOf(EgressKind.WIFI), kinds)
+        } finally { echo.close() }
+    }
+
+    /**
      * 互援的另一半：指定出口与默认网络**双双**解析失败时，对外仍必须是 [ProxyError.DnsFailure]，
      * 且**不上报任何出口**（连都没连上，计量表里不该凭空多一档）。
      * 这条走的是 resolveLastResort 分支（与上面「默认网络主路失败」的合并分支是两段不同的代码）；
@@ -375,6 +525,7 @@ class OutboundConnectorTest {
      */
     @Test(timeout = 20000) fun `指定出口与默认网络双双解析失败时判 DnsFailure`() = runBlocking {
         val net = mockk<Network>()
+        every { net.networkHandle } returns 104L   // 缓存键按 netId 分桶，mock 必须给
         every { net.getAllByName(any()) } throws UnknownHostException("模拟出口网络 DNS 失败")
         val provider = mockk<UnderlyingNetworkProvider>()
         every { provider.egressNetwork() } returns net
@@ -406,6 +557,7 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         try {
             val net = mockk<Network>()
+            every { net.networkHandle } returns 105L   // 缓存键按 netId 分桶，mock 必须给
             every { net.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             every { net.socketFactory } throws RuntimeException("模拟绑定出口网络失败")
             val provider = mockk<UnderlyingNetworkProvider>()
@@ -465,8 +617,9 @@ class OutboundConnectorTest {
      * 与 [startEcho] 一样只绑 127.0.0.1（不绑通配，免得触发 macOS 防火墙的入站询问）——
      * 以域名 "localhost" 发起的用例靠 orderAddresses 的 IPv4 优先落到这里。
      */
-    private class CountingEcho {
-        val server: ServerSocket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+
+    private class CountingEcho(bindAddr: String = "127.0.0.1") {
+        val server: ServerSocket = ServerSocket(0, 50, InetAddress.getByName(bindAddr))
         val accepted = AtomicInteger(0)
         val port: Int get() = server.localPort
 

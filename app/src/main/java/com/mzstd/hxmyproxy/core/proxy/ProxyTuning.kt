@@ -18,4 +18,19 @@ object ProxyTuning {
     const val KEEPALIVE_IDLE_MS = 15_000
     /** accept backlog。 */
     const val ACCEPT_BACKLOG = 128
+
+    /**
+     * **建连阶段**（DNS 解析 + Happy Eyeballs 建连）的总上限，不含之后的 relay。
+     *
+     * 此前这一整段**没有任何 deadline**：`soTimeout` 只覆盖「读请求行 + 读头」，一进 handleConnect
+     * 就再无上限。于是一次慢解析能把协程按住几十秒，而客户端早已超时放弃——**服务端却还在为
+     * 一条已死的连接继续烧 DNS/connect 线程**，用户手动重试又叠一批，旧的不退场、新的不断入队，
+     * 一次瞬时拥塞就此变成自我维持的拥塞（0804 实测：6 并发卡满 45~60s，之后才自行恢复）。
+     *
+     * 取 10s 的依据：正常路径上 DNS 单步已被 [OutboundConnector] 的 1.5s deadline 兜住，
+     * Happy Eyeballs 最坏 6 个候选交错 250ms、每个 [CONNECT_TIMEOUT_MS]=2.5s，约 3.75s 收敛；
+     * 10s 给互援/DoH 兜底留了余量，又远小于客户端的常见超时，能保证**代理先于客户端放弃**
+     * ——这一点很重要：由代理回一个 504，客户端才知道发生了什么，而不是干等到自己超时。
+     */
+    const val CONNECT_PHASE_TIMEOUT_MS = 10_000L
 }

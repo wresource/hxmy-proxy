@@ -693,6 +693,15 @@ class ProxyServerRepository @Inject constructor(
             "stallOut" to stall?.let { "${it.outPct}%" },
             "maxStall" to stall?.let { "${it.maxPct}%" },
             "relayN" to stall?.tunnels,
+            // DNS 侧健康度。**只在出过问题时才打**：rej/to 平时恒为 0，常打就是噪音，
+            // 而一旦非零就说明解析在排队或超时——0804 那次「CONNECT 都收下了、上游一条没建、
+            // CPU 0%」的卡死，当时心跳里没有任何字段能指认它，只能靠黑盒测量猜外因。
+            // fly=当前在途解析数，cache=缓存条目数（后者恒为 0 曾经就是「缓存是死代码」的信号）。
+            "dns" to connector.dnsStats().let { d ->
+                if (d.rejected > 0L || d.timedOut > 0L) {
+                    "rej:${d.rejected},to:${d.timedOut},fly:${d.inflight},cache:${d.cached}"
+                } else null
+            },
         )
         if (heartbeatN % HEARTBEAT_KEY_EVERY == 0L) Ev.k(LogCat.PERF, "hb", *kv) else Ev.i(LogCat.PERF, "hb", *kv)
         FileLog.flush()

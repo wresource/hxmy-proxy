@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy.core.proxy
 
 import android.net.Network
 import com.mzstd.hxmyproxy.core.security.EgressGuard
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -9,9 +10,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
 import java.io.FileDescriptor
 import java.io.IOException
@@ -60,8 +63,39 @@ class OutboundConnector(
      */
     private val egressClassifier: ((Network?) -> com.mzstd.hxmyproxy.core.stats.EgressKind)? = null,
 ) {
-    /** 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。 */
-    private val dnsCache = ConcurrentHashMap<String, CachedAddrs>()
+    /**
+     * 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。
+     *
+     * **键必须带 netId**。此前键只有 host，而缓存的读写又都写在 `network == null` 分支里，
+     * 于是只要用户选了具体出口（egress=VPN 或 direct=WIFI，两者都让 network 非空），
+     * **整个缓存就是死代码、命中率恒为 0**——每条连接都要重新解析一次，
+     * 6 条并发打同一域名就是 6 次独立解析。0804 实测的卡死正是这么攒出来的。
+     * 按 netId 分桶之后两个分支可以共用同一套读写：不同网络的结果本来就该分开存，
+     * 而不是「整条分支干脆不缓存」。
+     */
+    private val dnsCache = ConcurrentHashMap<DnsKey, CachedAddrs>()
+
+    /**
+     * 同 key 正在进行的解析（单飞/去重）。没有它，浏览器对一个域名开的 6~8 条并发连接
+     * 会变成 6~8 个各自阻塞一条 [dnsDispatcher] 线程的独立解析任务——池只有
+     * [DNS_THREADS] 条，一个页面几十个域名就能把它填满，而排队是**无声的**
+     * （无日志、无指标、队列无界），表现就是「CONNECT 都收下了、上游一条都没建、CPU 0%」。
+     */
+    private val inflightDns = ConcurrentHashMap<DnsKey, CompletableDeferred<List<InetAddress>>>()
+
+    /**
+     * DNS 并发闸门。[dnsDispatcher] 的队列是无界的，光靠线程数挡不住排队——
+     * 用信号量在**入口**限流，满了就快速判负（见 dnsStep），把「无声排队」变成「明确失败 + 计数」。
+     */
+    private val dnsSlots = java.util.concurrent.Semaphore(DNS_MAX_INFLIGHT)
+    private val dnsRejected = java.util.concurrent.atomic.AtomicLong()
+    private val dnsTimedOut = java.util.concurrent.atomic.AtomicLong()
+
+    /** 缓存/单飞的键：netId 为 0 表示进程默认网络。 */
+    private data class DnsKey(val netId: Long, val host: String)
+
+    private fun dnsKeyOf(network: Network?, host: String) =
+        DnsKey(network?.networkHandle ?: 0L, host)
 
     /** 备用 DNS（DoH）开关；由设置层经 applyTunables 推入。 */
     @Volatile var backupDnsEnabled: Boolean = true
@@ -97,6 +131,36 @@ class OutboundConnector(
             throttledFileLog("direct-noeg:$host",
                 "DIRECT $host: 无可用物理网络(仅 VPN 在线)，fail-closed 断开——拒绝泄漏到 VPN 出口")
             throw ProxyException(ProxyError.AccessDenied)
+        }
+    }
+
+    /**
+     * 出口分流失败后降级默认路由的重试包装：**结局必须落盘**。
+     *
+     * 此前这次重试没有 try/catch，成功与失败在日志里**完全同形**（只看得到降级前那条 `egress fail`），
+     * 而两者对用户天差地别：成功 = 多等一个 [ProxyTuning.CONNECT_TIMEOUT_MS]；失败 = 等两倍超时后仍然失败。
+     * 这个缺口曾让人凭「`upstream fail = 0`」误判成「降级都成功了」——那是没有根据的，
+     * 最终结局根本没被记录过。带上耗时才能回答「那次多等买到了什么」。
+     *
+     * 节流 key 与降级前那条刻意不同：同 key 在 [LOG_THROTTLE_MS] 内只记一条，
+     * 复用会让结局被降级前的日志顶掉，等于没修。
+     */
+    private suspend fun <T> degradeToDefault(host: String, original: ProxyError, block: suspend () -> T): T {
+        val startMs = System.currentTimeMillis()
+        return try {
+            block().also {
+                throttledFileLog(
+                    "egress-ok:$host",
+                    "degrade ok $host in ${System.currentTimeMillis() - startMs}ms (was $original)",
+                )
+            }
+        } catch (e: ProxyException) {
+            // resolve() 的 DnsFailure 也在 block 内，一并覆盖——降级失败常常就死在 DNS 上。
+            throttledFileLog(
+                "egress-dead:$host",
+                "degrade FAILED $host: ${e.error} after ${System.currentTimeMillis() - startMs}ms (was $original)",
+            )
+            throw e
         }
     }
 
@@ -139,8 +203,10 @@ class OutboundConnector(
             }
             // 非 bypass 的出口分流(指定 WiFi/蜂窝出口)失败 → 降级默认重试(PROXY 场景「能上网」优先)。
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
-            connectAny(orderAddresses(resolve(host, null)), port, null)
-                .also { reportEgress(onEgress, null) }
+            degradeToDefault(host, e.error) {
+                connectAny(orderAddresses(resolve(host, null)), port, null)
+                    .also { reportEgress(onEgress, null) }
+            }
         }
     }
 
@@ -152,23 +218,53 @@ class OutboundConnector(
      * DIRECT 失败→默认网络；默认失败→底层 WiFi。失败与援通均节流落盘（诊断「究竟哪条 DNS 在坏」）。
      */
     private suspend fun resolve(host: String, network: Network?): List<InetAddress> {
-        if (network != null) {
-            return try {
-                withContext(dnsDispatcher) { network.getAllByName(host).toList() }
-            } catch (e: UnknownHostException) {
-                throttledFileLog("dns-direct:$host", "DNS fail $host on underlying network (${e.message}); retry default")
-                try {
-                    withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
-                        .also { throttledFileLog("dns-direct-rescued:$host", "DNS rescued $host via default network") }
-                } catch (e2: UnknownHostException) {
-                    resolveLastResort(host, e2)
-                }
-            }
+        val key = dnsKeyOf(network, host)
+        cachedWithinTtl(key)?.let { return it }
+        // 单飞：同 (netId, host) 已有解析在跑就等它的结果，不再起第二次。
+        inflightDns[key]?.let { return it.await() }
+        val mine = CompletableDeferred<List<InetAddress>>()
+        inflightDns.putIfAbsent(key, mine)?.let { return it.await() }   // 竞态输了就等赢家
+        return try {
+            val addrs = resolveUncached(host, network)
+            dnsCache[key] = CachedAddrs(addrs, System.currentTimeMillis())
+            mine.complete(addrs)
+            addrs
+        } catch (e: Throwable) {
+            mine.completeExceptionally(e)
+            throw e
+        } finally {
+            inflightDns.remove(key, mine)
         }
-        val now = System.currentTimeMillis()
-        dnsCache[host]?.let { if (now - it.atMs < DNS_TTL_MS) return it.addrs }
+    }
+
+    /**
+     * 真正去解析（不含缓存与单飞）。**每一步系统解析都带硬 deadline** ——
+     * `getAllByName` 是阻塞调用且底层交给 netd 执行，netd 的重试策略下最坏能等几十秒，
+     * 而此前这条路径**全程没有任何超时**：一条慢域名就能把 [dnsDispatcher] 的线程按住，
+     * 后续解析在无界队列里静默排队，直到客户端自己放弃。
+     * 用 [runInterruptible] 而不是 [withContext]，超时才能真正中断那条阻塞的线程、把它还给池子。
+     */
+    private suspend fun resolveUncached(host: String, network: Network?): List<InetAddress> {
+        if (network != null) {
+            val direct = runCatching { dnsStep { network.getAllByName(host).toList() } }.getOrNull()
+            if (!direct.isNullOrEmpty()) return direct
+            throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; retry default+underlying")
+            val rescued = rescueOffEgress(host, network)
+            if (rescued.isNotEmpty()) return rescued
+            // 全败前的最后兜底：同一域名可能刚在**别的网络**上解析成功过。
+            // 平时按 netId 分桶（不同网络的结果不该混用），但「用一个 TTL 内的旧地址」
+            // 显然好过「直接失败」——0803 实证：gateway.icloud.com 在 00:08:30 被物理网救回并入缓存，
+            // 8 秒后 VPN 句柄一回来就又走回本分支，从头三路全败一次，那份缓存完全没派上用场。
+            // 放在 DoH 之前：缓存是立即可用的，而 DoH 最坏要烧掉 2 个端点 × DOH_TIMEOUT_MS。
+            anyCachedFor(host)?.let {
+                throttledFileLog("dns-cache-fallback:$host", "DNS fell back to cached addrs for $host (egress path)")
+                return it
+            }
+            return resolveLastResort(host, UnknownHostException("egress resolve failed/timeout for $host"))
+        }
         val addrs = try {
-            withContext(dnsDispatcher) { InetAddress.getAllByName(host).toList() }
+            dnsStep { InetAddress.getAllByName(host).toList() }
+                ?: throw UnknownHostException("default resolve timed out for $host")
         } catch (e: UnknownHostException) {
             throttledFileLog("dns-default:$host", "DNS fail $host on default network (${e.message}); retry underlying+DoH")
             // 主路失败（境外域名常被运营商 DNS 污染成 NXDOMAIN）→ 互援与 DoH **并行**，合并全部 IP 进
@@ -196,8 +292,115 @@ class OutboundConnector(
             }
             merged
         }
-        dnsCache[host] = CachedAddrs(addrs, now)
-        return addrs
+        return addrs   // 缓存写入统一由 resolve() 做（带 netId 的键）
+    }
+
+    /**
+     * 一步系统解析,带**硬 deadline**。超时返回 null（调用方按「这一路没成」继续）。
+     *
+     * 用 [runInterruptible] 而不是 [withContext]：`getAllByName` 是阻塞调用，
+     * `withTimeout` 只能在挂起点取消协程、**不会中断已经阻塞住的线程**——
+     * 那样调用方虽然不等了，线程却还被按在那里，池子照样会被填满。
+     * runInterruptible 在取消时对该线程发 interrupt，让它有机会把线程还回池子。
+     */
+    private suspend fun <T> dnsStep(block: () -> T): T? {
+        // 池满时**快速判负**，不进队列。此前 dnsDispatcher 是「固定 16 线程 + 无界队列」，
+        // 排队完全无声：没有日志、没有指标、没有上限，第 17 个解析请求就那样静静地等着，
+        // 表现出来就是「CONNECT 都收下了、上游一条都没建、CPU 0%」。
+        // 快速判负让调用方立刻去走互援/DoH/缓存兜底，而不是把用户吊在那里。
+        if (!dnsSlots.tryAcquire()) {
+            val n = dnsRejected.incrementAndGet()
+            throttledFileLog("dns-busy", "DNS 并发已满($DNS_MAX_INFLIGHT)，本次快速判负而非排队；累计 $n 次")
+            return null
+        }
+        try {
+            val r = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) { runInterruptible(dnsDispatcher) { block() } }
+            if (r == null) {
+                val n = dnsTimedOut.incrementAndGet()
+                throttledFileLog("dns-timeout", "DNS 单步超时(${DNS_STEP_TIMEOUT_MS}ms)；累计 $n 次")
+            }
+            return r
+        } finally {
+            dnsSlots.release()
+        }
+    }
+
+    /** DNS 侧健康指标，供 PERF 心跳打点——排队/超时此前完全不可观测。 */
+    data class DnsStats(val rejected: Long, val timedOut: Long, val inflight: Int, val cached: Int)
+
+    fun dnsStats(): DnsStats = DnsStats(
+        rejected = dnsRejected.get(),
+        timedOut = dnsTimedOut.get(),
+        inflight = DNS_MAX_INFLIGHT - dnsSlots.availablePermits(),
+        cached = dnsCache.size,
+    )
+
+    /**
+     * 出口网（egress）解析失败后的互援：**进程默认网络与物理网并行**取回地址。
+     *
+     * 修的是一个 0803 实证的缺陷。原实现只退到「进程默认网络」，而 `egress=VPN` 时
+     * **那就是同一条 VPN**（本 app 的 uid 落在系统 VPN 的 uidrange 内，已用 dumpsys + ip rule 实证），
+     * 于是所谓「双路互援」两路同源、必然一起失败；连第三路 DoH 也走默认网络出去，同样死在那条 VPN 上。
+     * 真正的物理网 [com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider.current] 在这个分支里
+     * **一次都没被用到**——函数注释写着「默认失败→底层 WiFi」，但那描述的是 `network == null` 那个分支。
+     *
+     * 日志自证：同一个 `accounts.google.com`，00:08:02 在本分支三路全败；VPN 句柄消失、
+     * 走到 `network == null` 分支后，00:08:30 被物理网**一次救回**。
+     *
+     * **能救回什么必须说清楚，别夸大**：物理网解析只对**未被墙**的域名有效
+     * （实测 `gateway.icloud.com` / `ocsp2.apple.com` 拿到国内 CDN 节点、20~70ms 连通），
+     * 对**被墙**域名无效（拿到的是污染地址，实测 `accounts.google.com` 连都连不上）。
+     * 0803 那次三路全败的 6 个域名里，这条能救回 3 个。
+     *
+     * 顺序上默认网络在前、物理网在后：前者与出口同源、地址更贴合出口路由；后者是救援品，
+     * 排后面可减少它在 [capByFamily] 截断时挤掉出口侧地址的概率。
+     */
+    private suspend fun rescueOffEgress(host: String, egress: Network): List<InetAddress> {
+        // 物理网与出口网是同一张时不重复试（如 egress=WIFI 且 direct=WIFI）。
+        val phy = underlyingNetworkProvider?.current()?.takeIf { it != egress }
+        return coroutineScope {
+            val defD = async(dnsDispatcher) { resolveOnOrEmpty(null, host) }
+            val phyD = async(dnsDispatcher) { if (phy == null) emptyList() else resolveOnOrEmpty(phy, host) }
+            val d = defD.await()
+            val p = phyD.await()
+            if (d.isNotEmpty()) throttledFileLog("dns-egress-def:$host", "DNS rescued $host via default network")
+            if (p.isNotEmpty()) throttledFileLog("dns-egress-phy:$host", "DNS rescued $host via underlying network")
+            (d + p).distinct()
+        }
+    }
+
+    /**
+     * 互援用的单路解析：解析不出返回空（那是互援的正常结局）。
+     * **非解析类异常不静默吞掉**——它意味着救援机制本身坏了（句柄失效/权限），
+     * 而不是「这个域名解析不出来」，两者混为一谈会让这条路径变成又一个黑箱。
+     */
+    private fun resolveOnOrEmpty(net: Network?, host: String): List<InetAddress> =
+        try {
+            if (net == null) InetAddress.getAllByName(host).toList() else net.getAllByName(host).toList()
+        } catch (e: UnknownHostException) {
+            emptyList()
+        } catch (e: Exception) {
+            throttledFileLog(
+                "dns-rescue-err:$host",
+                "DNS rescue on ${if (net == null) "default" else "underlying"} threw ${e.javaClass.simpleName}: ${e.message}",
+            )
+            emptyList()
+        }
+
+    /** TTL 内的缓存地址（**精确匹配 netId**）；没有或已过期返回 null。 */
+    private fun cachedWithinTtl(key: DnsKey): List<InetAddress>? =
+        dnsCache[key]?.takeIf { System.currentTimeMillis() - it.atMs < DNS_TTL_MS }?.addrs
+
+    /**
+     * 跨 netId 的兜底缓存：**只在某条路全败、即将抛 DnsFailure 之前用**。
+     * 平时按 netId 分桶是对的（VPN 与物理网解析出的地址常常完全不同，混用会连到错误的节点），
+     * 但「用一个别的网络上 TTL 内解析成功过的地址」显然好过「直接失败」。
+     */
+    private fun anyCachedFor(host: String): List<InetAddress>? {
+        val now = System.currentTimeMillis()
+        return dnsCache.entries
+            .firstOrNull { it.key.host == host && now - it.value.atMs < DNS_TTL_MS }
+            ?.value?.addrs
     }
 
     /**
@@ -296,8 +499,10 @@ class OutboundConnector(
                 throw e
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
-            connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
-                .also { reportEgress(onEgress, null) }
+            degradeToDefault(host, e.error) {
+                connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
+                    .also { reportEgress(onEgress, null) }
+            }
         }
     }
 
@@ -316,6 +521,41 @@ class OutboundConnector(
     /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */
     internal fun orderAddresses(addrs: List<InetAddress>): List<InetAddress> =
         addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
+
+    /**
+     * 扇出截断：候选超过 [MAX_HE_CANDIDATES] 时按**地址族配额**保留，而不是一刀切取前 N 个。
+     *
+     * 修的是一个会改变**可达集合**（而不只是尝试顺序）的缺陷：截断发生在 [orderAddresses] 的
+     * IPv4 优先排序**之后**，于是域名解析出 7 个以上地址、前 6 个恰好都是 IPv4 时，
+     * **IPv6 被整体删除** —— 前面那些 IPv4 全是黑洞时，本来能救场的 IPv6 已经不在池子里了。
+     * 依据 RFC 8305 §3.1（全文唯一一处谈「不得不截断时怎么办」的规范文字）：
+     * "If such a limit is required by hardware limitations, the client SHOULD use at least one
+     * address from each address family from the available list."
+     *
+     * 刻意只给次要族**保底 [MIN_MINORITY_SLOTS] 个名额**而不是对半分：本项目的「系统解析 + 互援 + DoH」
+     * 合并池正是靠多个 IPv4 并行竞速来对抗 DNS 污染（见 [resolve] 里那段合并逻辑），把 IPv4 名额腰斩
+     * 会让「前几个是污染死 IP」从能救回来变成全失败。RFC 要的是「至少一个」，不是 50/50。
+     *
+     * **只改保留哪些、不改先试哪个**：保留下来的地址按原下标回填，族间先后与族内顺序一律不变，
+     * 所以起跑顺序完全不受本函数影响。IPv4 优先这个**策略**该不该改是另一件事（RFC 8305 §4 要求
+     * 交错、并把排序 MUST 委托给 RFC 6724，而 Android 的 getaddrinfo 已按当前网络+uid 排过一遍），
+     * 那需要真机数据支撑，别混在截断里顺手做掉。
+     */
+    internal fun capByFamily(addrs: List<InetAddress>, max: Int = MAX_HE_CANDIDATES): List<InetAddress> {
+        if (addrs.size <= max) return addrs
+        // 主要族 = 排头地址所属的族（当前排序下即 IPv4）；另一族即次要族。
+        val leadIsV4 = addrs[0] is Inet4Address
+        val majority = ArrayList<Int>(addrs.size)
+        val minority = ArrayList<Int>()
+        addrs.forEachIndexed { i, a ->
+            (if ((a is Inet4Address) == leadIsV4) majority else minority).add(i)
+        }
+        if (minority.isEmpty()) return addrs.take(max)   // 单族：没有族要保，原样截断
+        // 次要族名额不得挤光主要族（至少给它留 1 个），也不超过次要族实际有的个数。
+        val minorityQuota = minOf(MIN_MINORITY_SLOTS, minority.size, max - 1)
+        val keep = majority.take(max - minorityQuota) + minority.take(minorityQuota)
+        return keep.sorted().map { addrs[it] }           // 按原下标回填 ⇒ 顺序不变
+    }
 
     /**
      * Happy Eyeballs 交错并行连接：首个成功者胜出，其余在途连接立即关闭（中止其阻塞中的 connect）。
@@ -394,10 +634,9 @@ class OutboundConnector(
         if (candidates.isEmpty()) {
             throw ProxyException(if (blocked) ProxyError.AccessDenied else ProxyError.DnsFailure)
         }
-        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取 IPv4 优先的前 N 个并行尝试。
-        if (candidates.size > MAX_HE_CANDIDATES) {
-            candidates.subList(MAX_HE_CANDIDATES, candidates.size).clear()
-        }
+        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取前 N 个并行尝试，
+        // 但**按族配额**保留，绝不让某一族被整体挤出候选池（见 capByFamily）。
+        val attempts = capByFamily(candidates)
 
         val results = Channel<Outcome<S>>(Channel.UNLIMITED)
         // inFlight 兼作锁对象；closed=注册闸门+清理标记：胜出/清理后置 true，使后到的尝试自行关闭而非连接。
@@ -409,8 +648,8 @@ class OutboundConnector(
         var pending = 0
 
         fun launchNext() {
-            if (nextIdx >= candidates.size) return
-            val addr = candidates[nextIdx++]
+            if (nextIdx >= attempts.size) return
+            val addr = attempts[nextIdx++]
             pending++
             launch(connectDispatcher) {
                 val conn = try {
@@ -438,10 +677,10 @@ class OutboundConnector(
         var lastError: ProxyError = ProxyError.RemoteUnreachable
         try {
             // 仍有在途尝试或未起地址时继续；二者皆尽即所有候选失败 → 循环退出后抛错。
-            while (pending > 0 || nextIdx < candidates.size) {
+            while (pending > 0 || nextIdx < attempts.size) {
                 // 还有未起地址：select 等结果或到点（select 保证已投递的结果不会被丢弃），到点则并行起下一个；
                 // 地址起完：纯等结果（必有在途，故不会永久阻塞）。
-                val outcome: Outcome<S>? = if (nextIdx < candidates.size) {
+                val outcome: Outcome<S>? = if (nextIdx < attempts.size) {
                     select {
                         results.onReceive { it }
                         onTimeout(ProxyTuning.HE_ATTEMPT_DELAY_MS.toLong()) { null }
@@ -519,11 +758,29 @@ class OutboundConnector(
             "https://1.1.1.1/dns-query" to "application/dns-json",
         )
         private const val DOH_TIMEOUT_MS = 3_000
+        /**
+         * 单步系统解析的硬上限。netd 的重试策略下 getAllByName 最坏能等几十秒，
+         * 而排队是无声的——宁可这一路快速判负、让互援/DoH 接手，也不要把线程按住。
+         */
+        private const val DNS_STEP_TIMEOUT_MS = 1_500L
+        /**
+         * 同时在途的解析数上限。比 [DNS_THREADS] 略小，留出余量给互援/DoH 那类并行子任务，
+         * 避免闸门放行了却仍在池内排队——那样等于没限流。
+         */
+        private const val DNS_MAX_INFLIGHT = 12
         private const val DNS_THREADS = 16
         /** 上游建连有界池线程数：connect 是短时阻塞操作，96 足以支撑首屏几十域名并发建连且硬限线程。 */
         private const val CONNECT_THREADS = 96
-        /** 单域名 Happy Eyeballs 并行尝试的地址数上限（IPv4 优先取前 N）。 */
+        /** 单域名 Happy Eyeballs 并行尝试的地址数上限（IPv4 优先取前 N，按族配额见 [capByFamily]）。 */
         private const val MAX_HE_CANDIDATES = 6
+
+        /**
+         * 截断时给**次要地址族**保底的名额数。RFC 8305 §3.1 只要求「至少一个」，这里就给一个：
+         * 目标是**不灭族**（IPv4 全挂时 IPv6 还在池子里），不是「让 IPv6 更早起跑」——
+         * 后者要改的是 [orderAddresses] 的排序策略，属于另一个决策，别混在截断里顺手做掉。
+         * 调大它会等量挤占 IPv4 名额，而 IPv4 的并行数正是 DNS 污染救援的本钱。
+         */
+        private const val MIN_MINORITY_SLOTS = 1
 
         /**
          * 默认 DNS 调度器：独立的 daemon 线程池，与建连/relay/accept 池隔离，

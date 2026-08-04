@@ -9,6 +9,7 @@ import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -102,7 +103,12 @@ class HttpProxyServer(
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
             val upstreamCh = try {
-                connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
+                // 建连阶段的硬上限（不含之后的 relay，隧道本身必须能长期存在）。
+                // 超时折成 RemoteTimeout 抛出，复用下面既有的错误路径回 504——
+                // 代理**先于客户端放弃**并给出状态码，好过让客户端干等到自己超时（见 CONNECT_PHASE_TIMEOUT_MS）。
+                withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                    connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
+                } ?: throw ProxyException(ProxyError.RemoteTimeout)
             } catch (e: ProxyException) {
                 writeStatus(output, e.error.httpStatus, e.error.httpReason); return
             } catch (e: IOException) {
@@ -121,7 +127,9 @@ class HttpProxyServer(
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
-            connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
+            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
+            } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, e.error.httpReason); return
         }
@@ -147,8 +155,10 @@ class HttpProxyServer(
         tracker: TrafficAccounting.ConnTracker?,
     ): Boolean {
         val uri = try { URI(target) } catch (e: Exception) { null }
-        val host = uri?.host
-        if (host == null) { writeStatus(output, 400, "Bad Request"); return false }
+        val uriHost = uri?.host
+        if (uriHost == null) { writeStatus(output, 400, "Bad Request"); return false }
+        // IPv6 字面量：规则判定/DNS/统计要裸地址，Host 头重建要保留方括号（见 HttpParsing.bareHost）。
+        val host = HttpParsing.bareHost(uriHost)
         val port = if (uri.port == -1) 80 else uri.port
         val path = buildString {
             append(if (uri.rawPath.isNullOrEmpty()) "/" else uri.rawPath)
@@ -164,11 +174,13 @@ class HttpProxyServer(
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
-            connector.connect(
-                host, port,
-                bypassVpn = action == RuleAction.DIRECT,
-                onEgress = tracker?.let { it::bindEgress },
-            )
+            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                connector.connect(
+                    host, port,
+                    bypassVpn = action == RuleAction.DIRECT,
+                    onEgress = tracker?.let { it::bindEgress },
+                )
+            } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {
             writeStatus(output, e.error.httpStatus, e.error.httpReason); return false
         }
@@ -190,7 +202,8 @@ class HttpProxyServer(
                 if (lower == "host") hasHost = true
                 sb.append(name).append(": ").append(value).append("\r\n")
             }
-            if (!hasHost) sb.append("Host: ").append(if (port == 80) host else "$host:$port").append("\r\n")
+            // 用 uriHost（IPv6 仍带方括号）：`Host: 2001:db8::1:80` 是非法的，必须 `Host: [2001:db8::1]:80`。
+            if (!hasHost) sb.append("Host: ").append(if (port == 80) uriHost else "$uriHost:$port").append("\r\n")
             sb.append("Connection: close\r\n\r\n")
             upOut.write(sb.toString().toByteArray(Charsets.ISO_8859_1)); upOut.flush()
 

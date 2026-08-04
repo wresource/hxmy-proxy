@@ -8,6 +8,7 @@ import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -104,8 +105,12 @@ class Socks5ProxyServer(
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
             val upstreamCh = try {
-                if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress)
-                else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+                // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
+                // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
+                withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                    if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress)
+                    else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+                } ?: throw ProxyException(ProxyError.RemoteTimeout)
             } catch (e: ProxyException) {
                 reply(output, e.error.socksReply); return
             } catch (e: IOException) {
@@ -123,8 +128,10 @@ class Socks5ProxyServer(
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
-            if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress)
-            else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress)
+                else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+            } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {
             reply(output, e.error.socksReply); return
         }

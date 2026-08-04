@@ -183,6 +183,26 @@ class HttpProxyProtocolTest {
         assertEquals(403, head.status)
     }
 
+    /**
+     * IPv6 字面量的**明文 HTTP** 也必须能命中规则。
+     *
+     * 曾经不能：`URI.getHost()` 对 IPv6 返回带方括号的 `[2001:db8::1]`，而规则表两条路都不剥括号
+     * （域名走后缀树、IP 走 `InetAddresses.isNumericAddress`），于是它谁也匹配不上、
+     * **一律落到默认 PROXY** —— 用户对这类目标设的拦截/直连规则全部静默失效。
+     * CONNECT 与 SOCKS5 走的是各自剥过括号的路径，只有这一条会踩。
+     *
+     * 判别力说明：JVM 里 android.jar 是 stub，`looksLikeIpOrCidr` 恒 false，
+     * 规则与 host 双双走域名表；设备上则双双走 IP 表。两边路径不同但结论一致，
+     * 而**是否剥括号**这个被测点在两边都成立。
+     */
+    @Test(timeout = 20000) fun `IPv6字面量的明文HTTP应能命中规则`() {
+        val head = exchange(
+            proxy(rules = rejecting("2001:db8::1")),
+            "GET http://[2001:db8::1]/ad.js HTTP/1.1\r\nHost: [2001:db8::1]\r\nConnection: close\r\n\r\n",
+        )
+        assertEquals(403, head.status)
+    }
+
     /** 未命中规则的域名不受影响（守护「拦截表不误伤」——只测拦到会漏掉过度拦截的回归）。 */
     @Test(timeout = 20000) fun `未命中拦截规则的目标应正常转发`() {
         val origin = res.keep(RecordingOrigin())

@@ -31,8 +31,8 @@ android {
         // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
         //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
         //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
-        versionCode = 131
-        versionName = "1.24.11"
+        versionCode = 132
+        versionName = "1.24.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -82,6 +82,21 @@ android {
             // 否则代理 accept 循环里的 android.util.Log.i 在 JVM 单测中抛异常，
             // 连接处理协程未响应即崩溃，导致 ProxyIntegrationTest 全部超时。
             isReturnDefaultValues = true
+
+            all {
+                // **单测 JVM 必须绕开一切代理**。开发机的 shell 常设 ALL_PROXY/HTTP_PROXY，
+                // Gradle 会把它们转成 JVM 系统属性，于是 java.net.Socket 的**每一条连接**都被
+                // SOCKS 代理接管——本项目用真实 socket 测 Happy Eyeballs，被接管后：
+                //   · 连 RFC5737 黑洞地址会「秒连成功」（其实只连到了本地代理）
+                //   · getRemoteSocketAddress() 仍报告目标地址（Java SOCKS 实现如此），
+                //     于是出现「remote=192.0.2.1 而 local=127.0.0.1」这种路由上不可能的组合
+                // 2026-08-04 因此误判了三个用例、一度当成 connectAnyGeneric 的 bug 去查。
+                it.systemProperty("socksProxyHost", "")
+                it.systemProperty("socksProxyPort", "")
+                it.systemProperty("http.proxyHost", "")
+                it.systemProperty("https.proxyHost", "")
+                it.systemProperty("java.net.useSystemProxies", "false")
+            }
         }
     }
 }
