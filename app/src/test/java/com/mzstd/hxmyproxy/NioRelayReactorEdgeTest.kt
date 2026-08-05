@@ -207,4 +207,59 @@ class NioRelayReactorEdgeTest {
         while (buf.position() < n) if (read(buf) < 0) break
         return String(buf.array(), 0, buf.position())
     }
+
+    /**
+     * **上游静默死亡必须被拆掉**（0806 现场：老窗口的 CLI 卡住不动、新开窗口却正常）。
+     *
+     * 现场机理：VPN 链路消失但没有 FIN/RST，内核不知道对端已死，写进发送缓冲区就算「成功」。
+     * 客户端于是一直发、一直等，而 relay 侧的 [lastActivity] 对读写一视同仁——
+     * **写操作把隧道续了命**，空闲回收永远轮不到它。表现就是那条连接永久挂起。
+     *
+     * 这里造出完全一样的形态：客户端发数据，上游收下但一个字节都不回。
+     * 注入 600ms 的静默阈值（生产默认 90s），断言隧道被拆、协程按时返回、两端都关掉。
+     * 改动前这条必然超时——因为客户端的写会不断刷新 lastActivity。
+     */
+    @Test(timeout = 30000) fun `上游只收不回的隧道必须被判死拆掉`() = runBlocking {
+        val (clientPeer, clientCh) = pair()
+        val (upstreamCh, upstreamPeer) = pair()
+        clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
+        val reactor = reactor()
+        // idle=0 关掉普通空闲回收，确保拆掉它的只可能是「上游静默」这条新判据
+        val job = launch(Dispatchers.IO) { reactor.relay(clientCh, upstreamCh, 8192, 0, silenceMs = 600) { _, _ -> } }
+        withTimeout(25000) {
+            withContext(Dispatchers.IO) {
+                clientPeer.writeStr("GET / HTTP/1.1\r\n\r\n")   // 客户端发了，开始等回应
+                Thread.sleep(200)
+                clientPeer.writeStr("more")                        // 继续发——这正是「写操作续命」的形态
+            }
+            job.join()                                             // 静默超阈值后隧道应被拆、协程返回
+        }
+        assertFalse("客户端侧 channel 应已关闭", clientCh.isOpen)
+        assertFalse("上游侧 channel 应已关闭", upstreamCh.isOpen)
+        upstreamPeer.close(); clientPeer.close()
+    }
+
+    /**
+     * 对照组：上游**有**回应时，同样的阈值下隧道不得被误杀。
+     *
+     * 缺了这条就无法区分「静默判据生效」和「这条隧道本来就会被拆」——两者都会让上一条变绿。
+     * 也顺带守住 SSE / 长轮询这类场景：只要上游还在推数据，就不该被当成死连接。
+     */
+    @Test(timeout = 30000) fun `上游有回应时不得被静默判据误杀`() = runBlocking {
+        val (clientPeer, clientCh) = pair()
+        val (upstreamCh, upstreamPeer) = pair()
+        clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
+        val reactor = reactor()
+        val job = launch(Dispatchers.IO) { reactor.relay(clientCh, upstreamCh, 8192, 0, silenceMs = 600) { _, _ -> } }
+        withContext(Dispatchers.IO) {
+            clientPeer.writeStr("req")
+            repeat(6) {                       // 每 200ms 回一点，跨过 600ms 阈值多次
+                Thread.sleep(200)
+                upstreamPeer.writeStr("chunk")
+            }
+        }
+        assertTrue("上游一直在回应，隧道不该被拆", clientCh.isOpen && upstreamCh.isOpen)
+        job.cancelAndJoin()
+        upstreamPeer.close(); clientPeer.close()
+    }
 }

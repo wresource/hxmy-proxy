@@ -437,6 +437,9 @@ class MainViewModel @Inject constructor(
     /** 备用 DNS(DoH)走哪张网。见 [com.mzstd.hxmyproxy.core.model.DohEgressChoice]。 */
     fun setDohEgressChoice(c: com.mzstd.hxmyproxy.core.model.DohEgressChoice) =
         update { it.copy(dohEgressChoice = c) }
+    /** 指定出口连不通时：断开还是降级。见 [com.mzstd.hxmyproxy.core.model.EgressFallback]。 */
+    fun setEgressFallback(c: com.mzstd.hxmyproxy.core.model.EgressFallback) =
+        update { it.copy(egressFallback = c) }
     fun setBlockPrivateLan(v: Boolean) = update { it.copy(blockPrivateLanEgress = v) }
 
     private fun Int.coercePort(): Int = coerceIn(1024, 65535)

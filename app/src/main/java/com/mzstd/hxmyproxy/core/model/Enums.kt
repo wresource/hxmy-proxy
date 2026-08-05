@@ -48,5 +48,27 @@ enum class DirectEgressChoice { AUTO, ETHERNET, WIFI, CELLULAR }
  */
 enum class DohEgressChoice { FOLLOW_DIRECT, DEFAULT, ETHERNET, WIFI, CELLULAR }
 
+/**
+ * 指定出口（[EgressNetworkChoice] 非 AUTO）连不通时怎么办。
+ *
+ * **默认 [STRICT]，因为两种失败的代价不对称**：
+ * [DEGRADE] 保住的是「这次能用」，赔上的是**出口身份**——同一账号的请求一会儿从 VPN 出口发出、
+ * 一会儿从物理网发出，对做 IP 一致性风控的服务（Claude CLI 报 403 并要求重新登录就是这个形态）
+ * 本身就是异常模式，代价可能是封禁，而且不可逆。
+ * [STRICT] 赔上的只是「这次连不上」——用户立刻能察觉、能自己决定换网还是关代理。
+ *
+ * 0806 实证：`api.anthropic.com` 在 32.4 小时内被降级 6 次，每次都换了出口 IP，
+ * 而当时负载很低（conn 5~13）——不是拥塞，是那条出口本身不稳。
+ *
+ * 注意这**只管连接路径**。DNS 解析换网救援不受影响：解析只是拿地址，
+ * 不涉及出口身份，救回来反而是纯收益。
+ */
+enum class EgressFallback {
+    /** 指定出口连不通 → 降级默认路由重试（旧行为，保可用） */
+    DEGRADE,
+    /** 指定出口连不通 → 直接断开，绝不换路（保出口身份） */
+    STRICT,
+}
+
 /** 外观（深浅色）。默认 [SYSTEM] 跟随系统。 */
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

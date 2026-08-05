@@ -155,6 +155,7 @@ class SettingsRepository @Inject constructor(
         val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val DIRECT_EGRESS_CHOICE = stringPreferencesKey("direct_egress_choice")
         val DOH_EGRESS_CHOICE = stringPreferencesKey("doh_egress_choice")
+        val EGRESS_FALLBACK = stringPreferencesKey("egress_fallback")
         val CELLULAR_EGRESS_CONFIRMED = booleanPreferencesKey("cellular_egress_confirmed")
         val MDNS = booleanPreferencesKey("mdns_enabled")
         val AUTH = booleanPreferencesKey("auth_enabled")
@@ -211,6 +212,7 @@ class SettingsRepository @Inject constructor(
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
             dohEgressChoice = this[DOH_EGRESS_CHOICE]?.let { runCatching { com.mzstd.hxmyproxy.core.model.DohEgressChoice.valueOf(it) }.getOrNull() } ?: d.dohEgressChoice,
+            egressFallback = this[EGRESS_FALLBACK]?.let { runCatching { com.mzstd.hxmyproxy.core.model.EgressFallback.valueOf(it) }.getOrNull() } ?: d.egressFallback,
             cellularEgressConfirmed = this[CELLULAR_EGRESS_CONFIRMED] ?: d.cellularEgressConfirmed,
             mdnsEnabled = this[MDNS] ?: d.mdnsEnabled,
             backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
@@ -248,6 +250,7 @@ class SettingsRepository @Inject constructor(
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
         prefs[DOH_EGRESS_CHOICE] = dohEgressChoice.name
+        prefs[EGRESS_FALLBACK] = egressFallback.name
         prefs[CELLULAR_EGRESS_CONFIRMED] = cellularEgressConfirmed
         prefs[MDNS] = mdnsEnabled
         prefs[BACKUP_DNS] = backupDnsEnabled

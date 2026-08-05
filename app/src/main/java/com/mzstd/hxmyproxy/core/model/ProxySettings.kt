@@ -26,6 +26,8 @@ data class ProxySettings(
     val backupDnsEnabled: Boolean = true,
     /** 备用 DNS(DoH)走哪张网。默认跟随「直连出口」——见 [DohEgressChoice] 的说明。 */
     val dohEgressChoice: DohEgressChoice = DohEgressChoice.FOLLOW_DIRECT,
+    /** 指定出口连不通时：断开(STRICT，默认) 还是 降级默认路由(DEGRADE)。见 [EgressFallback]。 */
+    val egressFallback: EgressFallback = EgressFallback.STRICT,
     val authEnabled: Boolean = false,
     /** 反 SSRF：默认放行私网出口；置 true 则连私网也禁（loopback/链路本地始终禁）。 */
     val blockPrivateLanEgress: Boolean = false,

@@ -568,7 +568,11 @@ class OutboundConnectorTest {
                 allowAll,
                 underlyingNetworkProvider = provider,
                 egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
-            )
+            ).apply {
+                // 默认已改为 STRICT（出口不通即断开，保出口身份）。这条测的是降级路径本身，
+                // 所以显式选 DEGRADE —— 否则测的就变成「STRICT 会不会断」了。
+                egressFallback = com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE
+            }
             val s = c.connect("localhost", echo.port, onEgress = { kinds.add(it) })
             assertEquals("出口分流失败后没有降级重试", "hi", echoRoundTrip(s))
             s.close()
@@ -674,5 +678,149 @@ class OutboundConnectorTest {
             }
         }
         return s
+    }
+
+    /**
+     * **0806 日志实证的浪费的回归**：出口网解析慢时，必须靠对冲抢答提前拿到结果，
+     * 而不是干等满 DNS_STEP_TIMEOUT_MS(1500ms) 再去救。
+     *
+     * 现场数据（1.25.0，32.4 小时）：出口网解析失败 239 次，其中 **102 次是整整等满 1500ms**；
+     * 而失败后走互援救回来的耗时中位只有 **510ms**。也就是每次都先白等 1.5 秒。
+     * 失败域名高度集中（captive.apple.com 18 次、docs.qq.com 13 次、腾讯遥测、keplr 的一堆 RPC），
+     * 是「特定域名在出口网上稳定解析不出来」，不是随机抖动。
+     *
+     * 这里让出口网 sleep 到超过单步超时才返回，物理网立刻可用：
+     * 改动前必然要等满 1500ms（对冲不存在），改动后应在对冲延迟 400ms 后不久拿到结果。
+     * 判据取 1200ms —— 明显低于 1500ms 的旧下界，又给 CI 上的调度抖动留足余量。
+     */
+    @Test(timeout = 20000) fun `出口网解析慢时对冲抢答必须提前拿到结果`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            val host = "hedge-probe.invalid"
+            val egress = mockk<Network>()
+            every { egress.networkHandle } returns 120L
+            every { egress.getAllByName(any()) } answers {
+                Thread.sleep(3000)                       // 比单步超时还久：这一路注定赢不了
+                arrayOf(InetAddress.getByName("127.0.0.1"))
+            }
+            every { egress.socketFactory } returns SocketFactory.getDefault()
+            val phy = mockk<Network>()
+            every { phy.networkHandle } returns 121L
+            every { phy.getAllByName(host) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            val provider = mockk<UnderlyingNetworkProvider>()
+            every { provider.egressNetwork() } returns egress
+            every { provider.current() } returns phy
+
+            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
+                .apply { backupDnsEnabled = false }
+            val t0 = System.currentTimeMillis()
+            val s = c.connect(host, echo.port)
+            val cost = System.currentTimeMillis() - t0
+            assertEquals("hi", echoRoundTrip(s))
+            s.close()
+            assertTrue("对冲应在等满单步超时之前拿到结果，实测 ${cost}ms", cost < 1200)
+        } finally { echo.close() }
+    }
+
+    /**
+     * 对冲的另一半，也是它能不能上线的前提：**出口网正常时绝不能产生额外 DNS 查询**。
+     *
+     * 无脑双发会让 DNS 查询量翻倍，而绝大多数解析是快的（命中 netd 缓存时亚毫秒级）。
+     * 对冲必须只在慢的那部分付出代价 —— 所以第二路带 DNS_HEDGE_DELAY_MS 的 head start，
+     * 出口路先返回就把它取消掉。这里断言物理网一次都没被问过。
+     */
+    @Test(timeout = 15000) fun `出口网正常时不得触发对冲的额外解析`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            val host = "fast-egress-probe.invalid"
+            val egress = mockk<Network>()
+            every { egress.networkHandle } returns 122L
+            every { egress.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            every { egress.socketFactory } returns SocketFactory.getDefault()
+            val phy = mockk<Network>()
+            every { phy.networkHandle } returns 123L
+            every { phy.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            val provider = mockk<UnderlyingNetworkProvider>()
+            every { provider.egressNetwork() } returns egress
+            every { provider.current() } returns phy
+
+            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
+                .apply { backupDnsEnabled = false }
+            val s = c.connect(host, echo.port)
+            assertEquals("hi", echoRoundTrip(s))
+            s.close()
+            verify(exactly = 0) { phy.getAllByName(any()) }
+        } finally { echo.close() }
+    }
+
+    /**
+     * **EgressFallback.STRICT**：指定出口连不通时必须**断开**，绝不改走默认路由。
+     *
+     * 为什么默认是 STRICT —— 两种失败的代价不对称：
+     * 降级保住的是「这次能用」，赔上的是**出口身份**。同一账号的请求一会儿从指定出口发出、
+     * 一会儿从默认路由发出，对做 IP 一致性风控的服务本身就是异常模式，代价可能是封禁且不可逆；
+     * 而断开赔上的只是「这次连不上」，用户立刻能察觉、能自己决定换网还是关代理。
+     *
+     * 0806 实证：api.anthropic.com 在 32.4 小时内被降级 6 次、每次都换了出口 IP，
+     * 而当时负载很低（conn 5~13）——不是拥塞，是那条出口本身不稳。
+     *
+     * 出口网解析得到地址但连不上（TEST-NET 192.0.2.1 必然不可达），默认路由本可用：
+     * DEGRADE 下会降级成功，STRICT 下必须抛出且**不得报告任何出口**（连都没连上，
+     * 计量表里不该凭空多一档）。
+     */
+    @Test(timeout = 30000) fun `STRICT 下指定出口连不通必须断开而不是改走默认路由`() = runBlocking {
+        val egress = mockk<Network>()
+        every { egress.networkHandle } returns 140L
+        every { egress.getAllByName(any()) } returns arrayOf(InetAddress.getByName("192.0.2.1"))
+        every { egress.socketFactory } returns SocketFactory.getDefault()
+        every { egress.bindSocket(any<java.net.Socket>()) } returns Unit
+        val provider = mockk<UnderlyingNetworkProvider>()
+        every { provider.egressNetwork() } returns egress
+        every { provider.current() } returns null
+
+        var reported = 0
+        val c = OutboundConnector(
+            allowAll,
+            underlyingNetworkProvider = provider,
+            egressClassifier = { EgressKind.WIFI },
+        ).apply {
+            backupDnsEnabled = false
+            egressFallback = com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT
+        }
+        try {
+            c.connect("127.0.0.1", 9, onEgress = { reported++ })
+            fail("STRICT 下必须抛出，不得降级到默认路由")
+        } catch (e: ProxyException) {
+            // 期望：连接失败原样上抛
+        }
+        assertEquals("连都没连上，不该上报出口", 0, reported)
+    }
+
+    /**
+     * 同样的现场换成 [EgressFallback.DEGRADE]：必须仍然降级成功。
+     *
+     * 这条是 STRICT 的对照组，缺了它就无法区分「STRICT 生效」和「这个现场本来就连不上」——
+     * 两者都会让上面那条测试变绿。
+     */
+    @Test(timeout = 30000) fun `DEGRADE 下指定出口连不通仍应降级到默认路由`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            val egress = mockk<Network>()
+            every { egress.networkHandle } returns 141L
+            every { egress.getAllByName(any()) } returns arrayOf(InetAddress.getByName("192.0.2.1"))
+            every { egress.socketFactory } returns SocketFactory.getDefault()
+            every { egress.bindSocket(any<java.net.Socket>()) } returns Unit
+            val provider = mockk<UnderlyingNetworkProvider>()
+            every { provider.egressNetwork() } returns egress
+            every { provider.current() } returns null
+
+            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider).apply {
+                backupDnsEnabled = false
+                egressFallback = com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE
+            }
+            val s = c.connect("127.0.0.1", echo.port)
+            assertEquals("hi", echoRoundTrip(s))
+            s.close()
+        } finally { echo.close() }
     }
 }

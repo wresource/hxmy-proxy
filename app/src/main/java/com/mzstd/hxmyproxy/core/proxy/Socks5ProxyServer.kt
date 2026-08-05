@@ -121,7 +121,7 @@ class Socks5ProxyServer(
                 reply(output, 0x00)
                 channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
                 upstreamCh.configureBlocking(false)
-                nioReactor.relay(channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, onBytes)
+                nioReactor.relay(channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, onTraffic = onBytes)
                 return
             }
         }

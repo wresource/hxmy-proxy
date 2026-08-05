@@ -56,10 +56,12 @@ class NioRelayReactor(
         upstream: SocketChannel,
         bufferBytes: Int,
         idleMillis: Int,
+        /** 上游静默判死阈值(ms)；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
+        silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
         onTraffic: (Long, Long) -> Unit,
     ) {
         val worker = aliveWorkerAt((rr.getAndIncrement() and Int.MAX_VALUE) % workers.size)
-        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), onTraffic)
+        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), silenceMs, onTraffic)
     }
 
     /** 各槽位上次重启时刻（ms）；冷却期内不再重建，防持续性崩溃源把重启变成风暴。 */
@@ -108,12 +110,30 @@ class NioRelayReactor(
     }
 }
 
+/**
+ * 把当前线程调到前台优先级（nice -2）。**必须在线程内部调用**——设的是调用者自己。
+ *
+ * 为什么需要：前台服务保住的是「不被杀、不被 Doze 限网」，**保不住 CPU 时间片**。
+ * app 切到后台后进程从 `top-app` 调度组降到 `foreground`，而工作线程此前一直是默认
+ * 优先级（nice 0），于是设备繁忙时（比如手机自己在下载）selector 被唤醒的延迟变大，
+ * 直接表现为转发变慢——用户侧就是「不打开这个 app 网络就比较慢」。
+ *
+ * 取 THREAD_PRIORITY_FOREGROUND 而不是更激进的 DISPLAY：这些线程绝大多数时间阻塞在
+ * select/read 上并不烧 CPU，要的只是「就绪时能被及时调度」，没必要去和 UI 抢。
+ * 单测里 android.os.Process 是 stub（isReturnDefaultValues），runCatching 兜住即可。
+ */
+internal fun bumpToForegroundPriority() {
+    runCatching {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_FOREGROUND)
+    }
+}
+
 /** 单 selector 线程：所有 register/改 interest/close 都在本线程内执行（投递任务队列 + wakeup）。 */
 private class SelectorWorker(name: String, private val sweepMs: Long) {
     private val selector: Selector = Selector.open()
     private val tasks = ConcurrentLinkedQueue<() -> Unit>()
     private val tunnels = ConcurrentHashMap.newKeySet<Tunnel>()
-    private val thread = Thread({ loop() }, name).apply { isDaemon = true }
+    private val thread = Thread({ bumpToForegroundPriority(); loop() }, name).apply { isDaemon = true }
     @Volatile private var running = true
     /**
      * 线程收尾已完成（selector 已关、最终 drain 已跑）。与 [enqueue] 的兜底构成 Dekker 闭合：
@@ -153,9 +173,11 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         upstream: SocketChannel,
         bufferBytes: Int,
         idleMs: Long,
+        /** 上游静默判死阈值；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
+        silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
         onTraffic: (Long, Long) -> Unit,
     ) = suspendCancellableCoroutine<Unit> { cont ->
-        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, onTraffic, cont)
+        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, silenceMs, onTraffic, cont)
         // 取消（协程取消 / ProxyServer.stop 级联）→ 投递到 selector 线程拆隧道。
         cont.invokeOnCancellation { enqueue { tunnel.close(this) } }
         // 注册必须在 selector 线程（register 与 select 互斥，跨线程直接 register 会卡死）。
@@ -252,7 +274,18 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     private fun sweepIdle(now: Long) {
         // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
         // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
-        tunnels.toList().forEach { if (it.idleExpired(now) || it.externallyClosed()) it.close(this) }
+        tunnels.toList().forEach {
+            if (it.idleExpired(now) || it.externallyClosed()) it.close(this)
+            else if (it.upstreamSilent(now)) {
+                // 与普通空闲回收分开记：这一类是「上游静默死亡」，是网络侧故障的信号，
+                // 而不是正常的连接老化。混在一起会让排障时分不清「没人用」和「用不了」。
+                Ev.throttled(
+                    LogCat.RELAY, "nio.upstream.silent", "usilent", 30_000L, key = true,
+                    kv = arrayOf("tunnels" to tunnels.size),
+                )
+                it.close(this)
+            }
+        }
     }
 
     private companion object {
@@ -311,6 +344,7 @@ private class Tunnel(
     upstream: SocketChannel,
     bufferBytes: Int,
     private val idleMs: Long,
+    private val silenceMs: Long,
     onTraffic: (Long, Long) -> Unit,
     private val cont: CancellableContinuation<Unit>,
 ) {
@@ -320,6 +354,20 @@ private class Tunnel(
     private val up = Pipe(cCtx, uCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(it, 0) }
     private val down = Pipe(uCtx, cCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(0, it) }
     @Volatile private var lastActivity = System.nanoTime()
+
+    /**
+     * 最后一次**从上游收到**字节的时刻，以及「客户端发过、上游还没回」的标记。
+     *
+     * 为什么单靠 [lastActivity] 不够：它对读和写一视同仁，于是
+     * **「客户端一直在发、上游一个字节都不回」也会被当成活跃**，隧道因此永远不被空闲回收。
+     * 这正是 VPN 静默断链（链路没了但没有 FIN/RST，内核也不知道对端已死）时的形态：
+     * 写进内核缓冲区就算「成功」，客户端却永远等不到响应。
+     *
+     * 用户侧的表现是：老窗口的 CLI 卡住不动，新开一个窗口却正常——
+     * 因为新窗口建的是新连接、新隧道，而老隧道还挂在那里续命。
+     */
+    @Volatile private var lastUpstreamRx = System.nanoTime()
+    @Volatile private var awaitingUpstream = false
     /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
     private val startNs = System.nanoTime()
     private val closed = AtomicBoolean(false)
@@ -343,6 +391,9 @@ private class Tunnel(
             n == -1 -> { pipe.srcEof = true; finishIfDrained(pipe, w) }
             n > 0 -> {
                 touch()
+                // 方向记账：down 管道的 src 是上游，读到就说明上游还活着。
+                if (pipe === down) { lastUpstreamRx = System.nanoTime(); awaitingUpstream = false }
+                else awaitingUpstream = true   // 客户端发了东西，开始等上游回应
                 pipe.buf.flip()
                 pipe.draining = true
                 drain(pipe, w)
@@ -390,6 +441,17 @@ private class Tunnel(
     }
 
     fun idleExpired(now: Long): Boolean = idleMs > 0 && (now - lastActivity) > idleMs * 1_000_000L
+
+    /**
+     * **单向死亡**：客户端发过数据、而上游超过 [ProxyTuning.UPSTREAM_SILENCE_MS] 没有任何回应。
+     *
+     * 与 [idleExpired] 互补——那条管「双向都没动静」，这条管「只出不进」。
+     * 只在 [awaitingUpstream] 为真时才判，所以**纯空闲的长连接不受影响**
+     * （没发过请求就谈不上等回应），WebSocket/SSE 这类只要上游还在推数据就会持续刷新
+     * [lastUpstreamRx]，也不会被误杀。
+     */
+    fun upstreamSilent(now: Long): Boolean =
+        silenceMs > 0 && awaitingUpstream && (now - lastUpstreamRx) > silenceMs * 1_000_000L
 
     /** 任一端已被外部关闭（准入收缩 evict 等）——隧道应拆，由 sweep 周期兜底调用。 */
     fun externallyClosed(): Boolean = !cCtx.channel.isOpen || !uCtx.channel.isOpen

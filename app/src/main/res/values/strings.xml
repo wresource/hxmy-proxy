@@ -617,4 +617,11 @@
     <string name="domains_sort_recent">Recent</string>
     <string name="domains_sort_traffic">Traffic</string>
     <string name="domains_sort_label">Sort by</string>
+    <!-- 指定出口连不通时的策略 -->
+    <string name="egress_fallback_title">If that exit can\'t connect</string>
+    <string name="egress_fallback_sub">What to do when the exit you picked is unreachable</string>
+    <string name="egress_fallback_strict">Disconnect</string>
+    <string name="egress_fallback_degrade">Use another route</string>
+    <string name="egress_fallback_strict_desc">Traffic always leaves on the exit you picked, or not at all. Keeps your outgoing address stable — services that check it won\'t see you switching networks mid-session.</string>
+    <string name="egress_fallback_degrade_desc">Falls back to the default route so things keep working — but traffic then leaves on a different address than the one you picked.</string>
 </resources>

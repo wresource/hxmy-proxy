@@ -9,6 +9,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.selects.onTimeout
@@ -62,6 +63,13 @@ class OutboundConnector(
      * 所以归类必须在这一层做、而不是让调用方按 `bypassVpn` 自己猜。null=不归类。
      */
     private val egressClassifier: ((Network?) -> com.mzstd.hxmyproxy.core.stats.EgressKind)? = null,
+    /**
+     * 出口网健康判定。见 [com.mzstd.hxmyproxy.core.network.EgressHealth]：
+     * Android 只在网络**消失**时回调 onLost，链路静默死亡时句柄照旧有效，
+     * 绑上去的连接全部失败却无人知晓——这一层负责把它认出来并临时摘掉。
+     */
+    private val egressHealth: com.mzstd.hxmyproxy.core.network.EgressHealth =
+        com.mzstd.hxmyproxy.core.network.EgressHealth(),
 ) {
     /**
      * 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。
@@ -91,6 +99,15 @@ class OutboundConnector(
     private val dnsRejected = java.util.concurrent.atomic.AtomicLong()
     private val dnsTimedOut = java.util.concurrent.atomic.AtomicLong()
 
+    // 成功解析的耗时观测（0806 补）。见 [recordDnsOk] 的注释：没有这份分布，
+    // DNS_STEP_TIMEOUT_MS 该定多少完全是猜。
+    private val dnsOkCount = java.util.concurrent.atomic.AtomicLong()
+    private val dnsOkTotalMs = java.util.concurrent.atomic.AtomicLong()
+    private val dnsOkMaxMs = java.util.concurrent.atomic.AtomicLong()
+    private val dnsOkBuckets = java.util.concurrent.atomic.AtomicLongArray(DNS_OK_BUCKET_UPPER_MS.size + 1)
+    /** 并行解析中「救援路先返回并被采用」的次数 */
+    private val dnsParallelWins = java.util.concurrent.atomic.AtomicLong()
+
     /** 缓存/单飞的键：netId 为 0 表示进程默认网络。 */
     private data class DnsKey(val netId: Long, val host: String)
 
@@ -100,10 +117,23 @@ class OutboundConnector(
     /** 备用 DNS（DoH）开关；由设置层经 applyTunables 推入。 */
     @Volatile var backupDnsEnabled: Boolean = true
 
+    /**
+     * 指定出口连不通时的策略；由设置层推入。默认 [EgressFallback.STRICT]。
+     *
+     * 见 [EgressFallback] 的注释：降级保住的是「这次能用」，赔上的是**出口身份**，
+     * 而后者的代价（风控封禁）不可逆。这里只影响**连接路径**，
+     * DNS 的换网救援不受影响——解析只是拿地址，不涉及出口身份。
+     */
+    @Volatile var egressFallback: com.mzstd.hxmyproxy.core.model.EgressFallback =
+        com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT
+
     /** 网络变化时由编排层调用：旧网络下解析的 IP 可能已不可达，清掉让 TTL 内的条目立即失效。 */
     fun clearDnsCache() {
         dnsCache.clear()
+        // 出口健康判定同样按当时的网络成立，切网后必须重新判断。
+        egressHealth.reset()
     }
+
 
     /**
      * 上游失败日志节流：断网风暴时每个失败连接都落盘会把 512KB 日志冲掉，同 key（阶段:域名）
@@ -173,6 +203,21 @@ class OutboundConnector(
         sink?.invoke(classifier(network))
     }
 
+
+    /**
+     * 出口网已被判定不通时的短路：**别再为它白等一次建连超时**。
+     *
+     * 返回 true 表示「这张网当前不可用，调用方应按 [egressFallback] 处理」。
+     * 顺带承担复检：到了 [com.mzstd.hxmyproxy.core.network.EgressHealth.RECHECK_MS]
+     * 就再探一次，通了立刻放回——恢复不能等用户切网，那正是 0806 现场里最难受的一点
+     * （「重开窗口也没用，只有切换网络才恢复」）。
+     */
+    private suspend fun egressUnusable(network: Network?, bypassVpn: Boolean): Boolean {
+        if (bypassVpn || network == null) return false
+        if (egressHealth.needsRecheck(network)) egressHealth.confirmOrSideline(network)
+        return egressHealth.isSidelined(network)
+    }
+
     /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
     suspend fun connect(
         host: String,
@@ -181,6 +226,14 @@ class OutboundConnector(
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
     ): Socket {
         val network = egressNetworkFor(bypassVpn, host)
+        if (egressUnusable(network, bypassVpn)) {
+            throttledFileLog("egress-down:$host", "出口网已判定不通，跳过等待 —— $host")
+            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                throw ProxyException(ProxyError.RemoteUnreachable)
+            }
+            return connectAny(orderAddresses(resolve(host, null)), port, null)
+                .also { reportEgress(onEgress, null) }
+        }
         return try {
             connectAny(orderAddresses(resolve(host, network)), port, network)
                 .also {
@@ -201,7 +254,18 @@ class OutboundConnector(
                 throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
                 throw e
             }
-            // 非 bypass 的出口分流(指定 WiFi/蜂窝出口)失败 → 降级默认重试(PROXY 场景「能上网」优先)。
+            // 记一笔到出口健康账上：同一张网在 60s 内有 4 个**不同域名**连不上，
+            // 才值得怀疑是「整张网坏了」而非「这个站点坏了」（阈值依据见 EgressHealth）。
+            if (egressHealth.recordFailure(network, host)) egressHealth.confirmOrSideline(network)
+
+            // 非 bypass 的出口分流(指定 VPN/WiFi/蜂窝出口)连不通。
+            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                throttledFileLog(
+                    "egress-strict:$host",
+                    "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
+                )
+                throw e
+            }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
                 connectAny(orderAddresses(resolve(host, null)), port, null)
@@ -246,7 +310,7 @@ class OutboundConnector(
      */
     private suspend fun resolveUncached(host: String, network: Network?): List<InetAddress> {
         if (network != null) {
-            val direct = runCatching { dnsStep { network.getAllByName(host).toList() } }.getOrNull()
+            val direct = resolveOnEgressRacing(host, network)
             if (!direct.isNullOrEmpty()) return direct
             throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; retry default+underlying")
             val rescued = rescueOffEgress(host, network)
@@ -313,11 +377,14 @@ class OutboundConnector(
             throttledFileLog("dns-busy", "DNS 并发已满($DNS_MAX_INFLIGHT)，本次快速判负而非排队；累计 $n 次")
             return null
         }
+        val t0 = System.nanoTime()
         try {
             val r = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) { runInterruptible(dnsDispatcher) { block() } }
             if (r == null) {
                 val n = dnsTimedOut.incrementAndGet()
                 throttledFileLog("dns-timeout", "DNS 单步超时(${DNS_STEP_TIMEOUT_MS}ms)；累计 $n 次")
+            } else {
+                recordDnsOk((System.nanoTime() - t0) / 1_000_000L)
             }
             return r
         } finally {
@@ -325,15 +392,131 @@ class OutboundConnector(
         }
     }
 
-    /** DNS 侧健康指标，供 PERF 心跳打点——排队/超时此前完全不可观测。 */
-    data class DnsStats(val rejected: Long, val timedOut: Long, val inflight: Int, val cached: Int)
+    /**
+     * 记录一次**成功**解析的耗时。
+     *
+     * 0806 日志暴露的观测盲区：此前这条路径只记失败（超时 102 次、拒绝 N 次），
+     * 成功耗时一个字都没有。于是「1500ms 的单步超时是否合理」根本无从判断——
+     * 调短可能误伤「慢但能成功」的解析，调长则继续白等。没有这份分布就只能拍脑袋。
+     *
+     * 用固定分桶而不是留样本数组：心跳每 12 秒打一次，分桶是 O(1) 写入、常数内存，
+     * 且「超过 800ms 的占比」这类问题直接读桶就能答，比存 P50/P90 更有用。
+     */
+    private fun recordDnsOk(ms: Long) {
+        dnsOkCount.incrementAndGet()
+        dnsOkTotalMs.addAndGet(ms)
+        while (true) {
+            val cur = dnsOkMaxMs.get()
+            if (ms <= cur || dnsOkMaxMs.compareAndSet(cur, ms)) break
+        }
+        val i = DNS_OK_BUCKET_UPPER_MS.indexOfFirst { ms < it }
+        dnsOkBuckets.incrementAndGet(if (i >= 0) i else DNS_OK_BUCKET_UPPER_MS.size)
+    }
 
-    fun dnsStats(): DnsStats = DnsStats(
-        rejected = dnsRejected.get(),
-        timedOut = dnsTimedOut.get(),
-        inflight = DNS_MAX_INFLIGHT - dnsSlots.availablePermits(),
-        cached = dnsCache.size,
+    /** 从分桶估分位（取桶上界，偏保守——报出来的值不会低于真实分位）。 */
+    private fun bucketPercentile(p: Double): Long {
+        val total = dnsOkCount.get()
+        if (total == 0L) return 0
+        val want = (total * p).toLong().coerceAtLeast(1)
+        var acc = 0L
+        for (i in 0..DNS_OK_BUCKET_UPPER_MS.size) {
+            acc += dnsOkBuckets.get(i)
+            if (acc >= want) {
+                return if (i < DNS_OK_BUCKET_UPPER_MS.size) DNS_OK_BUCKET_UPPER_MS[i]
+                else DNS_STEP_TIMEOUT_MS
+            }
+        }
+        return DNS_STEP_TIMEOUT_MS
+    }
+
+    /** DNS 侧健康指标，供 PERF 心跳打点——排队/超时此前完全不可观测。 */
+    data class DnsStats(
+        val rejected: Long,
+        val timedOut: Long,
+        val inflight: Int,
+        val cached: Int,
+        /** 成功解析次数 */
+        val okCount: Long,
+        /** 成功解析耗时：均值 / 估算 p50 / 估算 p90 / 最大，单位 ms */
+        val okAvgMs: Long,
+        val okP50Ms: Long,
+        val okP90Ms: Long,
+        val okMaxMs: Long,
+        /** 并行抢答里「救援路先返回」的次数——衡量并行是否真的省到了时间 */
+        val parallelWins: Long,
     )
+
+    fun dnsStats(): DnsStats {
+        val n = dnsOkCount.get()
+        return DnsStats(
+            rejected = dnsRejected.get(),
+            timedOut = dnsTimedOut.get(),
+            inflight = DNS_MAX_INFLIGHT - dnsSlots.availablePermits(),
+            cached = dnsCache.size,
+            okCount = n,
+            okAvgMs = if (n == 0L) 0 else dnsOkTotalMs.get() / n,
+            okP50Ms = bucketPercentile(0.50),
+            okP90Ms = bucketPercentile(0.90),
+            okMaxMs = dnsOkMaxMs.get(),
+            parallelWins = dnsParallelWins.get(),
+        )
+    }
+
+    /**
+     * 出口网解析 —— **带延迟对冲(hedging)的并行抢答**，而不是「等满超时再救」。
+     *
+     * 0806 真机日志（1.25.0，32.4 小时）暴露的浪费：
+     * 出口网解析失败 239 次、其中 **102 次是整整等满 1500ms 的真超时**，
+     * 而失败后走互援救回来的耗时中位只有 **510ms**。也就是说每次都先干等 1.5 秒，
+     * 再花半秒把它救回来——那 1.5 秒是纯浪费，用户感知就是「某些站点偶尔卡一下」。
+     * 失败域名高度集中（captive.apple.com 18、docs.qq.com 13、腾讯遥测、keplr 的一堆 RPC），
+     * 说明这不是随机抖动，是**特定域名在出口网上稳定解析不出来**。
+     *
+     * 做法（RFC 8305 的对冲思路用在 DNS 上）：
+     *  1. 先只发出口网这一路——**正常情况下不产生任何额外查询**；
+     *  2. 只有它超过 [DNS_HEDGE_DELAY_MS] 还没回，才补发互援那一路；
+     *  3. 谁先拿到非空结果就用谁，另一路取消。
+     *
+     * 为什么要 head start 而不是无脑双发：双发会让 DNS 查询量翻倍，
+     * 而绝大多数解析是快的（命中 netd 缓存时是亚毫秒级）。对冲只在慢的那部分付出代价。
+     *
+     * **[DNS_HEDGE_DELAY_MS] 的取值目前是保守估计**，等 [recordDnsOk] 的
+     * `dnsok=` 心跳积累出成功解析的真实分布后再校准——把它定在 p90 附近最合理：
+     * 正常解析几乎都不会触发对冲，慢的那批则不必等满 1500ms。
+     */
+    private suspend fun resolveOnEgressRacing(host: String, egress: Network): List<InetAddress>? = coroutineScope {
+        val egressD = async(dnsDispatcher) {
+            runCatching { dnsStep { egress.getAllByName(host).toList() } }.getOrNull()
+        }
+        val hedgeD = async(dnsDispatcher) {
+            delay(DNS_HEDGE_DELAY_MS)          // 出口路够快就永远走不到这里（协程被 cancel）
+            rescueOffEgress(host, egress)
+        }
+        try {
+            select {
+                egressD.onAwait { r ->
+                    if (!r.isNullOrEmpty()) r                       // 出口路赢：常态
+                    else hedgeD.await().takeIf { it.isNotEmpty() }  // 出口路快速失败：等对冲
+                }
+                hedgeD.onAwait { r ->
+                    if (r.isNotEmpty()) {
+                        dnsParallelWins.incrementAndGet()
+                        throttledFileLog(
+                            "dns-hedge:$host",
+                            "DNS 对冲抢答：$host 在出口网未及时返回，改用互援结果（省下最多 " +
+                                "${DNS_STEP_TIMEOUT_MS - DNS_HEDGE_DELAY_MS}ms 等待）",
+                        )
+                        r
+                    } else {
+                        egressD.await()                             // 对冲也没救出来：回到出口路的结局
+                    }
+                }
+            }
+        } finally {
+            egressD.cancel()
+            hedgeD.cancel()
+        }
+    }
 
     /**
      * 出口网（egress）解析失败后的互援：**进程默认网络与物理网并行**取回地址。
@@ -490,6 +673,14 @@ class OutboundConnector(
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
     ): SocketChannel {
         val network = egressNetworkFor(bypassVpn, host)
+        if (egressUnusable(network, bypassVpn)) {
+            throttledFileLog("egress-down:$host", "出口网已判定不通，跳过等待 —— $host")
+            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                throw ProxyException(ProxyError.RemoteUnreachable)
+            }
+            return connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
+                .also { reportEgress(onEgress, null) }
+        }
         return try {
             connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
                 .also {
@@ -506,6 +697,15 @@ class OutboundConnector(
             }
             if (network == null) {
                 throttledFileLog("connect:$host", "upstream fail $host (default egress): ${e.error}")
+                throw e
+            }
+            if (egressHealth.recordFailure(network, host)) egressHealth.confirmOrSideline(network)
+
+            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                throttledFileLog(
+                    "egress-strict:$host",
+                    "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
+                )
                 throw e
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
@@ -576,7 +776,7 @@ class OutboundConnector(
         connectAnyGeneric(
             addrs, port,
             create = { network?.socketFactory?.createSocket() ?: Socket() },
-            connect = { s, a -> s.tcpNoDelay = true; s.connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
+            connect = { s, a -> s.tcpNoDelay = true; s.keepAlive = true; s.connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
         )
 
     /**
@@ -602,7 +802,14 @@ class OutboundConnector(
                 }
                 ch
             },
-            connect = { ch, a -> ch.socket().tcpNoDelay = true; ch.socket().connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
+            // keepAlive：让内核主动探测「链路没了但没有 FIN/RST」的死连接。
+            // 注意它只是辅助——Java 无法设置探测间隔，系统默认约 2 小时，
+            // 快速发现仍要靠 relay 侧的 upstreamSilent（见 ProxyTuning.UPSTREAM_SILENCE_MS）。
+            connect = { ch, a ->
+                ch.socket().tcpNoDelay = true
+                ch.socket().keepAlive = true
+                ch.socket().connect(a, ProxyTuning.CONNECT_TIMEOUT_MS)
+            },
         )
     }
 
@@ -802,6 +1009,21 @@ class OutboundConnector(
          * 而排队是无声的——宁可这一路快速判负、让互援/DoH 接手，也不要把线程按住。
          */
         private const val DNS_STEP_TIMEOUT_MS = 1_500L
+
+        /**
+         * 出口网解析的**对冲延迟**：超过它还没返回就补发互援那一路，谁快用谁。
+         *
+         * 400ms 是**保守初值，不是实测结论**——0806 日志只记了失败路径，
+         * 成功解析的耗时分布当时完全没有观测（这正是本轮补 [recordDnsOk] 的原因）。
+         * 取 400ms 的依据：日志里互援救回来的耗时中位是 510ms，把对冲点放在它之前，
+         * 才能真正省下等待；同时又远大于命中 netd 缓存的亚毫秒级解析，
+         * 保证绝大多数请求不会触发对冲、不产生额外 DNS 查询。
+         * **等 dnsok= 心跳积累出真实 p90 后按它校准。**
+         */
+        private const val DNS_HEDGE_DELAY_MS = 400L
+
+        /** 成功解析耗时的分桶上界（ms）。最后一桶是 [DNS_OK_BUCKET_UPPER_MS.last, 超时) */
+        private val DNS_OK_BUCKET_UPPER_MS = longArrayOf(20, 50, 100, 200, 400, 800, 1_200)
         /**
          * 同时在途的解析数上限。比 [DNS_THREADS] 略小，留出余量给互援/DoH 那类并行子任务，
          * 避免闸门放行了却仍在池内排队——那样等于没限流。
@@ -827,7 +1049,7 @@ class OutboundConnector(
          */
         private val DEFAULT_DNS_DISPATCHER: CoroutineDispatcher =
             Executors.newFixedThreadPool(DNS_THREADS) { r ->
-                Thread(r, "hxmy-dns").apply { isDaemon = true }
+                Thread({ bumpToForegroundPriority(); r.run() }, "hxmy-dns").apply { isDaemon = true }
             }.asCoroutineDispatcher()
 
         /**
@@ -839,7 +1061,7 @@ class OutboundConnector(
         private val DEFAULT_CONNECT_DISPATCHER: CoroutineDispatcher =
             ThreadPoolExecutor(
                 CONNECT_THREADS, CONNECT_THREADS, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(),
-            ) { r -> Thread(r, "hxmy-connect").apply { isDaemon = true } }
+            ) { r -> Thread({ bumpToForegroundPriority(); r.run() }, "hxmy-connect").apply { isDaemon = true } }
                 .apply { allowCoreThreadTimeOut(true) }
                 .asCoroutineDispatcher()
     }

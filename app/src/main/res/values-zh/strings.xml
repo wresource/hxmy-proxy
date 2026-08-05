@@ -613,4 +613,11 @@
     <string name="domains_sort_recent">最近访问</string>
     <string name="domains_sort_traffic">流量</string>
     <string name="domains_sort_label">排序</string>
+    <!-- 指定出口连不通时的策略 -->
+    <string name="egress_fallback_title">这个出口连不通时</string>
+    <string name="egress_fallback_sub">你指定的出口走不了，该怎么办</string>
+    <string name="egress_fallback_strict">断开</string>
+    <string name="egress_fallback_degrade">改走其他线路</string>
+    <string name="egress_fallback_strict_desc">流量只从你指定的出口走，走不了就断。出口地址保持不变——会核对地址的服务不会看到你中途换网。</string>
+    <string name="egress_fallback_degrade_desc">退回默认线路，保证还能用——但流量会从另一个地址出去，不再是你指定的那个。</string>
 </resources>

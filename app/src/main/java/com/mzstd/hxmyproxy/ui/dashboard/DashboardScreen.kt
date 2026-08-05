@@ -1248,6 +1248,51 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // 「指定出口走不通时怎么办」——只在真的指定了出口时才有意义（AUTO 没有「原本该走哪」）。
+        // 必须可见：STRICT 断开对用户表现为「某个 App 连不上」，看不到这个开关就无从判断原因。
+        if (choice != EgressNetworkChoice.AUTO) {
+            Text(
+                stringResource(R.string.egress_fallback_title),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                stringResource(R.string.egress_fallback_sub),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT to R.string.egress_fallback_strict,
+                    com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE to R.string.egress_fallback_degrade,
+                ).forEach { (v, labelRes) ->
+                    val sel = ui.settings.egressFallback == v
+                    FilterChip(
+                        selected = sel,
+                        onClick = { viewModel.setEgressFallback(v) },
+                        colors = stdFilterChipColors(),
+                        leadingIcon = if (sel) {
+                            {
+                                Icon(
+                                    painterResource(R.drawable.ic_b_check),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            }
+                        } else null,
+                        label = { Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                }
+            }
+            Text(
+                stringResource(
+                    if (ui.settings.egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT)
+                        R.string.egress_fallback_strict_desc else R.string.egress_fallback_degrade_desc,
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         val boundPhysical = choice == EgressNetworkChoice.WIFI || choice == EgressNetworkChoice.CELLULAR || choice == EgressNetworkChoice.ETHERNET
         if (vpnActive && boundPhysical) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
