@@ -14,6 +14,8 @@ import com.mzstd.hxmyproxy.core.security.EgressGuard
 import com.mzstd.hxmyproxy.core.security.NoAuthAuthenticator
 import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import kotlinx.coroutines.CoroutineScope
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -164,7 +166,77 @@ class HttpProxyProtocolTest {
         assertEquals(502, head.status)
     }
 
+
+    /**
+     * **建连抛 IOException 时也必须回一个干净的状态码**，不能直接把连接关掉。
+     *
+     * 此前 CONNECT 的阻塞路径只接 `ProxyException`；`IOException`（反射取 fd 失败、
+     * 底层 socket 异常等）会一路冒泡到 accept 循环，那里只记日志然后 closeQuietly ——
+     * 客户端拿到的是**半截握手**，没有任何状态码。
+     *
+     * 0806 实证：上游中间层代理侧记为 `OSError('proxy closed during CONNECT')`，
+     * 而我方日志里既无 504 也无任何失败记录（这条路径不写响应也不落盘）。
+     * 对方只能把它归为传输层错误，无法计入「上游是否健康」的判定，
+     * 信息量远低于一个明确的 502。
+     *
+     * 用一个必定抛 IOException 的 connector 复现：改动前客户端读到 EOF（status=-1），
+     * 改动后应读到 502。
+     */
+    @Test(timeout = 20000) fun `建连抛IOException时CONNECT应回502而不是直接断开`() {
+        val boom = mockk<OutboundConnector>()
+        coEvery {
+            boom.connect(any<String>(), any(), any(), any(), any())
+        } throws java.io.IOException("SocketChannel fd 反射不可用")
+        val head = exchange(
+            proxy(connector = boom),
+            "CONNECT example.invalid:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertEquals("必须回状态码而不是关连接（-1 表示读到 EOF）", 502, head.status)
+    }
+
     // ---- 规则拦截 ----
+
+    /**
+     * 拦截响应带上 `X-Proxy-Rule`，说明是被哪一类规则拦的。
+     *
+     * 上游中间层代理反馈：排查「某站打不开」时只有一个裸 403，无从判断来源，
+     * 成本是「反复二分测试」。带上来源后可以一眼区分内置广告表 / 用户规则 / per-host 覆盖。
+     * 只在拒绝响应上出现 —— CONNECT 一旦回 200 就进盲隧道，之后没有插入点。
+     */
+    @Test(timeout = 20000) fun `规则拦截的403应说明命中来源`() {
+        val head = exchange(
+            proxy(rules = rejecting("blocked.example")),
+            "CONNECT blocked.example:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertEquals(403, head.status)
+        val rule = head.value("X-Proxy-Rule")
+        assertTrue("403 应带 X-Proxy-Rule，实际头：${head.headers}", rule != null)
+        assertTrue("应说明来源类别，实际：$rule", rule!!.contains("user_block"))
+        assertTrue("应带上被拦的 host，实际：$rule", rule.contains("blocked.example"))
+    }
+
+    /**
+     * **响应拆分（header injection）的现状确认**：host 来自客户端请求，被拼进了响应头。
+     *
+     * 诚实说明这条测的是什么：`%0d%0a` 是 URL 编码，而 `parseHostPort` 不做 URL 解码，
+     * 所以 host 里是字面的 `%0d%0a`；而**真正的 CR/LF 根本进不到这里** ——
+     * HTTP 请求行以 CRLF 分隔，解析器切行时就挡住了。
+     * 也就是说，**挡住注入的是协议层，不是 writeStatus 里的 CR/LF 过滤**
+     * （实测：去掉那个过滤，本测试依然通过）。
+     *
+     * 保留这条测试是为了锁住「host 原样进响应头不会产生额外头」这个现状——
+     * 将来若有人改动 target 解析（比如加 URL 解码），它会立刻变红。
+     * writeStatus 里的过滤则作为纵深防御保留：零成本，且不依赖上游解析的假设。
+     */
+    @Test(timeout = 20000) fun `host中的编码换行不得产生额外响应头`() {
+        val evil = "evil.example%0d%0aX-Injected:%20yes"
+        val head = exchange(
+            proxy(rules = rejecting("evil.example")),
+            "CONNECT $evil:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertTrue("绝不能出现被注入的头，实际：${head.headers}", !head.has("X-Injected"))
+    }
+
 
     /** 规则判 REJECT：回 403 且**不建上游连接**（广告拦截的整个价值就在于不发出这次请求）。 */
     @Test(timeout = 20000) fun `规则判REJECT时CONNECT应回403`() {
@@ -300,10 +372,11 @@ class HttpProxyProtocolTest {
     private fun proxy(
         auth: Authenticator = NoAuthAuthenticator,
         rules: RuleEngine? = null,
+        connector: OutboundConnector = OutboundConnector(allowAll),
     ): ProxyServer {
         val server = HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(allowAll), RelayEngine(), { auth }, { ConnectionLimits() },
+            connector, RelayEngine(), { auth }, { ConnectionLimits() },
             Dispatchers.IO, ruleEngine = rules,
         )
         server.start(scope, 0)

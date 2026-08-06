@@ -1,10 +1,13 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
+import com.mzstd.hxmyproxy.core.rules.RuleSrc
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
 import android.util.Log
@@ -98,7 +101,7 @@ class HttpProxyServer(
         tracker?.bindHost(hp.first, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
             tracker?.recordBlocked(hp.first)
-            writeStatus(output, 403, "Blocked"); return
+            writeStatus(output, 403, "Blocked", ruleHeader(hp.first, decision?.src)); return
         }
         val bypass = action == RuleAction.DIRECT
         val limits = limitsProvider()
@@ -146,6 +149,20 @@ class HttpProxyServer(
         } catch (e: ProxyException) {
             trace.failed(hp.first, "connect", e.error)
             writeStatus(output, e.error.httpStatus, e.error.httpReason); return
+        } catch (e: IOException) {
+            // **必须回一个干净的状态码再关**。此前这里只接 ProxyException，
+            // IOException（反射取 fd 失败、底层 socket 异常等）会一路冒泡到 accept 循环，
+            // 那里只记日志然后 closeQuietly —— 客户端拿到的是**半截握手**而不是状态码。
+            // 0806 实证：上游中间层代理侧记为 `proxy closed during CONNECT`，
+            // 而我方日志里既无 504 也无任何失败记录（这条路径不写响应也不落盘）。
+            // 对方只能把它归为传输层错误，无法计入「上游是否健康」的判定，
+            // 信息量远低于一个明确的 502。
+            trace.failed(hp.first, "connect-io", e.javaClass.simpleName)
+            Ev.throttled(
+                LogCat.EGRESS, "connect.io", "cio:${hp.first}", 30_000L, key = true,
+                kv = arrayOf("host" to hp.first, "err" to e.javaClass.simpleName, "msg" to e.message),
+            )
+            writeStatus(output, 502, "Bad Gateway"); return
         }
         output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
         output.flush()
@@ -187,7 +204,7 @@ class HttpProxyServer(
         tracker?.bindHost(host, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
             tracker?.recordBlocked(host)
-            writeStatus(output, 403, "Blocked"); return false
+            writeStatus(output, 403, "Blocked", ruleHeader(host, decision?.src)); return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
@@ -289,13 +306,38 @@ class HttpProxyServer(
         return auth.verify(decoded.substring(0, idx), decoded.substring(idx + 1))
     }
 
-    private fun writeStatus(output: OutputStream, code: Int, reason: String) {
-        output.write(
-            "HTTP/1.1 $code $reason\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                .toByteArray(Charsets.ISO_8859_1)
-        )
+    /**
+     * @param extraHeaders 追加的响应头（每项形如 `"X-Foo: bar"`，不含 CRLF）。
+     * 值里出现 CR/LF 一律丢弃该头 —— 拒绝响应拆分（header injection）：
+     * host 来自客户端请求，直接拼进响应头是典型的注入面。
+     */
+    private fun writeStatus(
+        output: OutputStream,
+        code: Int,
+        reason: String,
+        vararg extraHeaders: String,
+    ) {
+        val safe = extraHeaders.filter { it.isNotEmpty() && !it.contains('\r') && !it.contains('\n') }
+        val head = buildString {
+            append("HTTP/1.1 ").append(code).append(' ').append(reason).append("\r\n")
+            safe.forEach { append(it).append("\r\n") }
+            append("Content-Length: 0\r\nConnection: close\r\n\r\n")
+        }
+        output.write(head.toByteArray(Charsets.ISO_8859_1))
         output.flush()
     }
+
+    /**
+     * 拦截响应上的规则说明头。
+     *
+     * 上游中间层代理反馈：排查「某站打不开」时，只有一个裸 403，无从判断是被哪条规则拦的，
+     * 成本是「反复二分测试」。带上来源后可以一眼看出是内置广告表、用户规则还是 per-host 覆盖。
+     *
+     * 只在**拒绝**响应上出现 —— CONNECT 一旦回 200 就进入盲隧道，之后没有任何插入点；
+     * 而拒绝恰恰是唯一需要解释的场景。
+     */
+    private fun ruleHeader(host: String, src: RuleSrc?): String =
+        "X-Proxy-Rule: ${src?.name?.lowercase() ?: "unknown"}; host=$host"
 
     private fun writeProxyAuthRequired(output: OutputStream) {
         output.write(
