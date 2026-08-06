@@ -64,6 +64,7 @@ class RuleRepository @Inject constructor(
         }
         val t0 = System.currentTimeMillis()
         assetFailures = 0
+        val probes = ArrayList<String>(PROBE_MAX)
         val reject = RuleMatcher()
         val direct = RuleMatcher()
         val proxy = RuleMatcher()
@@ -77,7 +78,8 @@ class RuleRepository @Inject constructor(
             }
             val override = settings.ruleSetOverrides[id]
             if (override != null) override.forEach { into.add(it) }
-            else loadAsset(group.assetPath, into)
+            // 只对进 reject 表的内置组采样：自检要验的正是「该拦的到底拦不拦得住」。
+            else loadAsset(group.assetPath, into, if (into === reject) probes else null)
         }
         // 广告表误杀救济表：**始终装载、不受任何开关控制**——它是对上游公共黑名单的修正，
         // 只在广告表启用时才有作用（广告表没启用时 reject 为空，救济表自然无影响）。
@@ -126,6 +128,9 @@ class RuleRepository @Inject constructor(
             "userDirect" to userDirect.size, "userReject" to userReject.size,
             "adsAllow" to adsAllow.size, "overrides" to settings.hostOverrides.size,
             "assetFail" to assetFailures.takeIf { it > 0 },
+            // 自检：抽样验证「刚装进去的条目能被匹配出来」，含子域（全层级语义）。
+            // 条数正常但个别条目丢失时，只有这个字段会变红。
+            "probe" to if (selfCheck(reject, probes)) "ok:${probes.size}" else "FAIL",
             "ms" to (System.currentTimeMillis() - t0),
         )
         // 装载失败过就**不**记忆化：留住「下次设置变更时顺带重试」的机会。
@@ -176,13 +181,25 @@ class RuleRepository @Inject constructor(
         }
     }
 
-    private fun loadAsset(path: String, into: RuleMatcher) {
+    private fun loadAsset(path: String, into: RuleMatcher, sampleInto: MutableList<String>? = null) {
         try {
             context.assets.open(path).use { raw ->
                 val stream = if (path.endsWith(".gz")) GZIPInputStream(raw) else raw
+                var n = 0
                 stream.bufferedReader().forEachLine { line ->
                     val d = line.trim()
-                    if (d.isNotEmpty() && d[0] != '#') into.add(d)
+                    if (d.isNotEmpty() && d[0] != '#') {
+                        into.add(d)
+                        // 采样首条与每 20000 条一条，供构建后自检（见 selfCheck）。
+                        // 只取纯域名（跳过 IP/CIDR 与带作用域前缀的写法），保证子域探测语义明确。
+                        if (sampleInto != null && sampleInto.size < PROBE_MAX &&
+                            (n == 0 || n % PROBE_STRIDE == 0) &&
+                            d.all { it.isLetterOrDigit() || it == '.' || it == '-' } && d.contains('.')
+                        ) {
+                            sampleInto.add(d)
+                        }
+                        n++
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -192,6 +209,35 @@ class RuleRepository @Inject constructor(
             assetFailures++
             Ev.kw(LogCat.RULE, "rules.assetFailed", "path" to path, "err" to e.toString())
         }
+    }
+
+    /**
+     * 构建后自检：**刚装进去的条目，能不能被匹配出来**。
+     *
+     * 为什么条数不够用：`rules.rebuilt` 只记各表规模，能发现「6.6 万条变成 3 条」这种整体失效，
+     * 但**发现不了个别条目丢失**——而 0806 的分歧正是这一类：
+     * `googleads.g.doubleclick.net` 照常被拦，`pagead2.googlesyndication.com` 却放行了，
+     * 两者都在同一张表里，条数完全正常。
+     *
+     * 探针取自本次真实装载的内容（首条 + 每 [PROBE_STRIDE] 条采样一个），所以不依赖
+     * 任何硬编码域名，名单更新后依然有效。每个探针验证两件事：
+     *   1. **自身**能命中 —— 条目确实进了表
+     *   2. **子域**能命中 —— 全层级语义生效（内置表 6 万条全是这一档）
+     *
+     * 失败即落 key.log：这是「防护看着开着、实际不拦」的唯一可见信号。
+     */
+    private fun selfCheck(reject: RuleMatcher, probes: List<String>): Boolean {
+        if (probes.isEmpty()) return true
+        val selfMiss = probes.filterNot { reject.matches(it) }
+        val subMiss = probes.filterNot { reject.matches("probe0.$it") }
+        if (selfMiss.isEmpty() && subMiss.isEmpty()) return true
+        Ev.kw(
+            LogCat.RULE, "rules.selfcheck.fail",
+            "probes" to probes.size,
+            "selfMiss" to selfMiss.size, "subMiss" to subMiss.size,
+            "sample" to (selfMiss.firstOrNull() ?: subMiss.firstOrNull()),
+        )
+        return false
     }
 
     /** 读 assets 清单供 UI 预览：返回总条数 + 前 [limit] 条（大表如 OISD 不全量进 UI）。 */
@@ -220,5 +266,11 @@ class RuleRepository @Inject constructor(
     companion object {
         /** 广告表误杀救济表资产路径（见该文件头部的收录标准）。 */
         const val ADS_ALLOWLIST_ASSET = "rules/ads-allowlist.txt"
+
+        /** 自检探针数量上限：够覆盖全表分布即可，匹配开销 O(标签数) 可忽略。 */
+        private const val PROBE_MAX = 8
+
+        /** 采样步长：6 万条表大约每 2 万条取一个，首条必取。 */
+        private const val PROBE_STRIDE = 20_000
     }
 }

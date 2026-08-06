@@ -345,4 +345,31 @@ class BuiltinRuleAssetsTest {
         }
         return m
     }
+
+    /**
+     * **广告表的子域必须命中**（0806 观察分歧的静态锁）。
+     *
+     * 背景：上游中间层代理实测 `pagead2.googlesyndication.com` 被放行，而名单里
+     * 有 `googlesyndication.com`、匹配器默认就是全层级（无前缀 = addSuffix），
+     * 按语义子域本该命中。本测试把「名单 + 匹配语义」这一层钉死：
+     * 只要它是绿的，就说明问题不在名单也不在匹配器，而在**运行时的表构建**——
+     * 这正是排除法需要的那一半。
+     *
+     * 同时验证救济名单没有反向抵消（那 50 条全是国内厂商内容域名，不该含这些）。
+     */
+    @Test
+    fun adsListMustMatchSubdomainsOfListedEntries() {
+        val ads = load("ads-oisd-small.txt")
+        val allow = load("ads-allowlist.txt")
+        // 取名单里真实存在的父域，各造一个子域
+        val cases = listOf(
+            "googlesyndication.com" to "pagead2.googlesyndication.com",
+            "g.doubleclick.net" to "googleads.g.doubleclick.net",
+        )
+        for ((parent, child) in cases) {
+            assertTrue("$parent 应在广告名单内（前提失效则本测试无意义）", ads.matches(parent))
+            assertTrue("$child 应被父域 $parent 以全层级语义命中", ads.matches(child))
+            assertTrue("$child 不该被误杀救济名单放行", !allow.matches(child))
+        }
+    }
 }
