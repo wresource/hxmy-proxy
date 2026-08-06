@@ -87,8 +87,13 @@ class Socks5ProxyServer(
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         val ruleHost = host ?: addr?.hostAddress
+        val trace = RequestTrace.open("SOCKS5", channel.socket().port)
         val action = if (ruleHost != null) {
-            ruleEngine?.decideDetailed(ruleHost)?.also { logDecision("SOCKS5", ruleHost, it) }?.action
+            ruleEngine?.decideDetailed(ruleHost)?.also {
+                logDecision("SOCKS5", ruleHost, it)
+                // PROXY 也记 —— 见 HttpProxyServer 同处注释
+                trace.rule(ruleHost, it.action, it.src)
+            }?.action
         } else null
         Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
@@ -109,7 +114,7 @@ class Socks5ProxyServer(
                 // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
                 withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                     if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress)
-                    else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+                    else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 } ?: throw ProxyException(ProxyError.RemoteTimeout)
             } catch (e: ProxyException) {
                 reply(output, e.error.socksReply); return
@@ -130,7 +135,7 @@ class Socks5ProxyServer(
         val upstream = try {
             withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress)
-                else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress)
+                else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
             } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {
             reply(output, e.error.socksReply); return

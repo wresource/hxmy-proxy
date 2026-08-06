@@ -220,7 +220,13 @@ abstract class TcpProxyServerBase(
                         Ev.throttled(
                             LogCat.CONN, "accept", "accept:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
                             level = "I",
-                            kv = arrayOf("proto" to protocol, "remote" to remote.hostAddress, "active" to registry.activeGlobal),
+                            // **端口不能省**：外层若有本机中间层代理（如 proxyshim），它的日志里带的是
+                            // `(127.0.0.1:57725)` 这种源端口，只记 IP 就无法把两侧的同一条连接对起来——
+                            // 而两侧各说各话正是此前连续误判归因的原因。
+                            kv = arrayOf(
+                                "proto" to protocol, "remote" to remote.hostAddress, "sport" to remotePort,
+                                "active" to registry.activeGlobal,
+                            ),
                         )
                     }
                     val tracker = if (probeConn) null else accounting?.openConnection(remote, protocol)

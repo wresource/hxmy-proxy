@@ -85,9 +85,15 @@ class HttpProxyServer(
     }
 
     private suspend fun handleConnect(channel: SocketChannel, output: OutputStream, target: String, tracker: TrafficAccounting.ConnTracker?) {
+        val clientPort = channel.socket().port
         val hp = HttpParsing.parseHostPort(target) ?: run { writeStatus(output, 400, "Bad Request"); return }
         Log.i("hxmyproxy", "CONNECT -> ${hp.first}:${hp.second}")
-        val action = ruleEngine?.decideDetailed(hp.first)?.also { logDecision("CONNECT", hp.first, it) }?.action
+        val trace = RequestTrace.open("HTTP", clientPort)
+        val decision = ruleEngine?.decideDetailed(hp.first)?.also { logDecision("CONNECT", hp.first, it) }
+        val action = decision?.action
+        // **PROXY 也记**：logDecision 对 PROXY 直接 return，导致绝大多数流量走了哪条路完全不可见，
+        // 排障时只能靠推测（此前已因此误判过一次方向）。
+        trace.rule(hp.first, action ?: RuleAction.PROXY, decision?.src)
         Log.i("hxmyproxy", "RULE CONNECT ${hp.first} -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(hp.first, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
@@ -107,9 +113,14 @@ class HttpProxyServer(
                 // 超时折成 RemoteTimeout 抛出，复用下面既有的错误路径回 504——
                 // 代理**先于客户端放弃**并给出状态码，好过让客户端干等到自己超时（见 CONNECT_PHASE_TIMEOUT_MS）。
                 withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
-                    connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
-                } ?: throw ProxyException(ProxyError.RemoteTimeout)
+                    connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+                } ?: throw ProxyException(ProxyError.RemoteTimeout).also {
+                    // 外层砍断会把内层原因吃掉（withTimeoutOrNull 返回 null，原始异常丢失），
+                    // 所以这里显式记一笔「卡在建连阶段、耗尽了 CONNECT_PHASE_TIMEOUT_MS」。
+                    trace.failed(hp.first, "connect-phase-timeout", ProxyError.RemoteTimeout)
+                }
             } catch (e: ProxyException) {
+                trace.failed(hp.first, "connect", e.error)
                 writeStatus(output, e.error.httpStatus, e.error.httpReason); return
             } catch (e: IOException) {
                 // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
@@ -128,9 +139,12 @@ class HttpProxyServer(
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         val upstream = try {
             withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
-                connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress)
-            } ?: throw ProxyException(ProxyError.RemoteTimeout)
+                connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+            } ?: throw ProxyException(ProxyError.RemoteTimeout).also {
+                trace.failed(hp.first, "connect-phase-timeout", ProxyError.RemoteTimeout)
+            }
         } catch (e: ProxyException) {
+            trace.failed(hp.first, "connect", e.error)
             writeStatus(output, e.error.httpStatus, e.error.httpReason); return
         }
         output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
@@ -165,7 +179,10 @@ class HttpProxyServer(
             uri.rawQuery?.let { append('?').append(it) }
         }
 
-        val action = ruleEngine?.decideDetailed(host)?.also { logDecision("HTTP", host, it) }?.action
+        val trace = RequestTrace.open("HTTP", client.port)
+        val decision = ruleEngine?.decideDetailed(host)?.also { logDecision("HTTP", host, it) }
+        val action = decision?.action
+        trace.rule(host, action ?: RuleAction.PROXY, decision?.src)
         Log.i("hxmyproxy", "RULE HTTP $host -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
@@ -179,6 +196,7 @@ class HttpProxyServer(
                     host, port,
                     bypassVpn = action == RuleAction.DIRECT,
                     onEgress = tracker?.let { it::bindEgress },
+                    trace = trace,
                 )
             } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {

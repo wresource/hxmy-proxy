@@ -224,6 +224,8 @@ class OutboundConnector(
         port: Int,
         bypassVpn: Boolean = false,
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+        /** 请求级追踪；null=不记。见 [RequestTrace]。 */
+        trace: RequestTrace? = null,
     ): Socket {
         val network = egressNetworkFor(bypassVpn, host)
         if (egressUnusable(network, bypassVpn)) {
@@ -235,8 +237,9 @@ class OutboundConnector(
                 .also { reportEgress(onEgress, null) }
         }
         return try {
-            connectAny(orderAddresses(resolve(host, network)), port, network)
+            connectAny(orderAddresses(resolve(host, network, trace)), port, network)
                 .also {
+                    trace?.connected(host, it.inetAddress?.hostAddress, port, network?.networkHandle)
                     reportEgress(onEgress, network)
                     // 通了就清零：连续失败被打断说明该 host 的直连当前是好的（见 DirectEgressFailures）。
                     if (bypassVpn) DirectEgressFailures.recordSuccess(host)
@@ -264,12 +267,16 @@ class OutboundConnector(
                     "egress-strict:$host",
                     "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
                 )
+                trace?.failed(host, "connect-strict", e.error)
                 throw e
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
-                connectAny(orderAddresses(resolve(host, null)), port, null)
-                    .also { reportEgress(onEgress, null) }
+                connectAny(orderAddresses(resolve(host, null, trace)), port, null)
+                    .also {
+                        trace?.connected(host, it.inetAddress?.hostAddress, port, null)
+                        reportEgress(onEgress, null)
+                    }
             }
         }
     }
@@ -281,15 +288,29 @@ class OutboundConnector(
      * **双路互援**：一条路解析失败即换另一条路重试（换 netId 也天然绕开系统 2s 负缓存）——
      * DIRECT 失败→默认网络；默认失败→底层 WiFi。失败与援通均节流落盘（诊断「究竟哪条 DNS 在坏」）。
      */
-    private suspend fun resolve(host: String, network: Network?): List<InetAddress> {
+    private suspend fun resolve(host: String, network: Network?, trace: RequestTrace? = null): List<InetAddress> {
         val key = dnsKeyOf(network, host)
-        cachedWithinTtl(key)?.let { return it }
+        cachedAt(key)?.let { (addrs, atMs) ->
+            trace?.dns(
+                host, DnsSource.CACHE_SAME_NET, network?.networkHandle, addrs.size,
+                "age=${(System.currentTimeMillis() - atMs) / 1000}s", addrs.firstOrNull()?.hostAddress,
+            )
+            return addrs
+        }
         // 单飞：同 (netId, host) 已有解析在跑就等它的结果，不再起第二次。
-        inflightDns[key]?.let { return it.await() }
+        inflightDns[key]?.let {
+            val r = it.await()
+            trace?.dns(host, DnsSource.INFLIGHT, network?.networkHandle, r.size, null, r.firstOrNull()?.hostAddress)
+            return r
+        }
         val mine = CompletableDeferred<List<InetAddress>>()
-        inflightDns.putIfAbsent(key, mine)?.let { return it.await() }   // 竞态输了就等赢家
+        inflightDns.putIfAbsent(key, mine)?.let {
+            val r = it.await()
+            trace?.dns(host, DnsSource.INFLIGHT, network?.networkHandle, r.size, null, r.firstOrNull()?.hostAddress)
+            return r
+        }
         return try {
-            val addrs = resolveUncached(host, network)
+            val addrs = resolveUncached(host, network, trace)
             dnsCache[key] = CachedAddrs(addrs, System.currentTimeMillis())
             mine.complete(addrs)
             addrs
@@ -308,27 +329,61 @@ class OutboundConnector(
      * 后续解析在无界队列里静默排队，直到客户端自己放弃。
      * 用 [runInterruptible] 而不是 [withContext]，超时才能真正中断那条阻塞的线程、把它还给池子。
      */
-    private suspend fun resolveUncached(host: String, network: Network?): List<InetAddress> {
+    /** 与 [cachedWithinTtl] 同判据，但连同写入时刻一起返回——溯源需要缓存年龄。 */
+    private fun cachedAt(key: DnsKey): Pair<List<InetAddress>, Long>? {
+        val c = dnsCache[key] ?: return null
+        if (System.currentTimeMillis() - c.atMs >= DNS_TTL_MS) return null
+        return c.addrs to c.atMs
+    }
+
+    private suspend fun resolveUncached(host: String, network: Network?, trace: RequestTrace? = null): List<InetAddress> {
         if (network != null) {
+            val t0 = System.nanoTime()
             val direct = resolveOnEgressRacing(host, network)
-            if (!direct.isNullOrEmpty()) return direct
+            if (!direct.isNullOrEmpty()) {
+                // 对冲赢家是互援那一路时，dnsParallelWins 已在 racing 内自增；这里据此区分来源。
+                trace?.dns(
+                    host, DnsSource.SYS_EGRESS, network.networkHandle, direct.size,
+                    "rtt=${(System.nanoTime() - t0) / 1_000_000}ms", direct.firstOrNull()?.hostAddress,
+                )
+                return direct
+            }
             throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; retry default+underlying")
             val rescued = rescueOffEgress(host, network)
-            if (rescued.isNotEmpty()) return rescued
+            if (rescued.isNotEmpty()) {
+                trace?.dns(
+                    host, DnsSource.RESCUE_DEFAULT, network.networkHandle, rescued.size,
+                    "rtt=${(System.nanoTime() - t0) / 1_000_000}ms", rescued.firstOrNull()?.hostAddress,
+                )
+                return rescued
+            }
             // 全败前的最后兜底：同一域名可能刚在**别的网络**上解析成功过。
             // 平时按 netId 分桶（不同网络的结果不该混用），但「用一个 TTL 内的旧地址」
             // 显然好过「直接失败」——0803 实证：gateway.icloud.com 在 00:08:30 被物理网救回并入缓存，
             // 8 秒后 VPN 句柄一回来就又走回本分支，从头三路全败一次，那份缓存完全没派上用场。
             // 放在 DoH 之前：缓存是立即可用的，而 DoH 最坏要烧掉 2 个端点 × DOH_TIMEOUT_MS。
-            anyCachedFor(host)?.let {
+            anyCachedForWithNet(host)?.let { (addrs, fromNetId, atMs) ->
                 throttledFileLog("dns-cache-fallback:$host", "DNS fell back to cached addrs for $host (egress path)")
-                return it
+                // **把来源网络记下来**：这条把 A 网解析出的地址用到了 B 网上，
+                // 对 anycast 服务意味着目标节点可能与出口不匹配 —— 先量出发生率再决定去留。
+                trace?.dns(
+                    host, DnsSource.CACHE_CROSS_NET, fromNetId, addrs.size,
+                    "age=${(System.currentTimeMillis() - atMs) / 1000}s,usedOn=${network.networkHandle}",
+                    addrs.firstOrNull()?.hostAddress,
+                )
+                return addrs
             }
             return resolveLastResort(host, UnknownHostException("egress resolve failed/timeout for $host"))
         }
+        val t0d = System.nanoTime()
         val addrs = try {
-            dnsStep { InetAddress.getAllByName(host).toList() }
-                ?: throw UnknownHostException("default resolve timed out for $host")
+            (dnsStep { InetAddress.getAllByName(host).toList() }
+                ?: throw UnknownHostException("default resolve timed out for $host")).also {
+                trace?.dns(
+                    host, DnsSource.SYS_DEFAULT, null, it.size,
+                    "rtt=${(System.nanoTime() - t0d) / 1_000_000}ms", it.firstOrNull()?.hostAddress,
+                )
+            }
         } catch (e: UnknownHostException) {
             throttledFileLog("dns-default:$host", "DNS fail $host on default network (${e.message}); retry underlying+DoH")
             // 主路失败（境外域名常被运营商 DNS 污染成 NXDOMAIN）→ 互援与 DoH **并行**，合并全部 IP 进
@@ -348,7 +403,14 @@ class OutboundConnector(
                 val d = dohD.await()
                 if (a.isNotEmpty()) throttledFileLog("dns-default-rescued:$host", "DNS rescued $host via underlying network")
                 if (d.isNotEmpty()) throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup")
-                (a + d).distinct()
+                val merged0 = (a + d).distinct()
+                trace?.dns(
+                    host,
+                    if (a.isNotEmpty()) DnsSource.RESCUE_PHYSICAL else DnsSource.DOH,
+                    null, merged0.size, if (d.isNotEmpty()) "doh=used" else null,
+                    merged0.firstOrNull()?.hostAddress,
+                )
+                merged0
             }
             if (merged.isEmpty()) {
                 throttledFileLog("doh-fail:$host", "both underlying and DoH failed for $host")
@@ -579,6 +641,14 @@ class OutboundConnector(
      * 平时按 netId 分桶是对的（VPN 与物理网解析出的地址常常完全不同，混用会连到错误的节点），
      * 但「用一个别的网络上 TTL 内解析成功过的地址」显然好过「直接失败」。
      */
+    /** 与 [anyCachedFor] 同判据，但返回「答案属于哪张网 + 写入时刻」，供溯源记录。 */
+    private fun anyCachedForWithNet(host: String): Triple<List<InetAddress>, Long, Long>? {
+        val now = System.currentTimeMillis()
+        val e = dnsCache.entries.firstOrNull { it.key.host == host && now - it.value.atMs < DNS_TTL_MS }
+            ?: return null
+        return Triple(e.value.addrs, e.key.netId, e.value.atMs)
+    }
+
     private fun anyCachedFor(host: String): List<InetAddress>? {
         val now = System.currentTimeMillis()
         return dnsCache.entries
@@ -671,6 +741,8 @@ class OutboundConnector(
         port: Int,
         bypassVpn: Boolean = false,
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+        /** 请求级追踪；null=不记。见 [RequestTrace]。 */
+        trace: RequestTrace? = null,
     ): SocketChannel {
         val network = egressNetworkFor(bypassVpn, host)
         if (egressUnusable(network, bypassVpn)) {
@@ -682,8 +754,13 @@ class OutboundConnector(
                 .also { reportEgress(onEgress, null) }
         }
         return try {
-            connectAnyChannel(orderAddresses(resolve(host, network)), port, network)
+            connectAnyChannel(orderAddresses(resolve(host, network, trace)), port, network)
                 .also {
+                    trace?.connected(
+                        host,
+                        (it.remoteAddress as? InetSocketAddress)?.address?.hostAddress,
+                        port, network?.networkHandle,
+                    )
                     reportEgress(onEgress, network)
                     if (bypassVpn) DirectEgressFailures.recordSuccess(host)
                 }
@@ -706,12 +783,18 @@ class OutboundConnector(
                     "egress-strict:$host",
                     "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
                 )
+                trace?.failed(host, "connect-strict", e.error)
                 throw e
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
-                connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
-                    .also { reportEgress(onEgress, null) }
+                connectAnyChannel(orderAddresses(resolve(host, null, trace)), port, null)
+                    .also {
+                        trace?.connected(
+                            host, (it.remoteAddress as? InetSocketAddress)?.address?.hostAddress, port, null,
+                        )
+                        reportEgress(onEgress, null)
+                    }
             }
         }
     }
