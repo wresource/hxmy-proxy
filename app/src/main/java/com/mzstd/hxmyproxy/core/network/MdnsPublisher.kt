@@ -95,7 +95,7 @@ class MdnsPublisher(context: Context) {
         }
         override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
             // 不再静默：记录 errorCode 便于定位（如 0=INTERNAL、3=ALREADY_ACTIVE、4=MAX_LIMIT）。
-            FileLog.w(TAG, "mDNS 注册失败 ${serviceInfo.serviceName} (${serviceInfo.serviceType}): errorCode=$errorCode")
+            FileLog.w(TAG, "mDNS register failed ${serviceInfo.serviceName} (${serviceInfo.serviceType}): errorCode=$errorCode")
         }
         override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
         override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}

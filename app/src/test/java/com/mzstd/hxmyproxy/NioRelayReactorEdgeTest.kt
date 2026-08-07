@@ -1,6 +1,8 @@
 package com.mzstd.hxmyproxy
 
+import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.proxy.NioRelayReactor
+import com.mzstd.hxmyproxy.core.proxy.RequestTrace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -237,6 +239,94 @@ class NioRelayReactorEdgeTest {
         assertFalse("客户端侧 channel 应已关闭", clientCh.isOpen)
         assertFalse("上游侧 channel 应已关闭", upstreamCh.isOpen)
         upstreamPeer.close(); clientPeer.close()
+    }
+
+    /**
+     * **判死必须落下「死的是谁」**——这条锁的是可观测性，不是行为。
+     *
+     * 0807 日志的教训：一晚上 884 行 `nio.upstream.silent`，但那条事件只记了个隧道总数，
+     * 而 [RequestTrace.tunnelClosed] 虽然写好了却**全仓零调用点**。
+     * 结果是「90 秒静默究竟杀掉了长思考的 API 请求、还是真正的死链路」根本无从分辨，
+     * 连「跑一天再导日志」这个排查计划都取不到数据——埋点定义了不等于埋点接上了。
+     *
+     * 所以这里断言的是那一行日志本身：`req.closed` 必须带上 host 与 `why=upstream-silent`，
+     * 且 host 要冗余记在同一行（靠 id 回查 req.rule 才能知道是谁，等于每次排障都要先做 join）。
+     */
+    @Test(timeout = 30000) fun `上游静默判死必须落下域名与拆除原因`() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("relay-close").toFile()
+        FileLog.enabled = true
+        FileLog.init(dir)
+        try {
+            val (clientPeer, clientCh) = pair()
+            val (upstreamCh, upstreamPeer) = pair()
+            clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
+            val reactor = reactor()
+            val trace = RequestTrace.open("HTTP", 54321)
+            val job = launch(Dispatchers.IO) {
+                reactor.relay(
+                    clientCh, upstreamCh, 8192, 0, silenceMs = 600,
+                    host = "api.anthropic.com", trace = trace,
+                ) { _, _ -> }
+            }
+            withTimeout(25000) {
+                withContext(Dispatchers.IO) { clientPeer.writeStr("GET / HTTP/1.1\r\n\r\n") }
+                job.join()
+            }
+            val log = FileLog.snapshot()
+            val closed = log.lines().firstOrNull { it.contains("evt=req.closed") }
+                ?: throw AssertionError("判死后没有落 req.closed 行；全部日志：\n$log")
+            assertTrue("req.closed 必须带 host，否则答不出「杀的是谁」：$closed",
+                closed.contains("host=api.anthropic.com"))
+            assertTrue("拆除原因必须是 upstream-silent，才能与正常收尾区分：$closed",
+                closed.contains("why=upstream-silent"))
+            upstreamPeer.close(); clientPeer.close()
+        } finally {
+            FileLog.clear()
+            dir.deleteRecursively()
+        }
+    }
+
+    /**
+     * 对照组：正常收尾的隧道必须记成 `why=eof`，不能混进判死那一类。
+     *
+     * 没有这条，上一条测试用「任何 req.closed 行都含 upstream-silent」也能变绿——
+     * 而真正要守的是**两类拆除能被分开数**：误杀率 = upstream-silent / 总数，
+     * 分母分子混在一起，这个比值就永远算不出来。
+     */
+    @Test(timeout = 30000) fun `正常收尾的隧道不得被记成判死`() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("relay-eof").toFile()
+        FileLog.enabled = true
+        FileLog.init(dir)
+        try {
+            val (clientPeer, clientCh) = pair()
+            val (upstreamCh, upstreamPeer) = pair()
+            clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
+            val reactor = reactor()
+            val trace = RequestTrace.open("HTTP", 54322)
+            val job = launch(Dispatchers.IO) {
+                reactor.relay(
+                    clientCh, upstreamCh, 8192, 0, silenceMs = 60_000,
+                    host = "example.com", trace = trace,
+                ) { _, _ -> }
+            }
+            withTimeout(25000) {
+                withContext(Dispatchers.IO) {
+                    clientPeer.writeStr("hi")
+                    Thread.sleep(150)
+                    upstreamPeer.writeStr("ok")     // 上游有回应，排除静默判据
+                    Thread.sleep(150)
+                    clientPeer.close(); upstreamPeer.close()   // 双向 EOF → 正常收尾
+                }
+                job.join()
+            }
+            val closed = FileLog.snapshot().lines().firstOrNull { it.contains("evt=req.closed") }
+                ?: throw AssertionError("正常收尾也应落 req.closed 行")
+            assertTrue("正常收尾必须记 why=eof：$closed", closed.contains("why=eof"))
+            assertFalse("正常收尾不得被记成判死：$closed", closed.contains("upstream-silent"))
+        } finally {
+            FileLog.clear()
+            dir.deleteRecursively()
+        }
     }
 
     /**

@@ -66,11 +66,17 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
     fun failed(host: String, why: String, err: Any?) =
         Ev.w(LogCat.EGRESS, "req.failed", "id" to id, "host" to host, "at" to why, "err" to err, "ms" to elapsedMs())
 
-    /** 隧道拆除：区分正常结束与被判死，并带上存活时长与收发字节。 */
-    fun tunnelClosed(reason: String, up: Long, down: Long) =
+    /**
+     * 隧道拆除：区分正常结束与被判死，并带上存活时长与收发字节。
+     *
+     * **[host] 冗余记一遍是刻意的**——靠 id 回查 `req.rule` 才能知道是谁，
+     * 意味着「这一晚判死了哪些域名」得先 join 两类行；而排障时最想一条命令答完的
+     * 恰恰是这个问题（`grep 'why=upstream-silent' | grep -o 'host=[^ ]*' | sort | uniq -c`）。
+     */
+    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) =
         Ev.i(
             LogCat.RELAY, "req.closed",
-            "id" to id, "why" to reason, "up" to up, "down" to down, "ms" to elapsedMs(),
+            "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down, "ms" to elapsedMs(),
         )
 
     companion object {

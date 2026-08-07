@@ -324,7 +324,7 @@ class TrafficHistoryStore(
                 file.delete()
                 tmp.renameTo(file)
             }
-        }.onFailure { FileLog.w(TAG, "traffic history 落盘失败: ${it.message}") }
+        }.onFailure { FileLog.w(TAG, "traffic history persist failed: ${it.message}") }
     }
 
     private fun ensureLoaded() {
@@ -356,7 +356,7 @@ class TrafficHistoryStore(
             }
             trimLocked()
         }.onFailure {
-            FileLog.w(TAG, "traffic history 读取失败，从空表重来: ${it.message}")
+            FileLog.w(TAG, "traffic history load failed, starting empty: ${it.message}")
             hours.clear(); days.clear(); sessions.clear()
             total.fill(0); totalSessions = 0; firstDay = -1L
         }

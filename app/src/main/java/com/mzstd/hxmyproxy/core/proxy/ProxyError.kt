@@ -5,22 +5,22 @@ package com.mzstd.hxmyproxy.core.proxy
  * 便于客户端区分原因、UI 诊断展示。
  */
 sealed class ProxyError(val label: String) {
-    data object VpnUnavailable : ProxyError("VPN 不可用")
-    data object LocalNetworkPermissionDenied : ProxyError("本地网络权限未授权")
-    data object PortInUse : ProxyError("端口被占用")
-    data object DnsFailure : ProxyError("DNS 解析失败")
-    data object RemoteTimeout : ProxyError("远程连接超时")
-    data object RemoteUnreachable : ProxyError("远程不可达")
-    data object ConnectionRefused : ProxyError("连接被拒绝")
-    data object AccessDenied : ProxyError("被访问控制/出口护栏拒绝")
-    data object TooManyConnections : ProxyError("连接数超限")
+    data object VpnUnavailable : ProxyError("VPN unavailable")
+    data object LocalNetworkPermissionDenied : ProxyError("local network permission denied")
+    data object PortInUse : ProxyError("port in use")
+    data object DnsFailure : ProxyError("DNS resolution failed")
+    data object RemoteTimeout : ProxyError("remote connect timeout")
+    data object RemoteUnreachable : ProxyError("remote unreachable")
+    data object ConnectionRefused : ProxyError("connection refused")
+    data object AccessDenied : ProxyError("denied by access control / egress guard")
+    data object TooManyConnections : ProxyError("too many connections")
     data class Unknown(val detail: String) : ProxyError(detail)
 
     /**
      * 稳定的机器可读标识，供 UI 查本地化文案。
      *
-     * **不要拿 [label] 上界面**：它是硬编码中文（给日志用的），直接显示会在英文界面上冒出
-     * 「远程连接超时」——实测过一次，端到端截图才发现，单测抓不到。
+     * **不要拿 [label] 上界面**：它是**英文**排障文案（给日志用的），直接显示会在中文界面上冒出
+     * 英文串——实测过一次，端到端截图才发现，单测抓不到。
      */
     val code: String
         get() = when (this) {

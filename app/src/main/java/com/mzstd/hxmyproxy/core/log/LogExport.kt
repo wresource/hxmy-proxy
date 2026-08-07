@@ -29,18 +29,15 @@ object LogExport {
             "${pi.versionName} (${pi.longVersionCode})"
         }.getOrDefault("?")
         val persistent = FileLog.snapshot()
-        // 文件头随系统语言(导出会被用户转发,英文环境不冒中文);日志正文是开发者产物,不本地化。
-        val zh = Locale.getDefault().language == "zh"
+        // 整份导出**一律英文**，不随系统语言。它是排障产物，读它的是开发者与协作方
+        // （上游 shim、issue 里的陌生人），不是本机用户；中英混排还会让 grep 出来的
+        // 同一类事件分成两种写法。UI 上的文案该本地化，落盘的日志不该。
         return buildString {
-            append(if (zh) "=== hxmy proxy 错误日志 ===\n" else "=== hxmy proxy error log ===\n")
+            append("=== hxmy proxy error log ===\n")
             append("time: ").append(ts).append('\n')
             append("package: ").append(context.packageName).append('\n')
             append("version: ").append(version).append("\n\n")
-            append(
-                if (persistent.isBlank()) {
-                    if (zh) "(无错误记录)\n" else "(no errors recorded)\n"
-                } else persistent,
-            )
+            append(if (persistent.isBlank()) "(no errors recorded)\n" else persistent)
         }
     }
 }

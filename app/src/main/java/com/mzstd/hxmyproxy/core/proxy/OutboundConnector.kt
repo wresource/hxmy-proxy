@@ -159,7 +159,7 @@ class OutboundConnector(
         if (!bypassVpn) return underlyingNetworkProvider?.egressNetwork()
         return underlyingNetworkProvider?.current() ?: run {
             throttledFileLog("direct-noeg:$host",
-                "DIRECT $host: 无可用物理网络(仅 VPN 在线)，fail-closed 断开——拒绝泄漏到 VPN 出口")
+                "DIRECT $host: no physical network (VPN only), fail-closed - refusing to leak via VPN egress")
             throw ProxyException(ProxyError.AccessDenied)
         }
     }
@@ -229,7 +229,7 @@ class OutboundConnector(
     ): Socket {
         val network = egressNetworkFor(bypassVpn, host)
         if (egressUnusable(network, bypassVpn)) {
-            throttledFileLog("egress-down:$host", "出口网已判定不通，跳过等待 —— $host")
+            throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
                 throw ProxyException(ProxyError.RemoteUnreachable)
             }
@@ -250,7 +250,7 @@ class OutboundConnector(
                 // 计数给 UI：fail-closed 的失败对用户是静默的（只表现为"这个 app 有时候卡"），
                 // 必须让它在防护页可见，否则用户不导出日志根本不知道自己设的「直连」连不通。
                 DirectEgressFailures.recordFailure(host, e.error.code)
-                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
+                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} - fail-closed (no VPN fallback)")
                 throw e
             }
             if (network == null) {
@@ -265,7 +265,7 @@ class OutboundConnector(
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
                 throttledFileLog(
                     "egress-strict:$host",
-                    "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
+                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
                 )
                 trace?.failed(host, "connect-strict", e.error)
                 throw e
@@ -436,7 +436,7 @@ class OutboundConnector(
         // 快速判负让调用方立刻去走互援/DoH/缓存兜底，而不是把用户吊在那里。
         if (!dnsSlots.tryAcquire()) {
             val n = dnsRejected.incrementAndGet()
-            throttledFileLog("dns-busy", "DNS 并发已满($DNS_MAX_INFLIGHT)，本次快速判负而非排队；累计 $n 次")
+            throttledFileLog("dns-busy", "DNS inflight full ($DNS_MAX_INFLIGHT), failing fast instead of queuing; $n total")
             return null
         }
         val t0 = System.nanoTime()
@@ -444,7 +444,7 @@ class OutboundConnector(
             val r = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) { runInterruptible(dnsDispatcher) { block() } }
             if (r == null) {
                 val n = dnsTimedOut.incrementAndGet()
-                throttledFileLog("dns-timeout", "DNS 单步超时(${DNS_STEP_TIMEOUT_MS}ms)；累计 $n 次")
+                throttledFileLog("dns-timeout", "DNS step timeout (${DNS_STEP_TIMEOUT_MS}ms); $n total")
             } else {
                 recordDnsOk((System.nanoTime() - t0) / 1_000_000L)
             }
@@ -565,8 +565,8 @@ class OutboundConnector(
                         dnsParallelWins.incrementAndGet()
                         throttledFileLog(
                             "dns-hedge:$host",
-                            "DNS 对冲抢答：$host 在出口网未及时返回，改用互援结果（省下最多 " +
-                                "${DNS_STEP_TIMEOUT_MS - DNS_HEDGE_DELAY_MS}ms 等待）",
+                            "DNS hedge win: $host slow on egress, using rescue result (saved up to " +
+                                "${DNS_STEP_TIMEOUT_MS - DNS_HEDGE_DELAY_MS}ms)",
                         )
                         r
                     } else {
@@ -746,7 +746,7 @@ class OutboundConnector(
     ): SocketChannel {
         val network = egressNetworkFor(bypassVpn, host)
         if (egressUnusable(network, bypassVpn)) {
-            throttledFileLog("egress-down:$host", "出口网已判定不通，跳过等待 —— $host")
+            throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
                 throw ProxyException(ProxyError.RemoteUnreachable)
             }
@@ -769,7 +769,7 @@ class OutboundConnector(
             // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
             if (bypassVpn) {
                 DirectEgressFailures.recordFailure(host, e.error.code)
-                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} — fail-closed 断开(不降级 VPN)")
+                throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} - fail-closed (no VPN fallback)")
                 throw e
             }
             if (network == null) {
@@ -781,7 +781,7 @@ class OutboundConnector(
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
                 throttledFileLog(
                     "egress-strict:$host",
-                    "egress fail $host: ${e.error} — STRICT 断开(不降级，保出口身份不变)",
+                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
                 )
                 trace?.failed(host, "connect-strict", e.error)
                 throw e
@@ -871,7 +871,7 @@ class OutboundConnector(
         // 出口分流（network 非空）的前提是反射取 fd 可用。**fail-fast**：不可用直接抛 IOException，让调用方回退
         // 阻塞 relay——否则反射失败会被 Happy Eyeballs 编排吞成 ProxyException，无法与「连接失败」区分。
         if (network != null && !ensureFdReflectionUsable()) {
-            throw IOException("SocketChannel fd 反射不可用，无法 bindSocket 出口分流")
+            throw IOException("SocketChannel fd reflection unavailable, cannot bindSocket for egress split")
         }
         return connectAnyGeneric(
             addrs, port,
@@ -880,7 +880,7 @@ class OutboundConnector(
                 ch.configureBlocking(true)
                 if (network != null) {
                     val fd = fileDescriptorOf(ch)
-                        ?: run { ch.closeQuietly(); throw IOException("取 SocketChannel fd 失败，无法 bindSocket 出口分流") }
+                        ?: run { ch.closeQuietly(); throw IOException("failed to obtain SocketChannel fd, cannot bindSocket for egress split") }
                     network.bindSocket(fd)   // connect 之前绑定到非 VPN 网络
                 }
                 ch

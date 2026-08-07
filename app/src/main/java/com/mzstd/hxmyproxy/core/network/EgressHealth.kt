@@ -101,12 +101,12 @@ class EgressHealth(
             if (ok) {
                 val was = sidelined.remove(id)
                 failures[id]?.clear()
-                if (was != null) FileLog.w(TAG, "出口网 $id 探测通过，恢复使用")
+                if (was != null) FileLog.w(TAG, "egress $id probe ok, restored")
             } else if (sidelined.putIfAbsent(id, nowMs()) == null) {
                 FileLog.w(
                     TAG,
-                    "出口网 $id 探测失败：${WINDOW_MS / 1000}s 内 $DISTINCT_HOSTS 个不同域名连不上，" +
-                        "且探测目标也不通 —— 暂时摘掉，${RECHECK_MS / 1000}s 后复检",
+                    "egress $id probe failed: $DISTINCT_HOSTS distinct hosts unreachable in ${WINDOW_MS / 1000}s " +
+                        "and probe targets down too - dropped, recheck in ${RECHECK_MS / 1000}s",
                 )
             }
         } finally {

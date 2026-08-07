@@ -101,7 +101,11 @@ class HttpProxyServer(
         tracker?.bindHost(hp.first, direct = action == RuleAction.DIRECT)
         if (action == RuleAction.REJECT) {
             tracker?.recordBlocked(hp.first)
-            writeStatus(output, 403, "Blocked", ruleHeader(hp.first, decision?.src)); return
+            writeStatus(
+                output, 403, "Blocked", ruleHeader(hp.first, decision?.src),
+                body = blockedBody(hp.first, decision?.src),
+            )
+            return
         }
         val bypass = action == RuleAction.DIRECT
         val limits = limitsProvider()
@@ -124,7 +128,11 @@ class HttpProxyServer(
                 }
             } catch (e: ProxyException) {
                 trace.failed(hp.first, "connect", e.error)
-                writeStatus(output, e.error.httpStatus, e.error.httpReason); return
+                writeStatus(
+                    output, e.error.httpStatus, e.error.httpReason,
+                    body = failureBody(hp.first, hp.second, e.error),
+                )
+                return
             } catch (e: IOException) {
                 // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
                 null
@@ -134,7 +142,10 @@ class HttpProxyServer(
                 output.flush()
                 channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
                 upstreamCh.configureBlocking(false)
-                nioReactor.relay(channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, onTraffic = onBytes)
+                nioReactor.relay(
+                    channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
+                    host = hp.first, trace = trace, onTraffic = onBytes,
+                )
                 return
             }
         }
@@ -148,7 +159,11 @@ class HttpProxyServer(
             }
         } catch (e: ProxyException) {
             trace.failed(hp.first, "connect", e.error)
-            writeStatus(output, e.error.httpStatus, e.error.httpReason); return
+            writeStatus(
+                output, e.error.httpStatus, e.error.httpReason,
+                body = failureBody(hp.first, hp.second, e.error),
+            )
+            return
         } catch (e: IOException) {
             // **必须回一个干净的状态码再关**。此前这里只接 ProxyException，
             // IOException（反射取 fd 失败、底层 socket 异常等）会一路冒泡到 accept 循环，
@@ -162,7 +177,13 @@ class HttpProxyServer(
                 LogCat.EGRESS, "connect.io", "cio:${hp.first}", 30_000L, key = true,
                 kv = arrayOf("host" to hp.first, "err" to e.javaClass.simpleName, "msg" to e.message),
             )
-            writeStatus(output, 502, "Bad Gateway"); return
+            writeStatus(
+                output, 502, "Bad Gateway",
+                body = "hxmy proxy: upstream connect failed\n" +
+                    "target: ${hp.first}:${hp.second}\n" +
+                    "cause: ${e.javaClass.simpleName} while opening upstream socket\n",
+            )
+            return
         }
         output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
         output.flush()
@@ -202,9 +223,15 @@ class HttpProxyServer(
         trace.rule(host, action ?: RuleAction.PROXY, decision?.src)
         Log.i("hxmyproxy", "RULE HTTP $host -> ${action ?: RuleAction.PROXY}")
         tracker?.bindHost(host, direct = action == RuleAction.DIRECT)
+        // HEAD 的响应不得带正文（RFC 9110 §9.3.2），否则客户端会把正文当成下一个响应的开头。
+        val wantsBody = !method.equals("HEAD", ignoreCase = true)
         if (action == RuleAction.REJECT) {
             tracker?.recordBlocked(host)
-            writeStatus(output, 403, "Blocked", ruleHeader(host, decision?.src)); return false
+            writeStatus(
+                output, 403, "Blocked", ruleHeader(host, decision?.src),
+                body = if (wantsBody) blockedBody(host, decision?.src) else null,
+            )
+            return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         val upstream = try {
@@ -217,7 +244,11 @@ class HttpProxyServer(
                 )
             } ?: throw ProxyException(ProxyError.RemoteTimeout)
         } catch (e: ProxyException) {
-            writeStatus(output, e.error.httpStatus, e.error.httpReason); return false
+            writeStatus(
+                output, e.error.httpStatus, e.error.httpReason,
+                body = if (wantsBody) failureBody(host, port, e.error) else null,
+            )
+            return false
         }
         try {
             val limits = limitsProvider()
@@ -249,7 +280,17 @@ class HttpProxyServer(
             upOut.flush()
 
             // 3) 上游响应行 + 头
-            val statusLine = readAsciiLine(upIn) ?: run { writeStatus(output, 502, "Bad Gateway"); return false }
+            val statusLine = readAsciiLine(upIn) ?: run {
+                // 上游连上了却没吐出状态行（半死链路/被中途掐断）——这一类此前也是裸 502。
+                writeStatus(
+                    output, 502, "Bad Gateway",
+                    body = if (wantsBody) {
+                        "hxmy proxy: upstream closed before sending a response\n" +
+                            "target: $host:$port\n"
+                    } else null,
+                )
+                return false
+            }
             val status = statusLine.split(' ').getOrNull(1)?.toIntOrNull() ?: 0
             val respHeaders = readHeaders(upIn)
             val (respFraming, respLen) = HttpForwarding.responseFraming(status, method, respHeaders)
@@ -316,16 +357,48 @@ class HttpProxyServer(
         code: Int,
         reason: String,
         vararg extraHeaders: String,
+        /**
+         * 失败说明正文（具名传入；[extraHeaders] 是 vararg，位置参数会被它吞掉）。
+         *
+         * 为什么值得发：此前所有错误响应都是 `Content-Length: 0`，于是客户端只拿到一个裸状态码。
+         * 0807 现场 claude cli 报的就是 **"no body"**，再由它自己的错误处理猜成认证问题、
+         * 提示重新登录——而真实原因是出口不通、STRICT 拒绝降级。
+         * 一个状态码撑不起归因，多发几十字节能让上游直接显示真相。
+         *
+         * **HEAD 请求必须传 null**（RFC 9110 §9.3.2：HEAD 响应不得有正文）。
+         */
+        body: String? = null,
     ) {
         val safe = extraHeaders.filter { it.isNotEmpty() && !it.contains('\r') && !it.contains('\n') }
+        val bodyBytes = body?.toByteArray(Charsets.UTF_8)
         val head = buildString {
             append("HTTP/1.1 ").append(code).append(' ').append(reason).append("\r\n")
             safe.forEach { append(it).append("\r\n") }
-            append("Content-Length: 0\r\nConnection: close\r\n\r\n")
+            if (bodyBytes != null) append("Content-Type: text/plain; charset=utf-8\r\n")
+            append("Content-Length: ").append(bodyBytes?.size ?: 0).append("\r\n")
+            append("Connection: close\r\n\r\n")
         }
         output.write(head.toByteArray(Charsets.ISO_8859_1))
+        if (bodyBytes != null) output.write(bodyBytes)
         output.flush()
     }
+
+    /**
+     * 建连失败的说明正文。**只讲代理这一跳知道的事实**，不猜上游为什么不通。
+     *
+     * 之所以点明 "hxmy proxy"：链路上可能还有别的中间层（本机 shim 之类），
+     * 客户端看到 502 时第一个问题是「谁返回的」。
+     */
+    private fun failureBody(host: String, port: Int, err: ProxyError): String =
+        "hxmy proxy: upstream connect failed\n" +
+            "target: $host:$port\n" +
+            "cause: ${err.label} (${err.code})\n"
+
+    /** 规则拦截的说明正文；与 `X-Proxy-Rule` 头同源，便于不看 header 的客户端也能读到。 */
+    private fun blockedBody(host: String, src: RuleSrc?): String =
+        "hxmy proxy: blocked by rule\n" +
+            "target: $host\n" +
+            "rule: ${src?.name?.lowercase() ?: "unknown"}\n"
 
     /**
      * 拦截响应上的规则说明头。

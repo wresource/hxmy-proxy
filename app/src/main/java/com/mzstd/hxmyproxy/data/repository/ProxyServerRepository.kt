@@ -905,8 +905,8 @@ class ProxyServerRepository @Inject constructor(
         val fdCap = fdBudget.safeMaxGlobal()
         val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
         if (effectiveMax < s.limits.maxGlobalConnections) {
-            FileLog.w(TAG, "maxGlobal=${s.limits.maxGlobalConnections} 超 FD 安全上限 $fdCap" +
-                "(每连接约 ${FdBudget.PER_CONN} FD, rlimit=${fdBudget.rlimit}),已钳制为 $effectiveMax")
+            FileLog.w(TAG, "maxGlobal=${s.limits.maxGlobalConnections} exceeds FD safety cap $fdCap" +
+                " (~${FdBudget.PER_CONN} FD per conn, rlimit=${fdBudget.rlimit}), clamped to $effectiveMax")
         }
         registry.maxGlobal = effectiveMax
         registry.maxPerClient = s.limits.maxPerClientConnections.coerceAtMost(effectiveMax)

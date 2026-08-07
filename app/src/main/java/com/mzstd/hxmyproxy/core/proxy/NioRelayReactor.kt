@@ -58,10 +58,13 @@ class NioRelayReactor(
         idleMillis: Int,
         /** 上游静默判死阈值(ms)；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
         silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
+        /** 目标域名与请求追踪，透传给 worker——拆隧道时用来回答「死的是谁」。 */
+        host: String? = null,
+        trace: RequestTrace? = null,
         onTraffic: (Long, Long) -> Unit,
     ) {
         val worker = aliveWorkerAt((rr.getAndIncrement() and Int.MAX_VALUE) % workers.size)
-        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), silenceMs, onTraffic)
+        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), silenceMs, host, trace, onTraffic)
     }
 
     /** 各槽位上次重启时刻（ms）；冷却期内不再重建，防持续性崩溃源把重启变成风暴。 */
@@ -175,9 +178,16 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         idleMs: Long,
         /** 上游静默判死阈值；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
         silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
+        /**
+         * 目标域名与请求追踪。**没有这两个，拆隧道时答不出「死的是谁」** ——
+         * 判死此前只记一个聚合计数，于是「90 秒静默」究竟杀掉了长思考的 API 请求
+         * 还是真正的死链路，无从分辨（0807 日志里 884 行判死，一个域名都定位不了）。
+         */
+        host: String? = null,
+        trace: RequestTrace? = null,
         onTraffic: (Long, Long) -> Unit,
     ) = suspendCancellableCoroutine<Unit> { cont ->
-        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, silenceMs, onTraffic, cont)
+        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, silenceMs, host, trace, onTraffic, cont)
         // 取消（协程取消 / ProxyServer.stop 级联）→ 投递到 selector 线程拆隧道。
         cont.invokeOnCancellation { enqueue { tunnel.close(this) } }
         // 注册必须在 selector 线程（register 与 select 互斥，跨线程直接 register 会卡死）。
@@ -275,15 +285,25 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
         // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
         tunnels.toList().forEach {
-            if (it.idleExpired(now) || it.externallyClosed()) it.close(this)
-            else if (it.upstreamSilent(now)) {
-                // 与普通空闲回收分开记：这一类是「上游静默死亡」，是网络侧故障的信号，
-                // 而不是正常的连接老化。混在一起会让排障时分不清「没人用」和「用不了」。
-                Ev.throttled(
-                    LogCat.RELAY, "nio.upstream.silent", "usilent", 30_000L, key = true,
-                    kv = arrayOf("tunnels" to tunnels.size),
-                )
-                it.close(this)
+            when {
+                it.idleExpired(now) -> { it.markClosing("idle"); it.close(this) }
+                it.externallyClosed() -> { it.markClosing("peer-closed"); it.close(this) }
+                it.upstreamSilent(now) -> {
+                    // 与普通空闲回收分开记：这一类是「上游静默死亡」，是网络侧故障的信号，
+                    // 而不是正常的连接老化。混在一起会让排障时分不清「没人用」和「用不了」。
+                    it.markClosing("upstream-silent")
+                    // 节流 key 按域名分桶：此前是固定串，30 秒窗口内**不同域名互相压制**，
+                    // 于是判死最频繁的那个域名反而可能一行都不留。
+                    Ev.throttled(
+                        LogCat.RELAY, "nio.upstream.silent", "usilent:${it.hostOrUnknown()}", 30_000L, key = true,
+                        kv = arrayOf(
+                            "host" to it.hostOrUnknown(), "aliveSec" to it.aliveSec(now),
+                            "up" to it.upBytesSoFar(), "down" to it.downBytesSoFar(),
+                            "tunnels" to tunnels.size,
+                        ),
+                    )
+                    it.close(this)
+                }
             }
         }
     }
@@ -345,15 +365,33 @@ private class Tunnel(
     bufferBytes: Int,
     private val idleMs: Long,
     private val silenceMs: Long,
+    private val host: String?,
+    private val trace: RequestTrace?,
     onTraffic: (Long, Long) -> Unit,
     private val cont: CancellableContinuation<Unit>,
 ) {
     private val cCtx = ChannelCtx(client)
     private val uCtx = ChannelCtx(upstream)
+    /** 本隧道自己的收发累计——[onTraffic] 只往全局记账走，回答不了「这一条搬了多少」。 */
+    @Volatile private var upBytes = 0L
+    @Volatile private var downBytes = 0L
     // up: client→upstream（计 up）；down: upstream→client（计 down）
-    private val up = Pipe(cCtx, uCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(it, 0) }
-    private val down = Pipe(uCtx, cCtx, ByteBuffer.allocate(bufferBytes)) { onTraffic(0, it) }
+    private val up = Pipe(cCtx, uCtx, ByteBuffer.allocate(bufferBytes)) { upBytes += it; onTraffic(it, 0) }
+    private val down = Pipe(uCtx, cCtx, ByteBuffer.allocate(bufferBytes)) { downBytes += it; onTraffic(0, it) }
     @Volatile private var lastActivity = System.nanoTime()
+
+    /**
+     * 拆除原因。默认 `eof` = 正常收尾（任一端读到 -1 且两向都排空）。
+     * sweep 判死的三条路径各自在 close 前 [markClosing]，于是 `req.closed` 的 `why=`
+     * 直接分开「正常结束」「空闲老化」「上游静默判死」——**这是判断误杀率的唯一依据**。
+     */
+    @Volatile private var closeReason = "eof"
+
+    fun markClosing(reason: String) { closeReason = reason }
+    fun hostOrUnknown(): String = host ?: "?"
+    fun aliveSec(now: Long): Long = (now - startNs) / 1_000_000_000L
+    fun upBytesSoFar(): Long = upBytes
+    fun downBytesSoFar(): Long = downBytes
 
     /**
      * 最后一次**从上游收到**字节的时刻，以及「客户端发过、上游还没回」的标记。
@@ -468,6 +506,9 @@ private class Tunnel(
         down.exitStall(endNs)
         // up=client→upstream(写上游=出口段)，down=upstream→client(写客户端=入口段)。
         RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs)
+        // 隧道终局落盘。此前 RequestTrace.tunnelClosed 只有定义、**全仓零调用点**——
+        // 于是「跑一天再看 req.closed」这个排查计划从一开始就取不到数据。
+        trace?.tunnelClosed(host, closeReason, upBytes, downBytes)
         cCtx.key?.cancel(); uCtx.key?.cancel()
         cCtx.channel.closeQuietly(); uCtx.channel.closeQuietly()
         w.untrack(this)

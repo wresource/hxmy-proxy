@@ -166,6 +166,43 @@ class HttpProxyProtocolTest {
         assertEquals(502, head.status)
     }
 
+    /**
+     * **失败响应必须带说明正文**，且要说清是谁、什么目标、什么原因。
+     *
+     * 此前所有错误响应都是 `Content-Length: 0`，客户端只拿到一个裸状态码。
+     * 0807 现场 claude cli 报的就是 "no body"，再由它自己的错误处理猜成认证问题、
+     * 提示重新登录——而真实原因是出口不通。链路上还可能有别的中间层，
+     * 所以正文里点名 "hxmy proxy" 才能回答「这个 502 是谁返回的」。
+     */
+    @Test(timeout = 20000) fun `建连失败的502必须带说明正文`() {
+        val port = ProxyTestKit.deadPort()
+        val sock = connect(proxy())
+        ProxyTestKit.write(sock, "CONNECT 127.0.0.1:$port HTTP/1.1\r\nHost: x\r\n\r\n")
+        val text = sock.getInputStream().readBytes().toString(Charsets.UTF_8)
+        assertTrue("应回 502：$text", text.startsWith("HTTP/1.1 502"))
+        assertTrue("正文要点名是哪一跳返回的：$text", text.contains("hxmy proxy"))
+        assertTrue("正文要带目标地址：$text", text.contains("127.0.0.1:$port"))
+        assertTrue("正文要带失败原因：$text", text.contains("cause:"))
+        sock.close()
+    }
+
+    /**
+     * **HEAD 的错误响应不得带正文**（RFC 9110 §9.3.2）。
+     *
+     * 这条守的是上一条改动引入的风险：给错误响应加正文时，若不按方法区分，
+     * HEAD 会拿到「有 Content-Length 且真的有正文」的响应，而 HEAD 的客户端
+     * 只读头就去读下一个响应——多出来的字节会被当成下一个响应的开头，
+     * 在 keep-alive 连接上表现为**此后所有响应整体错位**。
+     */
+    @Test(timeout = 20000) fun `HEAD的错误响应不得带正文`() {
+        val head = exchange(
+            proxy(),
+            "HEAD http://127.0.0.1:${ProxyTestKit.deadPort()}/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+        )
+        assertEquals(502, head.status)
+        assertEquals("HEAD 响应的 Content-Length 必须是 0", 0, head.contentLength)
+    }
+
 
     /**
      * **建连抛 IOException 时也必须回一个干净的状态码**，不能直接把连接关掉。

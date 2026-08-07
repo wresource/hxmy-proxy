@@ -547,7 +547,13 @@ fun MonitorScreen(
             }
         }
 
-        // —— 底部双入口卡：历史 IP | 错误日志 ——
+        // —— 流量统计入口（整卡而非第三个 pill）：History/Error logs 是「去看列表」，
+        //    而流量统计本身就有一个值得当场读到的数字——不点进去也已回答「今天用了多少」。——
+        item { TrafficStatsEntryCard(trafficSummary, onOpenTrafficStats) }
+
+        // —— 双入口卡：历史 IP | 错误日志 ——
+        // 排在流量统计**之后**：这两个是排障入口，用户找它们时是带着目的来的，
+        // 而流量统计是随手一瞥的数字。夹在中间反而让「错误日志在哪」变得难找。
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 EntryCard(
@@ -566,10 +572,6 @@ fun MonitorScreen(
                 )
             }
         }
-
-        // —— 流量统计入口（整卡而非第三个 pill）：History/Error logs 是「去看列表」，
-        //    而流量统计本身就有一个值得当场读到的数字——不点进去也已回答「今天用了多少」。——
-        item { TrafficStatsEntryCard(trafficSummary, onOpenTrafficStats) }
     }
 }
 
