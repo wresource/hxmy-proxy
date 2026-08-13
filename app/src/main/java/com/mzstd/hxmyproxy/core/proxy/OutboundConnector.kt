@@ -111,6 +111,9 @@ class OutboundConnector(
     private val dnsQueueCount = java.util.concurrent.atomic.AtomicLong()
     private val dnsQueueTotalMs = java.util.concurrent.atomic.AtomicLong()
     private val dnsQueueMaxMs = java.util.concurrent.atomic.AtomicLong()
+    /** DoH 兜底调用次数，以及其中**超出声明预算**的次数。见 resolveLastResort 内注释。 */
+    private val dohCalls = java.util.concurrent.atomic.AtomicLong()
+    private val dohOverBudget = java.util.concurrent.atomic.AtomicLong()
 
     /** 缓存/单飞的键：netId 为 0 表示进程默认网络。 */
     private data class DnsKey(val netId: Long, val host: String)
@@ -574,6 +577,9 @@ class OutboundConnector(
         /** 派发排队：均值 / 最大，单位 ms。**与 okAvgMs 分开看**——后者含排队。 */
         val queueAvgMs: Long,
         val queueMaxMs: Long,
+        /** DoH 兜底:调用次数 / 其中超出声明预算的次数。 */
+        val dohCalls: Long,
+        val dohOverBudget: Long,
     )
 
     fun dnsStats(): DnsStats {
@@ -591,6 +597,8 @@ class OutboundConnector(
             parallelWins = dnsParallelWins.get(),
             queueAvgMs = dnsQueueCount.get().let { if (it == 0L) 0 else dnsQueueTotalMs.get() / it },
             queueMaxMs = dnsQueueMaxMs.get(),
+            dohCalls = dohCalls.get(),
+            dohOverBudget = dohOverBudget.get(),
         )
     }
 
@@ -749,14 +757,29 @@ class OutboundConnector(
         if (backupDnsEnabled) {
             // 总预算封顶：单请求超时管不住 4 个端点的累加（见 DOH_TOTAL_BUDGET_MS）。
             // runInterruptible 而非 withContext——超时要能真正中断那条阻塞在 socket 上的线程。
+            val t0 = System.nanoTime()
             val doh = withTimeoutOrNull(DOH_TOTAL_BUDGET_MS) {
                 runInterruptible(dnsDispatcher) { dohResolve(host) }
             } ?: emptyList()
+            // **实测耗时必须落一次。** 声明的预算是 3000ms，而 0814 实测 5411/5568/5856ms ——
+            // 三次全部超支近一倍。最可能的解释是 runInterruptible 对 HttpsURLConnection 的
+            // 阻塞 SSL 读发 interrupt 是空操作（只有 InterruptibleChannel 响应），于是
+            // withTimeoutOrNull 虽然不等了、4 端点 × 2 记录类型照样跑完。
+            // 刻意**不做每端点一行**:DoH 触发时恰恰是 DNS 已经出问题的时刻，
+            // 8 次查询 × 前后各一行 = 16 行/次，会在最糟的时刻把同期证据挤出滚动窗口。
+            // 一行汇总 + over 标记，足以判断预算是否真的兜住。
+            val dohMs = (System.nanoTime() - t0) / 1_000_000L
+            dohCalls.incrementAndGet()
+            if (dohMs > DOH_TOTAL_BUDGET_MS) dohOverBudget.incrementAndGet()
             if (doh.isNotEmpty()) {
-                throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup")
+                throttledFileLog("doh-rescued:$host", "DNS rescued $host via DoH backup (${dohMs}ms)")
                 return doh
             }
-            throttledFileLog("doh-fail:$host", "DoH backup also failed for $host")
+            throttledFileLog(
+                "doh-fail:$host",
+                "DoH backup also failed for $host (${dohMs}ms" +
+                    (if (dohMs > DOH_TOTAL_BUDGET_MS) ", OVER budget ${DOH_TOTAL_BUDGET_MS}ms" else "") + ")",
+            )
         }
         throw ProxyException(ProxyError.DnsFailure)
     }

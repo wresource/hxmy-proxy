@@ -74,6 +74,10 @@ interface ProxyServer {
     /** 本次监听会话累计 accept 成功数（含自探连接）；供 PERF 心跳读取，定位「入站到底进没进来」。 */
     val acceptCount: Long get() = 0
 
+    /** 见 [TcpProxyServerBase] 里的口径说明:三者不互斥，不能相加。 */
+    val probeCount: Long get() = 0
+    val rejectedCount: Long get() = 0
+
     /** 在 [scope] 内绑定并启动 accept 循环。 */
     fun start(scope: CoroutineScope, port: Int)
 
@@ -104,6 +108,18 @@ abstract class TcpProxyServerBase(
 
     private val acceptTotal = java.util.concurrent.atomic.AtomicLong(0)
     override val acceptCount: Long get() = acceptTotal.get()
+
+    /**
+     * accept 的三个口径。**它们不是互斥分类，不能相加**——自探的 127 腿既算 probe、
+     * 又会被准入拒绝（loopback 不放行是设计内的），所以 rejected 刻意**排除自探**。
+     *
+     * 正确读法:`accept − probe − rejected` = 真正进入业务处理的连接数。
+     * 这个差值停在 0 而 accept 仍在涨 ⇒ 代理开着但什么都连不上（0814 那两段停摆窗口的形态）。
+     */
+    private val probeTotal = java.util.concurrent.atomic.AtomicLong(0)
+    private val rejectedTotal = java.util.concurrent.atomic.AtomicLong(0)
+    override val probeCount: Long get() = probeTotal.get()
+    override val rejectedCount: Long get() = rejectedTotal.get()
 
     @Volatile private var serverChannel: ServerSocketChannel? = null
     @Volatile private var acceptJob: Job? = null
@@ -185,7 +201,13 @@ abstract class TcpProxyServerBase(
                     // 记账与拦截计数一并抹掉（review 证实的回归）。见 SelfProbeMarks。
                     val probeConn = remote != null && (remote.isLoopbackAddress || remote == local) &&
                         SelfProbeMarks.consume(remotePort)
+                    if (probeConn) probeTotal.incrementAndGet()
                     if (remote == null || local == null || !accessController.admit(local, remote)) {
+                        // **拒绝也要计数**，而且要排除自探。0814 有两段窗口（4h46m + 3h13m）
+                        // req.rule=0、reject.notAdmitted=0、accept 却在涨 —— 三个数互相矛盾，
+                        // 「没人用」与「全被 fail-closed 拒了」两种解释都能覆盖，而它们对用户天差地别。
+                        // 计数器不受节流与 key 环冲洗影响，是唯一能分开这两者的东西。
+                        if (!probeConn) rejectedTotal.incrementAndGet()
                         // 准入拒绝以前**完全静默**（只 closeQuietly），导出日志里查不到任何痕迹，
                         // 排障时无法区分「没连上来」与「连上来被拒」。进 key.log，永不被高频日志冲掉。
                         // 自探的 127 腿被拒属设计内（loopback 不放行），不落行——否则每 30s 一条灌 key 环。
@@ -218,7 +240,10 @@ abstract class TcpProxyServerBase(
                     // 噪音化：clients 里出现本机 IP、LinkProbe 反过来探自己）。真实的本机自用连接照常记。
                     if (!probeConn) {
                         Ev.throttled(
-                            LogCat.CONN, "accept", "accept:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
+                            // dedup key 带上 proto:此前只按客户端 IP,同一台机器的 HTTP accept
+                            // 会把 SOCKS5 accept 整个压掉 —— 0814 排查孤儿请求时正是栽在这上面,
+                            // 「SOCKS5 只在某几小时出现」其实是节流产物,不是事实。
+                            LogCat.CONN, "accept", "accept:$protocol:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
                             level = "I",
                             // **端口不能省**：外层若有本机中间层代理（如 proxyshim），它的日志里带的是
                             // `(127.0.0.1:57725)` 这种源端口，只记 IP 就无法把两侧的同一条连接对起来——

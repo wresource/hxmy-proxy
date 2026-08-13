@@ -69,12 +69,39 @@ object Ev {
             suppressed.merge(dedup, 1) { a, b -> a + b }
             return
         }
-        if (throttleAt.size > MAX_THROTTLE_KEYS) { throttleAt.clear(); suppressed.clear() }
+        if (throttleAt.size > MAX_THROTTLE_KEYS) evictOldest()
         throttleAt[dedup] = now
         val n = suppressed.remove(dedup) ?: 0
         val pairs = if (n > 0) kv.toList() + ("suppressed" to n) else kv.toList()
         FileLog.append(level, cat.name, line(evt, pairs.toTypedArray()), null, key = key)
     }
+
+    /**
+     * 键表满了：**淘汰最久未用的一批，而不是全清**。
+     *
+     * 原实现是 `throttleAt.clear(); suppressed.clear()`，三个后果连在一起：
+     *  1. 被压制的条数**永久丢失** —— `suppressed=N` 这个补偿机制的全部意义就是
+     *     「日志只有一行，但你要知道实际发生了 N 次」，清掉它等于让那 N 次凭空消失；
+     *  2. 清空后所有键重新开始，下一条统统落盘 → **日志突发**，
+     *     而突发恰好发生在键最多的时候（故障期，域名基数最大）；
+     *  3. 512 对本项目真的紧张：一个活跃域名会占 `usilent:` / `direct:` / `egress-down:` /
+     *     `dns-hedge:` / `connect:` / `dns-cache-fallback:` 五六个槽，几十个域名就到顶。
+     *
+     * 现在：按 LRU 淘汰四分之一，且**被淘汰键的 suppressed 累加进 [droppedSuppressed]**，
+     * 由心跳报出来 —— 信息不再凭空消失，只是从「逐键精确」降级成「总量可见」。
+     */
+    private fun evictOldest() {
+        val victims = throttleAt.entries.sortedBy { it.value }.take(MAX_THROTTLE_KEYS / 4).map { it.key }
+        victims.forEach { k ->
+            throttleAt.remove(k)
+            suppressed.remove(k)?.let { droppedSuppressed.addAndGet(it.toLong()) }
+        }
+        evictions.incrementAndGet()
+    }
+
+    /** 键表现状 + 因淘汰而未能报告的抑制条数。进心跳，用来判断节流本身是否已经在骗人。 */
+    fun throttleStats(): Triple<Int, Long, Long> =
+        Triple(throttleAt.size, evictions.get(), droppedSuppressed.get())
 
     /** 状态变化的标准写法：`k=旧->新`；相等时返回 null 供调用方跳过落盘（只记变化）。 */
     fun delta(name: String, old: Any?, new: Any?): Pair<String, Any?>? =
@@ -95,4 +122,7 @@ object Ev {
     private const val MAX_THROTTLE_KEYS = 512
     private val throttleAt = ConcurrentHashMap<String, Long>()
     private val suppressed = ConcurrentHashMap<String, Int>()
+    /** 键表淘汰次数，以及因淘汰而**没能被 `suppressed=N` 报出去**的条数累计。 */
+    private val evictions = java.util.concurrent.atomic.AtomicLong()
+    private val droppedSuppressed = java.util.concurrent.atomic.AtomicLong()
 }

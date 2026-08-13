@@ -671,6 +671,26 @@ class ProxyServerRepository @Inject constructor(
                 .joinToString(",").ifEmpty { "none" },
             "conn" to registry.activeGlobal,
             "accept" to servers.sumOf { it.acceptCount },
+            // accept 的另外两个口径。**三者不互斥、不能相加**:自探的 127 腿既算 probe
+            // 又会被准入拒(设计内),所以 rej 排除了自探。
+            // 读法:accept − probe − rej = 真正进入业务处理的连接数。该差值停在 0 而 accept
+            // 仍在涨 ⇒「代理开着但什么都连不上」——0814 有两段这样的窗口(4h46m + 3h13m),
+            // 当时 req.rule=0 / reject.notAdmitted=0 / accept 在涨,三个数互相矛盾且无法判读。
+            "probe" to servers.sumOf { it.probeCount },
+            "rej" to servers.sumOf { it.rejectedCount },
+            // 进程打开的 fd 数。**减 1 是因为列目录本身要占一个**。
+            // 取不到时落 fd=err 而不是省略 —— fd 耗尽恰恰是这个读取最可能失败的时刻,
+            // 「读不到」本身就是信号,省略会让它和「没启用」同形。
+            // 这是 registry 之外的独立锚:空窗期泄漏的 fd 不占 registry 名额,conn= 对它没有证明力。
+            "fd" to (java.io.File("/proc/self/fd").list()?.size?.minus(1)?.toString() ?: "err"),
+            // 节流表现状:keys 接近上限说明高基数 key 在挤占,dropSup 是**因淘汰而没能被
+            // suppressed=N 报出去的条数** —— 它非 0 就意味着「日志里的次数」已经偏小。
+            "thr" to com.mzstd.hxmyproxy.core.log.Ev.throttleStats().let { (keys, evict, dropped) ->
+                if (evict > 0L) "$keys/e$evict/d$dropped" else "$keys"
+            },
+            // 出口重新评估次数/其中真正变化的次数。eval 停涨 ⇒ 系统压根没通知我们(该加主动重扫);
+            // eval 在涨而 chg 不涨 ⇒ 通知来了但评估逻辑认为结论不变(该修评估逻辑)。
+            "egEval" to "${egressEvalTotal.get()}/${egressChangeTotal.get()}",
             // 本次会话累计字节 + 会话已运行秒数：用户报「流量数字不对」时，这两个字段能直接
             // 从日志判定是「没在涨」还是「没在会话边界断回 0」，不必再靠 UI 截图比对。
             "total" to (totalUp.get() + totalDown.get()),
@@ -722,7 +742,9 @@ class ProxyServerRepository @Inject constructor(
                     "n:${d.okCount},avg:${d.okAvgMs},p50:${d.okP50Ms},p90:${d.okP90Ms},max:${d.okMaxMs}" +
                         (if (d.parallelWins > 0L) ",hedge:${d.parallelWins}" else "") +
                         // 排队与真实解析分开报：avg/p90 里含排队，单看它分不出「域名慢」还是「池满了」。
-                        (if (d.queueMaxMs > 0L) ",q:${d.queueAvgMs}/${d.queueMaxMs}" else "")
+                        (if (d.queueMaxMs > 0L) ",q:${d.queueAvgMs}/${d.queueMaxMs}" else "") +
+                        // DoH 只在用过时才打:n/超预算次数。超预算非 0 ⇒ 那 3000ms 声明是假的。
+                        (if (d.dohCalls > 0L) ",doh:${d.dohCalls}/${d.dohOverBudget}" else "")
                 } else null
             },
         )
@@ -935,11 +957,20 @@ class ProxyServerRepository @Inject constructor(
         // `degrading to default` 那一支),绕了一大圈;有这两行就是直接读出来的事。
         // 埋在 applyTunables 而不是 UI 点击处:这里才是**实际生效**的时刻,UI 点了但设置没推下来的情况
         // 不该产生日志(同 refresh 只打生效值不打算出值的纪律)。
+        // **重新评估过但结论不变**也要可数。0814 那 9h10m 里 egress.choice 一条都没有,
+        // 而当时站点网卡已经消失、DIRECT 正在秒失败 —— 但分不清是「系统压根没通知我们」
+        // 还是「通知了、重新评估后结论没变所以没落日志」。这两者的修法完全不同
+        // (加主动重扫 vs 修评估逻辑),而只看日志永远分不开。
+        // 用计数器而不是日志行:评估可能很频繁,落行会刷屏、加节流又丢精确计数,
+        // 而「到底评估了多少次」恰恰是要回答的问题。
+        egressEvalTotal.incrementAndGet()
         Ev.delta("egress", lastEgressChoice, s.egressChoice)?.let {
             Ev.k(LogCat.EGRESS, "egress.choice", it)
+            egressChangeTotal.incrementAndGet()
         }
         Ev.delta("directEgress", lastDirectEgressChoice, s.directEgressChoice)?.let {
             Ev.k(LogCat.EGRESS, "egress.choice", it)
+            egressChangeTotal.incrementAndGet()
         }
         lastEgressChoice = s.egressChoice
         lastDirectEgressChoice = s.directEgressChoice
@@ -947,6 +978,10 @@ class ProxyServerRepository @Inject constructor(
         underlyingNetworkProvider.setDirectEgressChoice(s.directEgressChoice)
         underlyingNetworkProvider.setDohEgressChoice(s.dohEgressChoice)
     }
+
+    /** 出口选择被重新评估的次数 / 其中真正发生变化的次数。见 applyTunables 内注释。 */
+    private val egressEvalTotal = java.util.concurrent.atomic.AtomicLong()
+    private val egressChangeTotal = java.util.concurrent.atomic.AtomicLong()
 
     /** 上次生效的出口选择,用于只记变化（初始 null → 首次 applyTunables 会落一条基线）。 */
     @Volatile private var lastEgressChoice: com.mzstd.hxmyproxy.core.model.EgressNetworkChoice? = null
