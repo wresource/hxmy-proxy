@@ -664,7 +664,9 @@ class ProxyServerRepository @Inject constructor(
         // 背压归因（见 RelayStallStats）：取走并清零 → 这一窗口的聚合。无隧道结束则为 null，
         // 此时整组字段省略，不打 0% 噪音。
         val stall = com.mzstd.hxmyproxy.core.proxy.RelayStallStats.snapshotAndReset()
-        val kv = arrayOf(
+        // 显式类型参数:字段数已到几十个、值类型混杂(String/Int/Long/枚举/null),
+        // 交给推断会在加字段时随机崩掉,报错还指向整个 arrayOf 而不是新加的那一行。
+        val kv = arrayOf<Pair<String, Any?>>(
             "ports" to servers.mapNotNull { s -> s.boundPort.value?.let { "${s.protocol}:$it" } }
                 .joinToString(",").ifEmpty { "none" },
             "conn" to registry.activeGlobal,
@@ -679,6 +681,16 @@ class ProxyServerRepository @Inject constructor(
             // 排障时「用户选了什么出口」「VPN 在不在」是最先要问的两件事,不该靠反推。
             "egress" to currentSettings.egressChoice,
             "direct" to currentSettings.directEgressChoice,
+            // **上面两个打的是「用户选了什么」，下面两个才是「实际拿到了什么」。**
+            // 0814 实证:08-12 `egress[wifi] lost` 之后 9h10m 里 682 条心跳全报
+            // `egress=VPN direct=WIFI vpn=on`，而同期物理网句柄其实是 null、
+            // 96 次 DIRECT 正在以 AccessDenied 秒失败 —— 心跳在最需要它的 9 小时里给的是反的答案。
+            // 两者不一致本身就是信号，所以并排打而不是替换。
+            "physNet" to (underlyingNetworkProvider?.current()?.networkHandle?.toString() ?: "none"),
+            "egressNet" to (underlyingNetworkProvider?.egressNetwork()?.networkHandle?.toString() ?: "none"),
+            // DIRECT 全局不可用态（无物理出口）——per-host 账本回答不了「是不是所有直连都废了」。
+            "noEgress" to com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.noEgressState()
+                ?.let { (since, n) -> "${(System.currentTimeMillis() - since) / 1000}s/$n" },
             "vpn" to (if (_state.value.vpn.detected) (if (_state.value.vpn.validated) "on" else "on/unvalidated") else "off"),
             "rssi" to sig.dbm,
             "link" to (LinkProbe.stats()?.let { "${it.p50Ms}/${it.p95Ms}" } ?: "-"),
@@ -708,7 +720,9 @@ class ProxyServerRepository @Inject constructor(
             "dnsok" to connector.dnsStats().let { d ->
                 if (d.okCount > 0L) {
                     "n:${d.okCount},avg:${d.okAvgMs},p50:${d.okP50Ms},p90:${d.okP90Ms},max:${d.okMaxMs}" +
-                        if (d.parallelWins > 0L) ",hedge:${d.parallelWins}" else ""
+                        (if (d.parallelWins > 0L) ",hedge:${d.parallelWins}" else "") +
+                        // 排队与真实解析分开报：avg/p90 里含排队，单看它分不出「域名慢」还是「池满了」。
+                        (if (d.queueMaxMs > 0L) ",q:${d.queueAvgMs}/${d.queueMaxMs}" else "")
                 } else null
             },
         )

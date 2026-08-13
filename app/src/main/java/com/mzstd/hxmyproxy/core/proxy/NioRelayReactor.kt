@@ -299,6 +299,9 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
                         kv = arrayOf(
                             "host" to it.hostOrUnknown(), "aliveSec" to it.aliveSec(now),
                             "up" to it.upBytesSoFar(), "down" to it.downBytesSoFar(),
+                            // 判死终局要的就是这两个:sinceTx 大 ⇒ 客户端早就不发了（池化闲置，误杀）;
+                            // sinceTx 小 ⇒ 客户端刚还在写（正在传输被腰斩，真该救）。
+                            "sinceTxSec" to it.sinceClientTxSec(now),
                             "tunnels" to tunnels.size,
                         ),
                     )
@@ -390,6 +393,7 @@ private class Tunnel(
     fun markClosing(reason: String) { closeReason = reason }
     fun hostOrUnknown(): String = host ?: "?"
     fun aliveSec(now: Long): Long = (now - startNs) / 1_000_000_000L
+    fun sinceClientTxSec(now: Long): Long = (now - lastClientTx) / 1_000_000_000L
     fun upBytesSoFar(): Long = upBytes
     fun downBytesSoFar(): Long = downBytes
 
@@ -406,6 +410,8 @@ private class Tunnel(
      */
     @Volatile private var lastUpstreamRx = System.nanoTime()
     @Volatile private var awaitingUpstream = false
+    /** 客户端最后一次写入的时刻；见 [onReadable] 里的说明。 */
+    @Volatile private var lastClientTx = System.nanoTime()
     /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
     private val startNs = System.nanoTime()
     private val closed = AtomicBoolean(false)
@@ -431,7 +437,11 @@ private class Tunnel(
                 touch()
                 // 方向记账：down 管道的 src 是上游，读到就说明上游还活着。
                 if (pipe === down) { lastUpstreamRx = System.nanoTime(); awaitingUpstream = false }
-                else awaitingUpstream = true   // 客户端发了东西，开始等上游回应
+                // 客户端发了东西，开始等上游回应。**同时记下这一刻** ——
+                // 判死时唯一答不出的问题是「客户端还在不在等」:一条事务做完躺在连接池里的隧道，
+                // 与一条正在上传、上游却不回的隧道，在 aliveSec/up/down 上完全同形。
+                // sinceTxSec 就是那个能把两者分开的字段（>60s ⇒ 池化闲置;<5s ⇒ 正在传）。
+                else { awaitingUpstream = true; lastClientTx = System.nanoTime() }
                 pipe.buf.flip()
                 pipe.draining = true
                 drain(pipe, w)

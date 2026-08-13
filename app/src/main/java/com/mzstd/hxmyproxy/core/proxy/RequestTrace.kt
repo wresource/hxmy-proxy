@@ -30,8 +30,21 @@ import java.util.concurrent.atomic.AtomicInteger
 class RequestTrace private constructor(val id: Int, val proto: String, val clientPort: Int) {
 
     private val startNs = System.nanoTime()
+    private val startRealtimeMs = android.os.SystemClock.elapsedRealtime()
 
     private fun elapsedMs(): Long = (System.nanoTime() - startNs) / 1_000_000L
+
+    /**
+     * 同一段时间用**挂钟不停走的时钟**再量一遍。
+     *
+     * 为什么要两个:所有超时预算（建连 10s、DNS 单步 1.5s、判死 90s、空闲 120s）都用
+     * [System.nanoTime]，而设备 suspend 时它会停走 —— 于是「超时 10 秒」在用户那里
+     * 可能是十几分钟。0814 实测 66/432 次失败的日志墙钟比 `ms=` 多出 >2 秒、最大 30.1 秒，
+     * 而两个解释（设备睡了 / 写日志排队）对应的修法完全不同。
+     *
+     * `rt` 明显大于 `ms` ⇒ 中间睡过;两者接近 ⇒ 偏差来自日志侧。**这一个字段就能分开它们。**
+     */
+    private fun realtimeMs(): Long = android.os.SystemClock.elapsedRealtime() - startRealtimeMs
 
     /** 规则判定结果。**PROXY 也记** —— 此前只记非 PROXY，导致「绝大多数流量走了哪条路」不可见。 */
     fun rule(host: String, action: Any?, src: Any?) =
@@ -52,19 +65,24 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         Ev.i(
             LogCat.DNS, "req.dns",
             "id" to id, "host" to host, "src" to src.code, "netId" to netId,
-            "n" to count, "d" to detail, "ip" to firstIp, "ms" to elapsedMs(),
+            "n" to count, "d" to detail, "ip" to firstIp, "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
 
     /** 建连成功：**记下真正连上的那个地址**，此前完全不可见。 */
     fun connected(host: String, ip: String?, port: Int, netId: Long?) =
         Ev.i(
             LogCat.EGRESS, "req.connected",
-            "id" to id, "host" to host, "ip" to ip, "port" to port, "netId" to netId, "ms" to elapsedMs(),
+            "id" to id, "host" to host, "ip" to ip, "port" to port, "netId" to netId,
+            "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
 
     /** 终局（失败或关闭）。[why] 是阶段名，便于回答「卡在哪一步」。 */
     fun failed(host: String, why: String, err: Any?) =
-        Ev.w(LogCat.EGRESS, "req.failed", "id" to id, "host" to host, "at" to why, "err" to err, "ms" to elapsedMs())
+        Ev.w(
+            LogCat.EGRESS, "req.failed",
+            "id" to id, "host" to host, "at" to why, "err" to err,
+            "ms" to elapsedMs(), "rt" to realtimeMs(),
+        )
 
     /**
      * 隧道拆除：区分正常结束与被判死，并带上存活时长与收发字节。
@@ -76,7 +94,8 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
     fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) =
         Ev.i(
             LogCat.RELAY, "req.closed",
-            "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down, "ms" to elapsedMs(),
+            "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down,
+            "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
 
     companion object {
@@ -122,4 +141,6 @@ enum class DnsSource(val code: String) {
     CACHE_CROSS_NET("cache-cross"),
     /** DoH 兜底（detail 里带具体端点） */
     DOH("doh"),
+    /** 目标本身就是 IP 字面量，未经任何解析器 */
+    LITERAL("literal"),
 }

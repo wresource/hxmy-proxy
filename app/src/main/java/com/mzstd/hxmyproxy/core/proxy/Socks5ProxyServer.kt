@@ -109,14 +109,20 @@ class Socks5ProxyServer(
 
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
+            // **失败必须落盘**：此前这条路径一次 trace.failed 都不调，0814 日志里 500 个
+            // SOCKS5 请求只有 evt=req.rule、之后什么都没有——排障时它和「请求压根没到手机」同形。
+            // 写法上刻意不抄 HttpProxyServer 那个 `.also{}`：这里的 `?: throw` 就在 try 内、
+            // 必被下面的 catch 接住，加 .also 会立刻产出同样的双写。
+            var timedOut = false
             val upstreamCh = try {
                 // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
                 // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
                 withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
-                    if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress)
+                    if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                     else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-                } ?: throw ProxyException(ProxyError.RemoteTimeout)
+                } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
             } catch (e: ProxyException) {
+                trace.failed(ruleHost ?: "?", e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
                 reply(output, e.error.socksReply); return
             } catch (e: IOException) {
                 // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
@@ -135,12 +141,18 @@ class Socks5ProxyServer(
         }
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
+        var timedOutBlocking = false
         val upstream = try {
             withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
-                if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress)
+                if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-            } ?: throw ProxyException(ProxyError.RemoteTimeout)
+            } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
         } catch (e: ProxyException) {
+            trace.failed(
+                ruleHost ?: "?",
+                e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect",
+                e.error,
+            )
             reply(output, e.error.socksReply); return
         }
         reply(output, 0x00)

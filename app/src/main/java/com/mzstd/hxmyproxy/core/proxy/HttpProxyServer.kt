@@ -115,19 +115,21 @@ class HttpProxyServer(
 
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
         if (useNioRelay && nioReactor != null) {
+            // 阶段名只在**唯一的 catch** 里落一次。此前是「抛出点 .also 记一次 + catch 再记一次」，
+            // 0814 实测 750 行 req.failed 只对应 432 次失败（318 个 id 落两行）。
+            var timedOut = false
             val upstreamCh = try {
                 // 建连阶段的硬上限（不含之后的 relay，隧道本身必须能长期存在）。
                 // 超时折成 RemoteTimeout 抛出，复用下面既有的错误路径回 504——
                 // 代理**先于客户端放弃**并给出状态码，好过让客户端干等到自己超时（见 CONNECT_PHASE_TIMEOUT_MS）。
                 withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                     connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-                } ?: throw ProxyException(ProxyError.RemoteTimeout).also {
-                    // 外层砍断会把内层原因吃掉（withTimeoutOrNull 返回 null，原始异常丢失），
-                    // 所以这里显式记一笔「卡在建连阶段、耗尽了 CONNECT_PHASE_TIMEOUT_MS」。
-                    trace.failed(hp.first, "connect-phase-timeout", ProxyError.RemoteTimeout)
-                }
+                } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
             } catch (e: ProxyException) {
-                trace.failed(hp.first, "connect", e.error)
+                // 外层砍断会把内层原因吃掉（withTimeoutOrNull 返回 null，原始异常丢失），
+                // 所以用 timedOut 标记还原「卡在建连阶段、耗尽了 CONNECT_PHASE_TIMEOUT_MS」；
+                // e.stage 非空时优先用它（如 connect-strict，由 OutboundConnector 随异常带上来）。
+                trace.failed(hp.first, e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
                 writeStatus(
                     output, e.error.httpStatus, e.error.httpReason,
                     body = failureBody(hp.first, hp.second, e.error),
@@ -151,14 +153,13 @@ class HttpProxyServer(
         }
 
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
+        var timedOutBlocking = false
         val upstream = try {
             withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-            } ?: throw ProxyException(ProxyError.RemoteTimeout).also {
-                trace.failed(hp.first, "connect-phase-timeout", ProxyError.RemoteTimeout)
-            }
+            } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
         } catch (e: ProxyException) {
-            trace.failed(hp.first, "connect", e.error)
+            trace.failed(hp.first, e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect", e.error)
             writeStatus(
                 output, e.error.httpStatus, e.error.httpReason,
                 body = failureBody(hp.first, hp.second, e.error),
@@ -234,6 +235,7 @@ class HttpProxyServer(
             return false
         }
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
+        var plainTimedOut = false
         val upstream = try {
             withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 connector.connect(
@@ -242,14 +244,20 @@ class HttpProxyServer(
                     onEgress = tracker?.let { it::bindEgress },
                     trace = trace,
                 )
-            } ?: throw ProxyException(ProxyError.RemoteTimeout)
+            } ?: run { plainTimedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
         } catch (e: ProxyException) {
+            // 与 CONNECT 路径同一条纪律:失败在 server 层记且只记一次。
+            trace.failed(host, e.stage ?: if (plainTimedOut) "connect-phase-timeout" else "connect", e.error)
             writeStatus(
                 output, e.error.httpStatus, e.error.httpReason,
                 body = if (wantsBody) failureBody(host, port, e.error) else null,
             )
             return false
         }
+        // 本次转发的收发字节:这条路径不经过 reactor，没有 Tunnel 帮忙记账。
+        var fwdUp = 0L
+        var fwdDown = 0L
+        var closeWhy = "http-done"
         try {
             val limits = limitsProvider()
             val buf = ByteArray(limits.relayBufferBytes.coerceAtLeast(8 * 1024))
@@ -276,7 +284,7 @@ class HttpProxyServer(
             // 2) 请求体（client → upstream），按客户端头定界
             val (reqFraming, reqLen) = HttpForwarding.requestFraming(headers)
             client.soTimeout = idle
-            HttpForwarding.copyBody(input, upOut, reqFraming, reqLen, buf) { tracker?.add(it, 0) ?: onTraffic(it, 0) }
+            HttpForwarding.copyBody(input, upOut, reqFraming, reqLen, buf) { fwdUp += it; tracker?.add(it, 0) ?: onTraffic(it, 0) }
             upOut.flush()
 
             // 3) 上游响应行 + 头
@@ -310,15 +318,23 @@ class HttpProxyServer(
             output.write(rb.toString().toByteArray(Charsets.ISO_8859_1)); output.flush()
 
             // 6) 响应体（upstream → client）
-            HttpForwarding.copyBody(upIn, output, respFraming, respLen, buf) { tracker?.add(0, it) ?: onTraffic(0, it) }
+            HttpForwarding.copyBody(upIn, output, respFraming, respLen, buf) { fwdDown += it; tracker?.add(0, it) ?: onTraffic(0, it) }
             output.flush()
 
+            closeWhy = if (keepAlive) "http-keepalive" else "http-done"
             return keepAlive
         } catch (e: Throwable) {
             Log.w("hxmyproxy", "HTTP forward error $host:$port: ${e.message}")
             FileLog.w("hxmyproxy", "HTTP forward error $host:$port", e)
+            closeWhy = "http-error"
+            trace.failed(host, "http-forward", e.javaClass.simpleName)
             return false
         } finally {
+            // **明文 HTTP 也要落终局。** trace.tunnelClosed 此前只有 NioRelayReactor 一个调用点，
+            // 而这条路径完全不经过 reactor —— 0814 按端口对账:443 是 13364 连 / 13364 闭(gap=0)，
+            // 80 是 1978 连 / 1818 闭(gap=160)，那 160 条曾被当成 FD 泄漏的证据，
+            // 实际只是这里没记(finally 里的 closeQuietly 一直都在)。
+            trace.tunnelClosed(host, closeWhy, fwdUp, fwdDown)
             upstream.closeQuietly()
         }
     }

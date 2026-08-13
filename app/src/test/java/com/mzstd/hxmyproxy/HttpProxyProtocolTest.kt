@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy
 
 import com.mzstd.hxmyproxy.core.model.ConnectionLimits
+import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
@@ -184,6 +185,61 @@ class HttpProxyProtocolTest {
         assertTrue("正文要带目标地址：$text", text.contains("127.0.0.1:$port"))
         assertTrue("正文要带失败原因：$text", text.contains("cause:"))
         sock.close()
+    }
+
+    /**
+     * **一次失败只能落一行 `req.failed`**。
+     *
+     * 0814 实测 750 行 `req.failed` 只对应 **432 次**失败——318 个 id 落了两行，
+     * 直接数行数会把失败量高估 74%。成因是「抛出点 `.also{}` 记一次 + catch 再记一次」，
+     * 而 `OutboundConnector` 在 STRICT 分支还会自己再记一次（第三个所有者）。
+     * 现在阶段名随 [ProxyException.stage] 走、由 server 层统一落盘。
+     *
+     * 这条测试锁的是**所有者唯一**这条纪律本身，不是某一处写法。
+     */
+    @Test(timeout = 20000) fun `一次建连失败只能落一行reqfailed`() {
+        val dir = java.nio.file.Files.createTempDirectory("failed-once").toFile()
+        FileLog.enabled = true
+        FileLog.init(dir)
+        try {
+            val head = exchange(
+                proxy(),
+                "GET http://127.0.0.1:${ProxyTestKit.deadPort()}/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+            )
+            assertEquals(502, head.status)
+            val lines = FileLog.snapshot().lines().filter { it.contains("evt=req.failed") }
+            assertEquals("同一次失败落了多行：\n${lines.joinToString("\n")}", 1, lines.size)
+        } finally {
+            FileLog.clear()
+            dir.deleteRecursively()
+        }
+    }
+
+    /**
+     * **IP 字面量目标不得进入解析器**。
+     *
+     * 0814 实测 `host=2403:300:1366::2:4` 花了 **4924ms**「解析」一个已经是地址的字符串
+     * （同一字面量十分钟后命中缓存只要 0-3ms，说明那 4.9 秒全是派发排队 + netd 往返）。
+     * 用户侧表现为某些客户端首次连接卡 5 秒后报错。
+     *
+     * 断言 `req.dns` 落的是 `src=literal`：这既证明短路生效，也让日志能把
+     * 「字面量」与「真解析」分开统计——否则它们会混在 sys-egress 的耗时分布里污染分位数。
+     */
+    @Test(timeout = 20000) fun `IP字面量目标不得走解析器`() {
+        val dir = java.nio.file.Files.createTempDirectory("literal-dns").toFile()
+        FileLog.enabled = true
+        FileLog.init(dir)
+        try {
+            // 连一个必然拒绝的本地端口：只关心 DNS 阶段怎么记，不关心建连结果。
+            exchange(proxy(), "CONNECT 127.0.0.1:${ProxyTestKit.deadPort()} HTTP/1.1\r\nHost: x\r\n\r\n")
+            val dns = FileLog.snapshot().lines().firstOrNull { it.contains("evt=req.dns") }
+                ?: throw AssertionError("字面量目标也应落一行 req.dns（用于与真解析区分）")
+            assertTrue("字面量必须标 src=literal，否则会混进真解析的耗时分布：$dns",
+                dns.contains("src=literal"))
+        } finally {
+            FileLog.clear()
+            dir.deleteRecursively()
+        }
     }
 
     /**

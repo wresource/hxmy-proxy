@@ -101,10 +101,15 @@ object FileLog {
     fun append(level: String, tag: String, msg: String, e: Throwable?, key: Boolean = false) {
         if (!enabled) return
         val m = mainSink ?: return
+        // **时间戳在进锁之前取。** 放在锁内取到的是「轮到我写的时刻」而不是「事件发生的时刻」——
+        // 写盘竞争越激烈、偏差越大，而日志最有价值的时候恰恰是竞争最激烈的时候。
+        // 0814 实测 66/432 次失败的墙钟比事件自带的 ms= 多出 >2s（最大 30.1s），
+        // 这个锁内取时间是两个候选成因之一（另一个是设备 suspend，由 RequestTrace 的 rt= 区分）。
+        val ts = fmt.format(Date())
         synchronized(lock) {
             try {
                 val sb = StringBuilder()
-                    .append(fmt.format(Date())).append(' ').append(level).append('/').append(tag)
+                    .append(ts).append(' ').append(level).append('/').append(tag)
                     .append(": ").append(msg).append('\n')
                 if (e != null) sb.append(stackTrace(e)).append('\n')
                 val line = sb.toString()

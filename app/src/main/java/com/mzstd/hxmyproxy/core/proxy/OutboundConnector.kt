@@ -107,6 +107,10 @@ class OutboundConnector(
     private val dnsOkBuckets = java.util.concurrent.atomic.AtomicLongArray(DNS_OK_BUCKET_UPPER_MS.size + 1)
     /** 并行解析中「救援路先返回并被采用」的次数 */
     private val dnsParallelWins = java.util.concurrent.atomic.AtomicLong()
+    /** 派发排队耗时（进入 dnsStep 到 block 真正开始执行）。与 rtt 分开量，见 dnsStep 内注释。 */
+    private val dnsQueueCount = java.util.concurrent.atomic.AtomicLong()
+    private val dnsQueueTotalMs = java.util.concurrent.atomic.AtomicLong()
+    private val dnsQueueMaxMs = java.util.concurrent.atomic.AtomicLong()
 
     /** 缓存/单飞的键：netId 为 0 表示进程默认网络。 */
     private data class DnsKey(val netId: Long, val host: String)
@@ -160,7 +164,10 @@ class OutboundConnector(
         return underlyingNetworkProvider?.current() ?: run {
             throttledFileLog("direct-noeg:$host",
                 "DIRECT $host: no physical network (VPN only), fail-closed - refusing to leak via VPN egress")
-            throw ProxyException(ProxyError.AccessDenied)
+            // stage 标成 no-physical-egress：这是**全局**状况（一张物理网都没有），与 host 无关。
+            // 调用方据此把它记进全局态而不是 per-host 账本 —— 0814 那 96 次涉及 20+ 个域名，
+            // 逐 host 记会把一个根因显示成二十几个「坏域名」，且 per-host 的清除要等各自下次成功。
+            throw ProxyException(ProxyError.AccessDenied, "no-physical-egress")
         }
     }
 
@@ -227,16 +234,21 @@ class OutboundConnector(
         /** 请求级追踪；null=不记。见 [RequestTrace]。 */
         trace: RequestTrace? = null,
     ): Socket {
-        val network = egressNetworkFor(bypassVpn, host)
-        if (egressUnusable(network, bypassVpn)) {
-            throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
-            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
-                throw ProxyException(ProxyError.RemoteUnreachable)
-            }
-            return connectAny(orderAddresses(resolve(host, null)), port, null)
-                .also { reportEgress(onEgress, null) }
-        }
+        // **这两步必须在 try 内**：egressNetworkFor 与 egressUnusable 都会抛，而它们此前在 try 之外，
+        // 于是下面 catch 里的 DirectEgressFailures.recordFailure 永远收不到 ——
+        // 0814 实测 96 次 DIRECT 失败（全部 err=AccessDenied、0-2ms 内返回）一次都没进账本，
+        // 防护页上完全看不见，用户只表现为「某个 app 有时候卡」。
+        var network: Network? = null
         return try {
+            network = egressNetworkFor(bypassVpn, host)
+            if (egressUnusable(network, bypassVpn)) {
+                throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
+                if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                    throw ProxyException(ProxyError.RemoteUnreachable, "egress-down")
+                }
+                return connectAny(orderAddresses(resolve(host, null)), port, null)
+                    .also { reportEgress(onEgress, null) }
+            }
             connectAny(orderAddresses(resolve(host, network, trace)), port, network)
                 .also {
                     trace?.connected(host, it.inetAddress?.hostAddress, port, network?.networkHandle)
@@ -249,7 +261,13 @@ class OutboundConnector(
             if (bypassVpn) {
                 // 计数给 UI：fail-closed 的失败对用户是静默的（只表现为"这个 app 有时候卡"），
                 // 必须让它在防护页可见，否则用户不导出日志根本不知道自己设的「直连」连不通。
-                DirectEgressFailures.recordFailure(host, e.error.code)
+                //
+                // 但**全局状况不进 per-host 账本**：no-physical-egress 的原因是「一张物理网都没有」，
+                // 与访问哪个域名无关。逐 host 记会把一个根因摊成二十几条「坏域名」，
+                // 而且 recordSuccess 只在该 host 下次 DIRECT 成功时才清 —— 遥测类域名几小时才来一次，
+                // 物理网早恢复了条目还挂在 UI 上，与「条目表示现在仍然不通」的语义直接矛盾。
+                if (e.stage == "no-physical-egress") DirectEgressFailures.recordNoEgress()
+                else DirectEgressFailures.recordFailure(host, e.error.code)
                 throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} - fail-closed (no VPN fallback)")
                 throw e
             }
@@ -267,8 +285,8 @@ class OutboundConnector(
                     "egress-strict:$host",
                     "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
                 )
-                trace?.failed(host, "connect-strict", e.error)
-                throw e
+                // 阶段随异常走、由 server 层统一落盘 —— 这里再记一次就是双写（见 ProxyException.stage）。
+                throw ProxyException(e.error, "connect-strict")
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
@@ -289,6 +307,14 @@ class OutboundConnector(
      * DIRECT 失败→默认网络；默认失败→底层 WiFi。失败与援通均节流落盘（诊断「究竟哪条 DNS 在坏」）。
      */
     private suspend fun resolve(host: String, network: Network?, trace: RequestTrace? = null): List<InetAddress> {
+        // **数字字面量直接构造，不进解析器。** 此前它们被原样丢给 getAllByName，而那会真的走一遍
+        // netd：0814 实测 `host=2403:300:1366::2:4` 花了 **4924ms**「解析」一个已经是地址的字符串
+        // （5 个字面量首次 4924/3473/3215/2941/1482ms，第二轮命中缓存才 0-7ms）。
+        // 用户侧表现为「某些客户端首次连接卡 5 秒后报错」。
+        numericAddressOrNull(host)?.let {
+            trace?.dns(host, DnsSource.LITERAL, network?.networkHandle, 1, "literal", it.hostAddress)
+            return listOf(it)
+        }
         val key = dnsKeyOf(network, host)
         cachedAt(key)?.let { (addrs, atMs) ->
             trace?.dns(
@@ -329,7 +355,25 @@ class OutboundConnector(
      * 后续解析在无界队列里静默排队，直到客户端自己放弃。
      * 用 [runInterruptible] 而不是 [withContext]，超时才能真正中断那条阻塞的线程、把它还给池子。
      */
-    /** 与 [cachedWithinTtl] 同判据，但连同写入时刻一起返回——溯源需要缓存年龄。 */
+    /**
+     * 目标本身就是 IP 字面量时返回它，否则 null。
+     *
+     * 刻意**不使用** `InetAddress.getByName`——那对非字面量会触发真实解析，正是要避免的事。
+     * `parseNumericAddress` 只做字面量解析，非字面量抛 IllegalArgumentException。
+     * 方括号形式的 IPv6 已由 `HttpParsing.bareHost` 在上游剥掉，这里不再处理。
+     */
+    private fun numericAddressOrNull(host: String): InetAddress? {
+        // 刻意不用 android.net.InetAddresses.parseNumericAddress:它在 JVM 单测里是 stub,
+        // runCatching 会把 stub 异常吞成 null —— 短路静默失效，而测试照样绿。
+        // 纯 JVM 的等价判据:含 ':' 必是 IPv6 字面量;全为数字与点必是 IPv4 字面量
+        // （合法域名的 TLD 不能全是数字，见 RFC 1123 §2.1）。
+        val looksNumeric = host.contains(':') || (host.isNotEmpty() && host.all { it.isDigit() || it == '.' })
+        if (!looksNumeric) return null
+        // getByName 对字面量**不做 DNS 查询**（JDK 契约），预筛之后调用是安全的。
+        return runCatching { InetAddress.getByName(host) }.getOrNull()
+    }
+
+    /** 同 TTL 判据，连同写入时刻一起返回——溯源需要缓存年龄。 */
     private fun cachedAt(key: DnsKey): Pair<List<InetAddress>, Long>? {
         val c = dnsCache[key] ?: return null
         if (System.currentTimeMillis() - c.atMs >= DNS_TTL_MS) return null
@@ -339,24 +383,20 @@ class OutboundConnector(
     private suspend fun resolveUncached(host: String, network: Network?, trace: RequestTrace? = null): List<InetAddress> {
         if (network != null) {
             val t0 = System.nanoTime()
-            val direct = resolveOnEgressRacing(host, network)
-            if (!direct.isNullOrEmpty()) {
-                // 对冲赢家是互援那一路时，dnsParallelWins 已在 racing 内自增；这里据此区分来源。
+            val raced = resolveOnEgressRacing(host, network)
+            if (raced != null && raced.addrs.isNotEmpty()) {
+                // 来源由抢答自己报（见 RaceResult），不再一律标成 SYS_EGRESS。
                 trace?.dns(
-                    host, DnsSource.SYS_EGRESS, network.networkHandle, direct.size,
-                    "rtt=${(System.nanoTime() - t0) / 1_000_000}ms", direct.firstOrNull()?.hostAddress,
+                    host, raced.src, network.networkHandle, raced.addrs.size,
+                    "rtt=${(System.nanoTime() - t0) / 1_000_000}ms", raced.addrs.firstOrNull()?.hostAddress,
                 )
-                return direct
+                return raced.addrs
             }
-            throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; retry default+underlying")
-            val rescued = rescueOffEgress(host, network)
-            if (rescued.isNotEmpty()) {
-                trace?.dns(
-                    host, DnsSource.RESCUE_DEFAULT, network.networkHandle, rescued.size,
-                    "rtt=${(System.nanoTime() - t0) / 1_000_000}ms", rescued.firstOrNull()?.hostAddress,
-                )
-                return rescued
-            }
+            // **不再在这里重跑 rescueOffEgress**：走到这一行说明抢答的两条腿都已返回空
+            // （select 的两个分支都会先 await 对方），而对冲腿本身就是 rescueOffEgress。
+            // 原来的重跑等于在 netd 负缓存还热着的时候，把两个阻塞 getAllByName 原样再发一遍 ——
+            // 恰好发生在 DNS 最紧张的时刻，正是它把建连预算吃光的。
+            throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; both legs empty")
             // 全败前的最后兜底：同一域名可能刚在**别的网络**上解析成功过。
             // 平时按 netId 分桶（不同网络的结果不该混用），但「用一个 TTL 内的旧地址」
             // 显然好过「直接失败」——0803 实证：gateway.icloud.com 在 00:08:30 被物理网救回并入缓存，
@@ -441,12 +481,27 @@ class OutboundConnector(
         }
         val t0 = System.nanoTime()
         try {
-            val r = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) { runInterruptible(dnsDispatcher) { block() } }
+            // **queueMs 与 rtt 必须分开量。** 拿到 slot 不等于线程可用:dnsDispatcher 是固定线程池，
+            // 派发排队发生在 runInterruptible 进入 block 之前，而现有的 rtt 把排队和真实解析算在一起。
+            // 0814 的判据性证据:同一个 IPv6 字面量首次「解析」4923ms、十分钟后 0-3ms ——
+            // 字面量根本不需要查询，那 4.9 秒只可能是派发排队。
+            // 这个字段决定批次 2 走哪条路:排队为主 ⇒ 该拆独立线程池;真解析慢 ⇒ 该套闸门与 deadline。
+            var queueMs = -1L
+            val r = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) {
+                runInterruptible(dnsDispatcher) {
+                    queueMs = (System.nanoTime() - t0) / 1_000_000L
+                    block()
+                }
+            }
             if (r == null) {
                 val n = dnsTimedOut.incrementAndGet()
-                throttledFileLog("dns-timeout", "DNS step timeout (${DNS_STEP_TIMEOUT_MS}ms); $n total")
+                throttledFileLog(
+                    "dns-timeout",
+                    "DNS step timeout (${DNS_STEP_TIMEOUT_MS}ms); $n total; queueMs=$queueMs",
+                )
             } else {
                 recordDnsOk((System.nanoTime() - t0) / 1_000_000L)
+                recordDnsQueue(queueMs)
             }
             return r
         } finally {
@@ -473,6 +528,16 @@ class OutboundConnector(
         }
         val i = DNS_OK_BUCKET_UPPER_MS.indexOfFirst { ms < it }
         dnsOkBuckets.incrementAndGet(if (i >= 0) i else DNS_OK_BUCKET_UPPER_MS.size)
+    }
+
+    private fun recordDnsQueue(ms: Long) {
+        if (ms < 0) return
+        dnsQueueCount.incrementAndGet()
+        dnsQueueTotalMs.addAndGet(ms)
+        while (true) {
+            val cur = dnsQueueMaxMs.get()
+            if (ms <= cur || dnsQueueMaxMs.compareAndSet(cur, ms)) break
+        }
     }
 
     /** 从分桶估分位（取桶上界，偏保守——报出来的值不会低于真实分位）。 */
@@ -506,6 +571,9 @@ class OutboundConnector(
         val okMaxMs: Long,
         /** 并行抢答里「救援路先返回」的次数——衡量并行是否真的省到了时间 */
         val parallelWins: Long,
+        /** 派发排队：均值 / 最大，单位 ms。**与 okAvgMs 分开看**——后者含排队。 */
+        val queueAvgMs: Long,
+        val queueMaxMs: Long,
     )
 
     fun dnsStats(): DnsStats {
@@ -521,6 +589,8 @@ class OutboundConnector(
             okP90Ms = bucketPercentile(0.90),
             okMaxMs = dnsOkMaxMs.get(),
             parallelWins = dnsParallelWins.get(),
+            queueAvgMs = dnsQueueCount.get().let { if (it == 0L) 0 else dnsQueueTotalMs.get() / it },
+            queueMaxMs = dnsQueueMaxMs.get(),
         )
     }
 
@@ -546,7 +616,7 @@ class OutboundConnector(
      * `dnsok=` 心跳积累出成功解析的真实分布后再校准——把它定在 p90 附近最合理：
      * 正常解析几乎都不会触发对冲，慢的那批则不必等满 1500ms。
      */
-    private suspend fun resolveOnEgressRacing(host: String, egress: Network): List<InetAddress>? = coroutineScope {
+    private suspend fun resolveOnEgressRacing(host: String, egress: Network): RaceResult? = coroutineScope {
         val egressD = async(dnsDispatcher) {
             runCatching { dnsStep { egress.getAllByName(host).toList() } }.getOrNull()
         }
@@ -557,8 +627,9 @@ class OutboundConnector(
         try {
             select {
                 egressD.onAwait { r ->
-                    if (!r.isNullOrEmpty()) r                       // 出口路赢：常态
-                    else hedgeD.await().takeIf { it.isNotEmpty() }  // 出口路快速失败：等对冲
+                    if (!r.isNullOrEmpty()) RaceResult(r, DnsSource.SYS_EGRESS)   // 出口路赢：常态
+                    else hedgeD.await().takeIf { it.isNotEmpty() }
+                        ?.let { RaceResult(it, DnsSource.HEDGE_RESCUE) }          // 出口路快速失败：等对冲
                 }
                 hedgeD.onAwait { r ->
                     if (r.isNotEmpty()) {
@@ -568,9 +639,10 @@ class OutboundConnector(
                             "DNS hedge win: $host slow on egress, using rescue result (saved up to " +
                                 "${DNS_STEP_TIMEOUT_MS - DNS_HEDGE_DELAY_MS}ms)",
                         )
-                        r
+                        RaceResult(r, DnsSource.HEDGE_RESCUE)
                     } else {
-                        egressD.await()                             // 对冲也没救出来：回到出口路的结局
+                        // 对冲也没救出来：回到出口路的结局
+                        egressD.await()?.takeIf { it.isNotEmpty() }?.let { RaceResult(it, DnsSource.SYS_EGRESS) }
                     }
                 }
             }
@@ -579,6 +651,20 @@ class OutboundConnector(
             hedgeD.cancel()
         }
     }
+
+    /**
+     * 抢答结果 **连同它是哪条腿赢的**。
+     *
+     * 为什么必须让来源随结果一起返回:此前 [resolveUncached] 把结果一律标成
+     * [DnsSource.SYS_EGRESS]（注释还写着「据 dnsParallelWins 区分来源」，代码根本没读），
+     * 于是 0814 日志里 `hedge` / `rescue-*` 全部为 0，而同期明文行显示
+     * `DNS hedge win` 188 条、`DNS rescued` 582 条 —— **仪表在撒谎**，
+     * 「这次的地址是从哪张网问来的」这个问题在最需要它的场景下反而答不出。
+     *
+     * 也不能靠「调用前后读 dnsParallelWins 的差值」来猜:它是全局 [AtomicLong]，
+     * 任何并发请求的抢答都会让差值 >0，而 hedge 恰恰是成簇发生的（实测 9ms 内 4 条）。
+     */
+    private class RaceResult(val addrs: List<InetAddress>, val src: DnsSource)
 
     /**
      * 出口网（egress）解析失败后的互援：**进程默认网络与物理网并行**取回地址。
@@ -632,28 +718,26 @@ class OutboundConnector(
             emptyList()
         }
 
-    /** TTL 内的缓存地址（**精确匹配 netId**）；没有或已过期返回 null。 */
-    private fun cachedWithinTtl(key: DnsKey): List<InetAddress>? =
-        dnsCache[key]?.takeIf { System.currentTimeMillis() - it.atMs < DNS_TTL_MS }?.addrs
-
     /**
      * 跨 netId 的兜底缓存：**只在某条路全败、即将抛 DnsFailure 之前用**。
      * 平时按 netId 分桶是对的（VPN 与物理网解析出的地址常常完全不同，混用会连到错误的节点），
      * 但「用一个别的网络上 TTL 内解析成功过的地址」显然好过「直接失败」。
+     *
+     * 返回「答案属于哪张网 + 写入时刻」，供溯源记录（[DnsSource.CACHE_CROSS_NET]）。
+     *
+     * **这条分支本周 0 次命中，但不能据此删** —— 它是**保险丝不是死代码**:
+     * 它的前置漏斗（出口解析失败 → 互援也失败）本周只成立 3 次，0 次只说明这周 DNS 没断过。
+     * 而同批改动刚把互援腿的重跑删掉、让它更容易快速判负，到达这一级的频率反而会上升 ——
+     * 用改造前的采样去删改造后的保险丝，是先拆保险丝再改电路。留一周再看。
+     *
+     * （原先与它并存的 `cachedWithinTtl` / `anyCachedFor` 两个同判据函数已删:
+     * 那两个是**编译期零调用点**的真死代码，与本分支不是一回事。）
      */
-    /** 与 [anyCachedFor] 同判据，但返回「答案属于哪张网 + 写入时刻」，供溯源记录。 */
     private fun anyCachedForWithNet(host: String): Triple<List<InetAddress>, Long, Long>? {
         val now = System.currentTimeMillis()
         val e = dnsCache.entries.firstOrNull { it.key.host == host && now - it.value.atMs < DNS_TTL_MS }
             ?: return null
         return Triple(e.value.addrs, e.key.netId, e.value.atMs)
-    }
-
-    private fun anyCachedFor(host: String): List<InetAddress>? {
-        val now = System.currentTimeMillis()
-        return dnsCache.entries
-            .firstOrNull { it.key.host == host && now - it.value.atMs < DNS_TTL_MS }
-            ?.value?.addrs
     }
 
     /**
@@ -718,16 +802,25 @@ class OutboundConnector(
         return emptyList()
     }
 
-    /** 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
+    /**
+     * 连接到已解析地址（SOCKS5 ATYP=IPv4/IPv6）。[bypassVpn]=true 时绕过共享 VPN 走真实网络。
+     *
+     * [trace] 不能省：不传它，IP 字面量目标的请求就只有 `req.rule` 一行、连 `req.connected` 都没有，
+     * 在按事件签名做一致性检查时表现为「拿到规则判定后彻底消失」的孤儿。
+     */
     suspend fun connect(
         addr: InetAddress,
         port: Int,
         bypassVpn: Boolean = false,
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+        trace: RequestTrace? = null,
     ): Socket {
         // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
         val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
-        return connectAny(listOf(addr), port, network).also { reportEgress(onEgress, network) }
+        return connectAny(listOf(addr), port, network).also {
+            trace?.connected(addr.hostAddress ?: "?", it.inetAddress?.hostAddress, port, network?.networkHandle)
+            reportEgress(onEgress, network)
+        }
     }
 
     /**
@@ -744,16 +837,18 @@ class OutboundConnector(
         /** 请求级追踪；null=不记。见 [RequestTrace]。 */
         trace: RequestTrace? = null,
     ): SocketChannel {
-        val network = egressNetworkFor(bypassVpn, host)
-        if (egressUnusable(network, bypassVpn)) {
-            throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
-            if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
-                throw ProxyException(ProxyError.RemoteUnreachable)
-            }
-            return connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
-                .also { reportEgress(onEgress, null) }
-        }
+        // 同 connect()：两个抛点必须在 try 内，否则 catch 里的 DirectEgressFailures 收不到。
+        var network: Network? = null
         return try {
+            network = egressNetworkFor(bypassVpn, host)
+            if (egressUnusable(network, bypassVpn)) {
+                throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
+                if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                    throw ProxyException(ProxyError.RemoteUnreachable, "egress-down")
+                }
+                return connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
+                    .also { reportEgress(onEgress, null) }
+            }
             connectAnyChannel(orderAddresses(resolve(host, network, trace)), port, network)
                 .also {
                     trace?.connected(
@@ -768,7 +863,9 @@ class OutboundConnector(
             // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
             // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
             if (bypassVpn) {
-                DirectEgressFailures.recordFailure(host, e.error.code)
+                // 见 connect() 里同处注释：全局状况不进 per-host 账本。
+                if (e.stage == "no-physical-egress") DirectEgressFailures.recordNoEgress()
+                else DirectEgressFailures.recordFailure(host, e.error.code)
                 throttledFileLog("direct:$host", "DIRECT egress fail $host: ${e.error} - fail-closed (no VPN fallback)")
                 throw e
             }
@@ -783,8 +880,8 @@ class OutboundConnector(
                     "egress-strict:$host",
                     "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
                 )
-                trace?.failed(host, "connect-strict", e.error)
-                throw e
+                // 阶段随异常走、由 server 层统一落盘 —— 这里再记一次就是双写（见 ProxyException.stage）。
+                throw ProxyException(e.error, "connect-strict")
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
@@ -799,16 +896,24 @@ class OutboundConnector(
         }
     }
 
-    /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。 */
+    /** [connectChannel] 的已解析地址版（SOCKS5 ATYP）。[trace] 的必要性见同名的 Socket 版。 */
     suspend fun connectChannel(
         addr: InetAddress,
         port: Int,
         bypassVpn: Boolean = false,
         onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+        trace: RequestTrace? = null,
     ): SocketChannel {
         // bypass 严格物理网、fail-closed(见 egressNetworkFor)；无 catch 即建连失败直接抛=不降级 VPN。
         val network = egressNetworkFor(bypassVpn, addr.hostAddress ?: "?")
-        return connectAnyChannel(listOf(addr), port, network).also { reportEgress(onEgress, network) }
+        return connectAnyChannel(listOf(addr), port, network).also {
+            trace?.connected(
+                addr.hostAddress ?: "?",
+                (it.remoteAddress as? InetSocketAddress)?.address?.hostAddress,
+                port, network?.networkHandle,
+            )
+            reportEgress(onEgress, network)
+        }
     }
 
     /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */

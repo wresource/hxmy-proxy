@@ -68,5 +68,14 @@ sealed class ProxyError(val label: String) {
         }
 }
 
-/** 携带 [ProxyError] 的受检异常，贯穿握手/连接路径。 */
-class ProxyException(val error: ProxyError) : Exception(error.label)
+/**
+ * 携带 [ProxyError] 的受检异常，贯穿握手/连接路径。
+ *
+ * [stage] 是**失败发生在哪一步**，随异常一路带到 server 层由那里统一落盘。
+ *
+ * 为什么不让抛出点自己记日志:此前 [OutboundConnector] 在 STRICT 分支自己调了一次
+ * `trace.failed(host, "connect-strict", …)`，而 server 层的 catch 又记一次 ——
+ * 0814 日志里 750 行 `req.failed` 实际只对应 **432 次**失败（318 个 id 落两行），
+ * 直接数行数会把失败量高估 74%。**失败只能有一个所有者**，多一个记录点就多一份重复。
+ */
+class ProxyException(val error: ProxyError, val stage: String? = null) : Exception(error.label)
