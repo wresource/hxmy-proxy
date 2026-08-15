@@ -91,10 +91,15 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
      * 意味着「这一晚判死了哪些域名」得先 join 两类行；而排障时最想一条命令答完的
      * 恰恰是这个问题（`grep 'why=upstream-silent' | grep -o 'host=[^ ]*' | sort | uniq -c`）。
      */
-    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) =
+    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long, silentFlag: String? = null) =
         Ev.i(
             LogCat.RELAY, "req.closed",
             "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down,
+            // 只在被静默判据标记过时出现。**`flag=revived` 是那条判据的判决书**:
+            // 它意味着「被判为上游静默死亡」的连接，后来上游又说话了。
+            // 判据从「标记即拆」改成「只标记」之后，这个答案才第一次可观测 ——
+            // 此前它一标记就拆，观测对象被自己的动作抹掉了。
+            "flag" to silentFlag,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
 
@@ -117,10 +122,10 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
  * 地址的来源。**一个域名当前有 11 条可能路径**，而它们会给出不同的目标 IP——
  * 对 anycast 服务（CDN 后面的站点）尤其明显。
  *
- * 其中 [CACHE_CROSS_NET] 最危险：它把**A 网解析出的地址拿到 B 网上去连**。
- * 当初加它的理由是「用 TTL 内的旧地址好过直接失败」，但那假设了地址与网络无关，
- * 对 anycast 恰恰不成立——它很可能是连接失败与目标节点抖动的来源之一。
- * 加这个枚举的首要目的，就是先把它的实际发生率量出来，再决定是否移除。
+ * 曾经还有一条 `cache-cross`(跨网旧缓存):把 A 网解析出的地址拿到 B 网上去连。
+ * 加它的理由是「用 TTL 内的旧地址好过直接失败」，但那假设了地址与网络无关，
+ * 对 anycast 不成立。**加枚举的目的就是先量出发生率再决定去留** ——
+ * 两轮实测(0814 / 0815 两台)都是 0 次命中，已于 1.31.2 移除。这条枚举也随之删掉。
  */
 enum class DnsSource(val code: String) {
     /** 同一张网的进程内缓存命中（≤30s） */
@@ -137,8 +142,6 @@ enum class DnsSource(val code: String) {
     RESCUE_DEFAULT("rescue-def"),
     /** 互援：物理网 */
     RESCUE_PHYSICAL("rescue-phy"),
-    /** **跨网旧缓存**——答案属于另一张网，见枚举注释 */
-    CACHE_CROSS_NET("cache-cross"),
     /** DoH 兜底（detail 里带具体端点） */
     DOH("doh"),
     /** 目标本身就是 IP 字面量，未经任何解析器 */

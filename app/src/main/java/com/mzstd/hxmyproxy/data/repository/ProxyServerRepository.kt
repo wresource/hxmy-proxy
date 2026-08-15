@@ -688,9 +688,14 @@ class ProxyServerRepository @Inject constructor(
             "thr" to com.mzstd.hxmyproxy.core.log.Ev.throttleStats().let { (keys, evict, dropped) ->
                 if (evict > 0L) "$keys/e$evict/d$dropped" else "$keys"
             },
-            // 出口重新评估次数/其中真正变化的次数。eval 停涨 ⇒ 系统压根没通知我们(该加主动重扫);
-            // eval 在涨而 chg 不涨 ⇒ 通知来了但评估逻辑认为结论不变(该修评估逻辑)。
-            "egEval" to "${egressEvalTotal.get()}/${egressChangeTotal.get()}",
+            // **设置**推送次数/其中出口选择真正变化的次数。
+            //
+            // ⚠️ 它**不是**「出口重新评估了几次」——我一度这样读，然后据此报了个不存在的 bug。
+            // 出口的实际选择在 UnderlyingNetworkProvider:它自己给各 transport 注册了
+            // NetworkCallback，current()/egressNetwork() 每次调用都按最新句柄实时算，
+            // 根本不经过 applyTunables。所以这个数很小是**正常的**(只有启动 + 用户改设置时才涨)。
+            // 想看「出口现在是哪张网」请看上面的 physNet= / egressNet=，那才是实时值。
+            "cfgPush" to "${egressEvalTotal.get()}/${egressChangeTotal.get()}",
             // 本次会话累计字节 + 会话已运行秒数：用户报「流量数字不对」时，这两个字段能直接
             // 从日志判定是「没在涨」还是「没在会话边界断回 0」，不必再靠 UI 截图比对。
             "total" to (totalUp.get() + totalDown.get()),

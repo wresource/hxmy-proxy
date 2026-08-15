@@ -400,22 +400,19 @@ class OutboundConnector(
             // 原来的重跑等于在 netd 负缓存还热着的时候，把两个阻塞 getAllByName 原样再发一遍 ——
             // 恰好发生在 DNS 最紧张的时刻，正是它把建连预算吃光的。
             throttledFileLog("dns-direct:$host", "DNS fail/timeout $host on egress network; both legs empty")
-            // 全败前的最后兜底：同一域名可能刚在**别的网络**上解析成功过。
-            // 平时按 netId 分桶（不同网络的结果不该混用），但「用一个 TTL 内的旧地址」
-            // 显然好过「直接失败」——0803 实证：gateway.icloud.com 在 00:08:30 被物理网救回并入缓存，
-            // 8 秒后 VPN 句柄一回来就又走回本分支，从头三路全败一次，那份缓存完全没派上用场。
-            // 放在 DoH 之前：缓存是立即可用的，而 DoH 最坏要烧掉 2 个端点 × DOH_TIMEOUT_MS。
-            anyCachedForWithNet(host)?.let { (addrs, fromNetId, atMs) ->
-                throttledFileLog("dns-cache-fallback:$host", "DNS fell back to cached addrs for $host (egress path)")
-                // **把来源网络记下来**：这条把 A 网解析出的地址用到了 B 网上，
-                // 对 anycast 服务意味着目标节点可能与出口不匹配 —— 先量出发生率再决定去留。
-                trace?.dns(
-                    host, DnsSource.CACHE_CROSS_NET, fromNetId, addrs.size,
-                    "age=${(System.currentTimeMillis() - atMs) / 1000}s,usedOn=${network.networkHandle}",
-                    addrs.firstOrNull()?.hostAddress,
-                )
-                return addrs
-            }
+            // **跨网旧缓存兜底已移除。**
+            //
+            // 它的设计意图是「用一个 TTL 内、别的网络上解析成功过的地址，好过直接失败」，
+            // 但那假设了地址与网络无关 —— 对 anycast 服务恰恰不成立:把 A 网解析出的地址
+            // 拿到 B 网上去连，目标节点可能与出口完全不匹配。
+            //
+            // 移除依据是**两轮实测都为 0 次命中**:0814(1.30.0)0 次、0815 两台设备各跑一天仍是 0 次。
+            // 关键在第二轮 —— 1.31.0 已经删掉了抢答之后的那次重复 rescueOffEgress，
+            // 让互援腿更容易快速判负，按理到达这一级的频率**应该上升**，实测没有。
+            // 「它只是这周没通电的保险丝」这个顾虑因此被数据否定，可以拆。
+            //
+            // 前置漏斗本身也极窄:要同时满足「出口解析失败」+「互援两条腿都空」，
+            // 而这两级合起来一天只发生个位数次，其结局与移除后完全一致(都是 DnsFailure)。
             return resolveLastResort(host, UnknownHostException("egress resolve failed/timeout for $host"))
         }
         val t0d = System.nanoTime()
@@ -440,7 +437,11 @@ class OutboundConnector(
                     else runCatching { alt.getAllByName(host).toList() }.getOrDefault(emptyList())
                 }
                 val dohD = async(dnsDispatcher) {
-                    if (backupDnsEnabled) runCatching { dohResolve(host) }.getOrDefault(emptyList()) else emptyList()
+                    // 这条并行支同样要守预算:它与 altD 并跑，跑过头会把整个 merged 拖住。
+                    if (backupDnsEnabled) {
+                        val dl = System.nanoTime() + DOH_TOTAL_BUDGET_MS * 1_000_000L
+                        runCatching { dohResolve(host, dl) }.getOrDefault(emptyList())
+                    } else emptyList()
                 }
                 val a = altD.await()
                 val d = dohD.await()
@@ -726,27 +727,6 @@ class OutboundConnector(
             emptyList()
         }
 
-    /**
-     * 跨 netId 的兜底缓存：**只在某条路全败、即将抛 DnsFailure 之前用**。
-     * 平时按 netId 分桶是对的（VPN 与物理网解析出的地址常常完全不同，混用会连到错误的节点），
-     * 但「用一个别的网络上 TTL 内解析成功过的地址」显然好过「直接失败」。
-     *
-     * 返回「答案属于哪张网 + 写入时刻」，供溯源记录（[DnsSource.CACHE_CROSS_NET]）。
-     *
-     * **这条分支本周 0 次命中，但不能据此删** —— 它是**保险丝不是死代码**:
-     * 它的前置漏斗（出口解析失败 → 互援也失败）本周只成立 3 次，0 次只说明这周 DNS 没断过。
-     * 而同批改动刚把互援腿的重跑删掉、让它更容易快速判负，到达这一级的频率反而会上升 ——
-     * 用改造前的采样去删改造后的保险丝，是先拆保险丝再改电路。留一周再看。
-     *
-     * （原先与它并存的 `cachedWithinTtl` / `anyCachedFor` 两个同判据函数已删:
-     * 那两个是**编译期零调用点**的真死代码，与本分支不是一回事。）
-     */
-    private fun anyCachedForWithNet(host: String): Triple<List<InetAddress>, Long, Long>? {
-        val now = System.currentTimeMillis()
-        val e = dnsCache.entries.firstOrNull { it.key.host == host && now - it.value.atMs < DNS_TTL_MS }
-            ?: return null
-        return Triple(e.value.addrs, e.key.netId, e.value.atMs)
-    }
 
     /**
      * 最后一搏：系统解析双路全败后走 DoH 备援（关着或也失败则抛 [ProxyError.DnsFailure]）。
@@ -758,8 +738,11 @@ class OutboundConnector(
             // 总预算封顶：单请求超时管不住 4 个端点的累加（见 DOH_TOTAL_BUDGET_MS）。
             // runInterruptible 而非 withContext——超时要能真正中断那条阻塞在 socket 上的线程。
             val t0 = System.nanoTime()
-            val doh = withTimeoutOrNull(DOH_TOTAL_BUDGET_MS) {
-                runInterruptible(dnsDispatcher) { dohResolve(host) }
+            // deadline 由内层自己守（见 dohResolve 里的说明）——外层这层 withTimeoutOrNull
+            // 对阻塞的 HttpsURLConnection 无效，保留它只是兜住「内层逻辑本身出错」的极端情形。
+            val deadlineNs = t0 + DOH_TOTAL_BUDGET_MS * 1_000_000L
+            val doh = withTimeoutOrNull(DOH_TOTAL_BUDGET_MS * 2) {
+                runInterruptible(dnsDispatcher) { dohResolve(host, deadlineNs) }
             } ?: emptyList()
             // **实测耗时必须落一次。** 声明的预算是 3000ms，而 0814 实测 5411/5568/5856ms ——
             // 三次全部超支近一倍。最可能的解释是 runInterruptible 对 HttpsURLConnection 的
@@ -790,9 +773,25 @@ class OutboundConnector(
      * 若默认路径整体断链，DoH 与业务同死，不做无谓挣扎）。加密 443 出去，不与 Private DNS 的
      * 「禁发明文 53」冲突。阻塞实现，调用方置于 [dnsDispatcher]。
      */
-    private fun dohResolve(host: String): List<InetAddress> {
+    private fun dohResolve(host: String, deadlineNs: Long): List<InetAddress> {
         for ((base, accept) in DOH_ENDPOINTS) {
             for (type in intArrayOf(1, 28)) {           // 1=A, 28=AAAA
+                // **预算必须在这里守，外层的 withTimeoutOrNull 守不住。**
+                //
+                // 外层是 `withTimeoutOrNull(3000) { runInterruptible(dnsDispatcher) { dohResolve(...) } }`。
+                // runInterruptible 取消时对线程发 interrupt，但 HttpsURLConnection 的阻塞 socket 读
+                // **不响应 interrupt**(只有 InterruptibleChannel 响应)，于是这 8 次请求会照样跑完，
+                // 而 runInterruptible 要等 block 真正返回才结束 —— 外层那个 3000ms 形同虚设。
+                //
+                // 实证:0814 三次调用实测 5411 / 5568 / 5856ms;0815 两台设备 **100% 超预算**
+                // (doh:7/7、doh:8/8、doh:1/1)。最坏情况是 4 端点 × 2 记录类型 × 1200ms = 9.6 秒，
+                // 而这 9.6 秒恰好发生在 DNS 已经出问题、用户正在等的时刻。
+                //
+                // 改成协作式:每次请求前检查剩余预算，并用它压单次超时。这样总耗时严格受控，
+                // 且不需要任何中断机制配合。
+                val remainMs = (deadlineNs - System.nanoTime()) / 1_000_000L
+                if (remainMs <= 0) return emptyList()
+                val stepMs = minOf(DOH_TIMEOUT_MS.toLong(), remainMs).toInt()
                 try {
                     val url = java.net.URL("$base?name=${java.net.URLEncoder.encode(host, "UTF-8")}&type=$type")
                     // **绑到用户选定的那张网**（默认跟随「直连出口」）。此前用裸的 url.openConnection()，
@@ -802,8 +801,9 @@ class OutboundConnector(
                     val dohNet = underlyingNetworkProvider?.dohNetwork()
                     val conn = (dohNet?.openConnection(url) ?: url.openConnection())
                         as javax.net.ssl.HttpsURLConnection
-                    conn.connectTimeout = DOH_TIMEOUT_MS
-                    conn.readTimeout = DOH_TIMEOUT_MS
+                    // 用剩余预算压住单次超时:最后一个端点不能再花满 DOH_TIMEOUT_MS。
+                    conn.connectTimeout = stepMs
+                    conn.readTimeout = stepMs
                     if (accept != null) conn.setRequestProperty("Accept", accept)
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
                     conn.disconnect()

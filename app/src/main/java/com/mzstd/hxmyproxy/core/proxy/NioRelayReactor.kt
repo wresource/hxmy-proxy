@@ -288,24 +288,31 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
             when {
                 it.idleExpired(now) -> { it.markClosing("idle"); it.close(this) }
                 it.externallyClosed() -> { it.markClosing("peer-closed"); it.close(this) }
-                it.upstreamSilent(now) -> {
-                    // 与普通空闲回收分开记：这一类是「上游静默死亡」，是网络侧故障的信号，
-                    // 而不是正常的连接老化。混在一起会让排障时分不清「没人用」和「用不了」。
-                    it.markClosing("upstream-silent")
-                    // 节流 key 按域名分桶：此前是固定串，30 秒窗口内**不同域名互相压制**，
-                    // 于是判死最频繁的那个域名反而可能一行都不留。
+                // **只标记与告警，不再拆隧道。**
+                //
+                // 0815 两台设备各跑一天的实测(n=1121 / 753)判了这条判据的死刑:
+                // 判死那一刻 `sinceTxSec` 的 p25/p50/p75 **全是 90**、max 只有 91 ——
+                // 也就是客户端发完最后一个字节后**整整 90 秒再没发过任何东西**，上游也没回。
+                // 这是连接池里闲置的连接，不是「上游卡住的传输」。
+                // 「正在传输被腰斩」(sinceTxSec<5s)两台合计只有 **4 条(0.3% / 0.1%)**。
+                //
+                // 而拆掉它换来的只有 30 秒:silent 存活 p50=91.8s，idle 存活 p50=121.6s，
+                // 也就是不拆的话 idle(120s)必然在 30 秒后接手 —— 这些连接照样会被回收。
+                // 代价却是每天约 1900 次无谓的 TLS 重建，以及 key.log 里 99.7% 的「故障信号」是假的。
+                //
+                // 保留检测与告警是因为它仍有观测价值(真的链路半死时这是唯一的早期信号)，
+                // 但降级为非 key(不再占 256KB 的 key 环)，并且**每条隧道只告警一次**。
+                it.upstreamSilent(now) && it.flagSilentOnce(now) -> {
+                    // 节流 key 按域名分桶：固定串会让 30 秒窗口内不同域名互相压制。
                     Ev.throttled(
-                        LogCat.RELAY, "nio.upstream.silent", "usilent:${it.hostOrUnknown()}", 30_000L, key = true,
+                        LogCat.RELAY, "nio.upstream.silent", "usilent:${it.hostOrUnknown()}", 30_000L,
                         kv = arrayOf(
                             "host" to it.hostOrUnknown(), "aliveSec" to it.aliveSec(now),
                             "up" to it.upBytesSoFar(), "down" to it.downBytesSoFar(),
-                            // 判死终局要的就是这两个:sinceTx 大 ⇒ 客户端早就不发了（池化闲置，误杀）;
-                            // sinceTx 小 ⇒ 客户端刚还在写（正在传输被腰斩，真该救）。
                             "sinceTxSec" to it.sinceClientTxSec(now),
                             "tunnels" to tunnels.size,
                         ),
                     )
-                    it.close(this)
                 }
             }
         }
@@ -389,6 +396,29 @@ private class Tunnel(
      * 直接分开「正常结束」「空闲老化」「上游静默判死」——**这是判断误杀率的唯一依据**。
      */
     @Volatile private var closeReason = "eof"
+
+    /**
+     * 被静默判据标记过的时刻，以及标记那一刻的下行字节数。
+     *
+     * 判据现在**只标记不拆除**，于是可以直接观测一件此前无法观测的事:
+     * **被判为「上游静默死亡」的连接，后来到底有没有再收到上游字节。**
+     * 只要有一条 `flag=revived`，就说明这条判据当初拆掉的是活连接 —— 这是零推断的铁证。
+     * 此前它一标记就拆，答案被自己的动作抹掉了(观测者效应)。
+     */
+    @Volatile private var silentFlaggedAtNs = 0L
+    @Volatile private var downAtFlag = 0L
+
+    /** 每条隧道只标记一次;返回 true 表示这次是首次标记(用于只告警一次)。 */
+    fun flagSilentOnce(now: Long): Boolean {
+        if (silentFlaggedAtNs != 0L) return false
+        silentFlaggedAtNs = now
+        downAtFlag = downBytes
+        return true
+    }
+
+    /** null=从未被标记;revived=标记后上游又说话了(误判);silent=标记后确实一直没动静。 */
+    private fun silentVerdict(): String? =
+        if (silentFlaggedAtNs == 0L) null else if (downBytes > downAtFlag) "revived" else "silent"
 
     fun markClosing(reason: String) { closeReason = reason }
     fun hostOrUnknown(): String = host ?: "?"
@@ -518,7 +548,7 @@ private class Tunnel(
         RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs)
         // 隧道终局落盘。此前 RequestTrace.tunnelClosed 只有定义、**全仓零调用点**——
         // 于是「跑一天再看 req.closed」这个排查计划从一开始就取不到数据。
-        trace?.tunnelClosed(host, closeReason, upBytes, downBytes)
+        trace?.tunnelClosed(host, closeReason, upBytes, downBytes, silentVerdict())
         cCtx.key?.cancel(); uCtx.key?.cancel()
         cCtx.channel.closeQuietly(); uCtx.channel.closeQuietly()
         w.untrack(this)

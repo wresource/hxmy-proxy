@@ -211,49 +211,71 @@ class NioRelayReactorEdgeTest {
     }
 
     /**
-     * **上游静默死亡必须被拆掉**（0806 现场：老窗口的 CLI 卡住不动、新开窗口却正常）。
+     * **上游静默只标记、不再拆隧道** —— 这条判据的行为被真机数据推翻过一次，改在这里锁住。
      *
-     * 现场机理：VPN 链路消失但没有 FIN/RST，内核不知道对端已死，写进发送缓冲区就算「成功」。
-     * 客户端于是一直发、一直等，而 relay 侧的 [lastActivity] 对读写一视同仁——
-     * **写操作把隧道续了命**，空闲回收永远轮不到它。表现就是那条连接永久挂起。
+     * 它最初是为 0806 那个现场加的：VPN 链路消失但没有 FIN/RST，客户端一直发、上游一个字节不回，
+     * 而 [lastActivity] 对读写一视同仁，**写操作把隧道续了命**，空闲回收永远轮不到它。
      *
-     * 这里造出完全一样的形态：客户端发数据，上游收下但一个字节都不回。
-     * 注入 600ms 的静默阈值（生产默认 90s），断言隧道被拆、协程按时返回、两端都关掉。
-     * 改动前这条必然超时——因为客户端的写会不断刷新 lastActivity。
+     * 但 0815 两台设备各跑一天的实测(n=1121 / 753)显示，真正被它拆掉的几乎全不是那个形态：
+     * 判死那一刻 `sinceTxSec` 的 p25/p50/p75 **全是 90**、max 只有 91 ——
+     * 客户端发完最后一个字节后整整 90 秒再没发过任何东西，上游也没回，
+     * 这是连接池里闲置的连接。「正在传输被腰斩」(sinceTxSec<5s)两台合计只有 4 条(0.3%/0.1%)。
+     * 而拆掉它只换来 30 秒：silent 存活 p50=91.8s，idle 存活 p50=121.6s ——
+     * 不拆的话 idle 必然接手，代价却是每天约 1900 次无谓的 TLS 重建。
+     *
+     * 所以现在：**判据保留(仍是链路半死的唯一早期信号)，但只告警不拆**。
+     * 这条测试同时守两件事：告警要落、隧道不能被拆。
      */
-    @Test(timeout = 30000) fun `上游只收不回的隧道必须被判死拆掉`() = runBlocking {
-        val (clientPeer, clientCh) = pair()
-        val (upstreamCh, upstreamPeer) = pair()
-        clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
-        val reactor = reactor()
-        // idle=0 关掉普通空闲回收，确保拆掉它的只可能是「上游静默」这条新判据
-        val job = launch(Dispatchers.IO) { reactor.relay(clientCh, upstreamCh, 8192, 0, silenceMs = 600) { _, _ -> } }
-        withTimeout(25000) {
+    @Test(timeout = 30000) fun `上游只收不回时应告警但不再拆隧道`() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("silent-noclose").toFile()
+        FileLog.enabled = true
+        FileLog.init(dir)
+        try {
+            val (clientPeer, clientCh) = pair()
+            val (upstreamCh, upstreamPeer) = pair()
+            clientCh.configureBlocking(false); upstreamCh.configureBlocking(false)
+            val reactor = reactor()
+            // idle=0 关掉空闲回收：这样若隧道被拆，唯一可能的凶手就是静默判据本身。
+            // **host 必须唯一**：告警的节流 dedup key 是 `usilent:$host`，而 Ev 的节流表是
+            // 全局静态的、跨用例共享。两个用例都不传 host 就会共用 `usilent:?`，
+            // 后跑的那个被 30 秒窗口整个遮蔽 —— 表现为「告警没落」，很容易误判成功能坏了。
+            val job = launch(Dispatchers.IO) {
+                reactor.relay(clientCh, upstreamCh, 8192, 0, silenceMs = 600, host = "silent-noclose.test") { _, _ -> }
+            }
             withContext(Dispatchers.IO) {
                 clientPeer.writeStr("GET / HTTP/1.1\r\n\r\n")   // 客户端发了，开始等回应
-                Thread.sleep(200)
-                clientPeer.writeStr("more")                        // 继续发——这正是「写操作续命」的形态
+                Thread.sleep(2500)                                 // 远超 600ms 阈值，判据必然已触发多轮
             }
-            job.join()                                             // 静默超阈值后隧道应被拆、协程返回
+            assertTrue("静默判据不得再拆隧道——客户端侧应仍然开着", clientCh.isOpen)
+            assertTrue("静默判据不得再拆隧道——上游侧应仍然开着", upstreamCh.isOpen)
+            val warn = FileLog.snapshot().lines().firstOrNull { it.contains("evt=nio.upstream.silent") }
+                ?: throw AssertionError("检测仍须生效并告警(它是链路半死的唯一早期信号)")
+            assertTrue("告警要带 sinceTxSec，那是区分池化闲置与传输腰斩的唯一字段：$warn",
+                warn.contains("sinceTxSec="))
+            job.cancelAndJoin()
+            upstreamPeer.close(); clientPeer.close()
+        } finally {
+            FileLog.clear()
+            dir.deleteRecursively()
         }
-        assertFalse("客户端侧 channel 应已关闭", clientCh.isOpen)
-        assertFalse("上游侧 channel 应已关闭", upstreamCh.isOpen)
-        upstreamPeer.close(); clientPeer.close()
     }
 
     /**
-     * **判死必须落下「死的是谁」**——这条锁的是可观测性，不是行为。
+     * **被标记过的隧道，终局必须带上判决(`flag=`)** —— 这是那条判据的最终审判字段。
      *
-     * 0807 日志的教训：一晚上 884 行 `nio.upstream.silent`，但那条事件只记了个隧道总数，
-     * 而 [RequestTrace.tunnelClosed] 虽然写好了却**全仓零调用点**。
-     * 结果是「90 秒静默究竟杀掉了长思考的 API 请求、还是真正的死链路」根本无从分辨，
-     * 连「跑一天再导日志」这个排查计划都取不到数据——埋点定义了不等于埋点接上了。
+     * 判据改成「只标记不拆」之后，一件此前**无法观测**的事变得可观测了：
+     * 被判为「上游静默死亡」的连接，后来到底有没有再收到上游字节。
+     * 此前它一标记就拆，答案被自己的动作抹掉了（观测者效应）。
      *
-     * 所以这里断言的是那一行日志本身：`req.closed` 必须带上 host 与 `why=upstream-silent`，
-     * 且 host 要冗余记在同一行（靠 id 回查 req.rule 才能知道是谁，等于每次排障都要先做 join）。
+     * `flag=revived` 意味着上游后来又说话了 —— 那条连接根本没死，判据当初拆的是活连接。
+     * **这是零推断的铁证**，比任何按字节或时长做的统计推断都硬:
+     * 上一轮用 `down` 累计字节推出的「99.67% 误杀」就因为「一条搬过 142KB 后真死的隧道
+     * down 同样大」而被对抗审查打了下来。
+     *
+     * 这里造的正是 revived 形态：先静默到触发标记，再让上游说话，最后收尾。
      */
-    @Test(timeout = 30000) fun `上游静默判死必须落下域名与拆除原因`() = runBlocking {
-        val dir = java.nio.file.Files.createTempDirectory("relay-close").toFile()
+    @Test(timeout = 30000) fun `标记后上游又说话必须记成revived`() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("relay-revived").toFile()
         FileLog.enabled = true
         FileLog.init(dir)
         try {
@@ -264,22 +286,24 @@ class NioRelayReactorEdgeTest {
             val trace = RequestTrace.open("HTTP", 54321)
             val job = launch(Dispatchers.IO) {
                 reactor.relay(
-                    clientCh, upstreamCh, 8192, 0, silenceMs = 600,
+                    clientCh, upstreamCh, 8192, 0, silenceMs = 400,
                     host = "api.anthropic.com", trace = trace,
                 ) { _, _ -> }
             }
-            withTimeout(25000) {
-                withContext(Dispatchers.IO) { clientPeer.writeStr("GET / HTTP/1.1\r\n\r\n") }
-                job.join()
+            withContext(Dispatchers.IO) {
+                clientPeer.writeStr("GET / HTTP/1.1\r\n\r\n")
+                Thread.sleep(1500)                  // 静默超阈值 ⇒ 被标记
+                upstreamPeer.writeStr("HTTP/1.1 200 OK\r\n\r\n")   // 上游其实还活着
+                Thread.sleep(400)
+                upstreamPeer.close(); clientPeer.close()           // 正常收尾
             }
-            val log = FileLog.snapshot()
-            val closed = log.lines().firstOrNull { it.contains("evt=req.closed") }
-                ?: throw AssertionError("判死后没有落 req.closed 行；全部日志：\n$log")
-            assertTrue("req.closed 必须带 host，否则答不出「杀的是谁」：$closed",
+            job.join()
+            val closed = FileLog.snapshot().lines().firstOrNull { it.contains("evt=req.closed") }
+                ?: throw AssertionError("应落 req.closed 行")
+            assertTrue("req.closed 必须带 host，否则答不出「是谁」：$closed",
                 closed.contains("host=api.anthropic.com"))
-            assertTrue("拆除原因必须是 upstream-silent，才能与正常收尾区分：$closed",
-                closed.contains("why=upstream-silent"))
-            upstreamPeer.close(); clientPeer.close()
+            assertTrue("标记后上游又说话了，必须记成 flag=revived —— 这是判据误判的铁证：$closed",
+                closed.contains("flag=revived"))
         } finally {
             FileLog.clear()
             dir.deleteRecursively()
