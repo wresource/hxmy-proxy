@@ -77,9 +77,10 @@ class SubnetsTest {
 
     // ==================== inSubnets ====================
 
-    private fun net(cidr: String): Pair<Int, Int> {
+    /** 网段字面量 → (网络号字节, 前缀)。字节表示同时适用 v4 与 v6。 */
+    private fun net(cidr: String): Pair<ByteArray, Int> {
         val (a, p) = cidr.split("/")
-        return Subnets.ipv4Int(ip(a))!! to p.toInt()
+        return ip(a).address to p.toInt()
     }
 
     @Test fun `落在子网内与不在子网内`() {
@@ -104,7 +105,7 @@ class SubnetsTest {
     @Test fun `前缀小于等于 0 时任何地址都算在网内——刻意保留的当前行为`() {
         // mask 为 0，比较恒成立。这是 entrySubnets 混入异常前缀时的既有行为；
         // 改掉会改变失联判定的探测范围，所以钉在这里，将来若要改必须是有意识的决定。
-        val degenerate = listOf(0 to 0)
+        val degenerate = listOf(ByteArray(4) to 0)
         assertTrue(Subnets.inSubnets(ip("8.8.8.8"), degenerate))
         assertTrue(Subnets.inSubnets(ip("192.168.1.1"), degenerate))
     }
@@ -115,7 +116,47 @@ class SubnetsTest {
         assertFalse(Subnets.inSubnets(ip("192.168.1.51"), host))
     }
 
-    @Test fun `IPv6 地址一律不匹配 v4 子网`() {
+    @Test fun `v6 地址不匹配 v4 子网——靠字节长度隔离两个地址族`() {
         assertFalse(Subnets.inSubnets(ip("2001:db8::1"), listOf(net("192.168.1.0/24"))))
+    }
+
+    // ==================== IPv6 ====================
+
+    /**
+     * 入站 IPv6 一直进不来的真正卡点是**网段表示法**：原先是 Pair<Int, Int>，
+     * 32 位装不下 128 位地址，于是 v6 接口连准入集都进不去。
+     * 换成字节数组后这一组才有意义。
+     */
+    @Test fun `v6 落在子网内与不在子网内`() {
+        val subnets = listOf(net("2001:db8:1::/64"))
+        assertTrue(Subnets.inSubnets(ip("2001:db8:1::1"), subnets))
+        assertTrue(Subnets.inSubnets(ip("2001:db8:1::ffff"), subnets))
+        assertFalse(Subnets.inSubnets(ip("2001:db8:2::1"), subnets))
+    }
+
+    @Test fun `v6 唯一地址前缀 128 只匹配自身`() {
+        val host = listOf(net("fd00::50/128"))
+        assertTrue(Subnets.inSubnets(ip("fd00::50"), host))
+        assertFalse(Subnets.inSubnets(ip("fd00::51"), host))
+    }
+
+    @Test fun `v6 非 8 整除的前缀要按位比而不是按字节比`() {
+        // /60 的最后一个字节只比高 4 位：2001:db8:0:10::/60 覆盖 ...:10:: 到 ...:1f::
+        val subnets = listOf(net("2001:db8:0:10::/60"))
+        assertTrue(Subnets.inSubnets(ip("2001:db8:0:10::1"), subnets))
+        assertTrue(Subnets.inSubnets(ip("2001:db8:0:1f::1"), subnets))
+        assertFalse(Subnets.inSubnets(ip("2001:db8:0:20::1"), subnets))
+    }
+
+    @Test fun `v4 地址不匹配 v6 子网——反方向也要隔离`() {
+        assertFalse(Subnets.inSubnets(ip("192.168.1.1"), listOf(net("2001:db8::/32"))))
+    }
+
+    @Test fun `v4 与 v6 网段混在一起时各自命中各自的`() {
+        val mixed = listOf(net("192.168.1.0/24"), net("fd00::/8"))
+        assertTrue(Subnets.inSubnets(ip("192.168.1.5"), mixed))
+        assertTrue(Subnets.inSubnets(ip("fd00::abcd"), mixed))
+        assertFalse(Subnets.inSubnets(ip("10.0.0.1"), mixed))
+        assertFalse(Subnets.inSubnets(ip("2001:db8::1"), mixed))
     }
 }

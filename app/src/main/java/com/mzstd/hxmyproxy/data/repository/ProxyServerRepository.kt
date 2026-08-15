@@ -151,7 +151,7 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var broadcastTargets: List<InetAddress> = emptyList()
     /** 入口接口的 (子网, 前缀) 快照（refresh 更新）：recent 客户端只有落在当前某入口子网内
      *  才参与探测与失联判定——换网后旧网段 IP 既不该探（单播会经默认路由外泄）也不该告警。 */
-    @Volatile private var entrySubnets: List<Pair<Int, Int>> = emptyList()
+    @Volatile private var entrySubnets: List<Pair<ByteArray, Int>> = emptyList()
     /** 失联解除的出向迟滞：连续这么多轮无失联嫌疑才解除（与进入的 3 连败对称,压抖动振荡）。 */
     @Volatile private var clearStreak = 0
     /** 自愈突发单飞标志（突发最坏时长可超过冷却,必须防重叠）。 */
@@ -1010,7 +1010,9 @@ class ProxyServerRepository @Inject constructor(
         // 存在通告的目标：各入口子网的定向广播地址。入口即客户端所在的网段——通告发给谁听不重要,
         // 广播帧被泛洪的过程本身就在刷新沿路转发表。
         broadcastTargets = effective.mapNotNull { Subnets.subnetBroadcast(it.address, it.prefixLength) }
-        entrySubnets = effective.mapNotNull { i -> Subnets.ipv4Int(i.address)?.let { it to i.prefixLength } }
+        // 网络号用字节数组而非 Int：IPv6 是 128 位，Int 装不下（见 Subnets 类注释）。
+        // 这里直接存接口地址本身，前缀比较在 Subnets.matchesPrefix 里做。
+        entrySubnets = effective.mapNotNull { i -> i.address.address?.let { it to i.prefixLength } }
         // 带接口名与类型：7-26 排障时 scan 里冒出过一个只有 IP 的 10.168.249.89，是什么接口至今无解
         //（当时 scanKey 只拼 IP）。名字+类型是判定「陌生接口从哪来」的最起码信息。
         val scanKey = interfaces.joinToString(",") {

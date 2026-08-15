@@ -19,8 +19,15 @@ data class ProxyEntry(
     val priority: Int = 0,
     val reachable: Boolean = true,
 ) {
-    /** 形如 "192.168.1.34:1080" 的 IP 端点（始终可用）。 */
-    val ipEndpoint: String get() = "$host:$port"
+    /**
+     * 形如 "192.168.1.34:1080" 的 IP 端点（始终可用）。
+     *
+     * **IPv6 必须加方括号**：`fd00::1:1080` 无法解析——冒号既是地址的一部分又是端口分隔符，
+     * 这是 RFC 3986 §3.2.2 规定的写法。PAC 正文、二维码、设置页、复制按钮全部走这里，
+     * 所以在这一处修好，下游都不用各自处理。
+     * 判据用「含冒号」而不是类型判断：这里的 host 已经是字符串，且只有 v6 字面量会含冒号。
+     */
+    val ipEndpoint: String get() = if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port"
 
     /** 便利名端点，如 "hxmyproxy.local:1080"；无 mDNS 时为 null。 */
     val mdnsEndpoint: String? get() = mdnsName?.let { "$it:$port" }

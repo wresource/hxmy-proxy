@@ -19,6 +19,19 @@ data class ShareInterface(
     val isSelected: Boolean,
     val status: InterfaceStatus,
 ) {
-    /** 接口地址的可读形式，如 "192.168.1.34/24"。 */
-    val cidr: String get() = "${address.hostAddress}/$prefixLength"
+    /**
+     * 地址的**可直接使用**形式：IPv4 原样，IPv6 加方括号（`[fd00::1]`）。
+     *
+     * 显示处一律用它，而不是裸的 `hostAddress`。理由是用户会照着界面往别的设备上填，
+     * 而 `fd00::1:8090` 这种写法是非法的——冒号既属于地址又是端口分隔符，
+     * 必须靠方括号消歧（RFC 3986 §3.2.2）。界面上就显示成能直接用的样子，省得误导。
+     *
+     * 顺带去掉 scope（`fe80::1%wlan0` 的 `%wlan0`）：它只在本机有意义，填到别的设备上无效。
+     */
+    val displayAddress: String get() = (address.hostAddress ?: "?").let {
+        if (it.contains(':')) "[${it.substringBefore('%')}]" else it
+    }
+
+    /** 接口地址的可读形式，如 "192.168.1.34/24"、"[fd00::1]/64"。 */
+    val cidr: String get() = "$displayAddress/$prefixLength"
 }

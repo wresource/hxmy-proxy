@@ -3,7 +3,6 @@ package com.mzstd.hxmyproxy.core.network
 import com.mzstd.hxmyproxy.core.model.InterfaceStatus
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.ShareInterface
-import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Collections
@@ -34,7 +33,10 @@ class InterfaceScanner {
             if (InterfaceClassifier.isUplinkOnly(nif.name)) continue
             for (ia in nif.interfaceAddresses) {
                 val addr = ia.address ?: continue
-                if (addr !is Inet4Address) continue
+                // **双栈**：此前这里 `if (addr !is Inet4Address) continue` 把所有 IPv6 地址扔掉了，
+                // 于是入口列表里永远没有 v6 网段、准入集也就没有，v6 客户端连进来必然被拒。
+                // 下面这行的 isLinkLocalAddress 对 v6 同样有效（fe80::/10）——link-local 每个接口
+                // 都有一个、且必须带 scope（fe80::1%wlan0）才能用，纳入共享列表只会制造噪音。
                 if (addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isAnyLocalAddress) continue
                 val prefix = ia.networkPrefixLength.toInt()
                 val id = "${nif.name}/${addr.hostAddress}"

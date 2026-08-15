@@ -277,7 +277,9 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
     val s = ui.settings
     val bindErrors = ui.share.portBindErrors
     // meta 小注：当前入口 IP（优先已选接口，其次推荐入口）；没有就不显示。
-    val host = ui.share.interfaces.firstOrNull { it.isSelected }?.address?.hostAddress
+    // 用 displayAddress 而非裸 hostAddress：这行是给用户照着填到别的设备上的，
+    // IPv6 不加方括号会被填成非法的 host:port（见 ShareInterface.displayAddress）。
+    val host = ui.share.interfaces.firstOrNull { it.isSelected }?.displayAddress
         ?: ui.share.recommendedEntries.firstOrNull()?.host
     val (iconBg, iconFg) = avatarColors(0)
 

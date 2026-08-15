@@ -63,7 +63,9 @@ class PacServer(
         // 本机为这次连接对外的地址（扫码设备连的就是它）→ 拼回链基址。
         val local = client.localSocketAddress as? InetSocketAddress
         val ip = local?.address?.hostAddress
-        val base = if (local != null && ip != null) "http://$ip:${local.port}" else null
+        // IPv6 进 URL 要方括号（RFC 3986 §3.2.2），否则 http://fd00::1:8899 解析不了。
+        val urlHost = ip?.let { if (it.contains(':')) "[${it.substringBefore('%')}]" else it }
+        val base = if (local != null && urlHost != null) "http://$urlHost:${local.port}" else null
         // HTTP 启用 → 给 iPhone 用 Manual HTTP 描述文件（host=本机IP、port=httpPort），免 PAC 拉取最稳。
         val manualHttp = httpProxyPort()?.let { port -> ip?.let { it to port } }
 
