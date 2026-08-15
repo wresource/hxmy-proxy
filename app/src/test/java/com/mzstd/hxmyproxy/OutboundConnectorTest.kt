@@ -257,6 +257,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns net
             every { provider.current() } returns null
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val c = OutboundConnector(allowAll, dnsDispatcher = dns, underlyingNetworkProvider = provider)
             c.connect("cached.example", echo.port).close()
@@ -363,6 +366,9 @@ class OutboundConnectorTest {
         try {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.current() } returns null   // 仅 VPN 在线
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
             // egressNetwork() 故意不打桩：走错槽会立刻炸出 MockKException，与「正确 fail-closed」清晰可辨。
             val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
             val loopback = InetAddress.getByName("127.0.0.1")
@@ -460,6 +466,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns net
             every { provider.current() } returns null   // 本例只验「默认网络」这一路，物理网缺席
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val kinds = mutableListOf<EgressKind>()
             val c = OutboundConnector(
@@ -502,6 +511,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns egress
             every { provider.current() } returns phy
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val kinds = mutableListOf<EgressKind>()
             val c = OutboundConnector(
@@ -530,6 +542,9 @@ class OutboundConnectorTest {
         val provider = mockk<UnderlyingNetworkProvider>()
         every { provider.egressNetwork() } returns net
         every { provider.current() } returns null   // 降级重试时的互援也拿不到底层网络
+        // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+        every { provider.sincePhysChangeSec() } returns -1
+        every { provider.vpnAgeSec() } returns -1
 
         var reported = 0
         val c = OutboundConnector(
@@ -710,6 +725,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns egress
             every { provider.current() } returns phy
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
                 .apply { backupDnsEnabled = false }
@@ -743,6 +761,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns egress
             every { provider.current() } returns phy
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
                 .apply { backupDnsEnabled = false }
@@ -777,6 +798,9 @@ class OutboundConnectorTest {
         val provider = mockk<UnderlyingNetworkProvider>()
         every { provider.egressNetwork() } returns egress
         every { provider.current() } returns null
+        // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+        every { provider.sincePhysChangeSec() } returns -1
+        every { provider.vpnAgeSec() } returns -1
 
         var reported = 0
         val c = OutboundConnector(
@@ -813,6 +837,9 @@ class OutboundConnectorTest {
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns egress
             every { provider.current() } returns null
+            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
+            every { provider.sincePhysChangeSec() } returns -1
+            every { provider.vpnAgeSec() } returns -1
 
             val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider).apply {
                 backupDnsEnabled = false

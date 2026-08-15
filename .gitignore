@@ -33,3 +33,6 @@ release-artifacts/
 /hxmyproxy-log(1).txt
 /*hxmyproxy-log*.txt
 /tasks/
+/.kotlin/
+/scripts/
+/version-md/

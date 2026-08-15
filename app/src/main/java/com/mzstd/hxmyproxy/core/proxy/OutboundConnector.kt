@@ -284,9 +284,15 @@ class OutboundConnector(
 
             // 非 bypass 的出口分流(指定 VPN/WiFi/蜂窝出口)连不通。
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                // **sincePhys / vpnAge 是关联字段**：0815 现场里一整分钟的 STRICT 失败，
+                // 全部发生在底层链路刚换过之后，而出口用的 VPN 句柄一次没变（存在但不通）。
+                // 把「距上次换网多久」直接写在失败行上，才能验证这个模式是否稳定复现 ——
+                // 附在已有的行上而不是新增事件，不增加日志量。
                 throttledFileLog(
                     "egress-strict:$host",
-                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
+                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)" +
+                        "; sincePhys=${underlyingNetworkProvider?.sincePhysChangeSec() ?: -1}s" +
+                        " vpnAge=${underlyingNetworkProvider?.vpnAgeSec() ?: -1}s",
                 )
                 // 阶段随异常走、由 server 层统一落盘 —— 这里再记一次就是双写（见 ProxyException.stage）。
                 throw ProxyException(e.error, "connect-strict")
@@ -899,9 +905,15 @@ class OutboundConnector(
             if (egressHealth.recordFailure(network, host)) egressHealth.confirmOrSideline(network)
 
             if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
+                // **sincePhys / vpnAge 是关联字段**：0815 现场里一整分钟的 STRICT 失败，
+                // 全部发生在底层链路刚换过之后，而出口用的 VPN 句柄一次没变（存在但不通）。
+                // 把「距上次换网多久」直接写在失败行上，才能验证这个模式是否稳定复现 ——
+                // 附在已有的行上而不是新增事件，不增加日志量。
                 throttledFileLog(
                     "egress-strict:$host",
-                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)",
+                    "egress fail $host: ${e.error} - STRICT abort (no fallback, egress identity preserved)" +
+                        "; sincePhys=${underlyingNetworkProvider?.sincePhysChangeSec() ?: -1}s" +
+                        " vpnAge=${underlyingNetworkProvider?.vpnAgeSec() ?: -1}s",
                 )
                 // 阶段随异常走、由 server 层统一落盘 —— 这里再记一次就是双写（见 ProxyException.stage）。
                 throw ProxyException(e.error, "connect-strict")

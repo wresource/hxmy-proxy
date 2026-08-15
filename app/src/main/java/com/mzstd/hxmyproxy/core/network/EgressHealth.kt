@@ -1,7 +1,9 @@
 package com.mzstd.hxmyproxy.core.network
 
 import android.net.Network
+import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
+import com.mzstd.hxmyproxy.core.log.LogCat
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -151,18 +153,38 @@ class EgressHealth(
             "8.8.8.8" to 53,        // Google
         )
 
-        /** 默认探测：在指定网络上试连几个高可用目标，任一成功即通。 */
+        /**
+         * 默认探测：在指定网络上试连几个高可用目标，任一成功即通。
+         *
+         * **逐个目标记结果**，而不是只报总的成败。三个目标分属阿里 / Cloudflare / Google，
+         * 分开看才能区分两种完全不同的情况:
+         *  · 三个全挂 ⇒ 这条链路本身不通(0815 现场就是这样，判定正确)
+         *  · 只挂某一家 ⇒ 是那家被墙/被限，链路其实是好的 —— 此时摘网就是**误判**
+         *
+         * 用户报过一次「手机显示网络不可用(感叹号)但实际能上网」，那个感叹号正是系统
+         * 连 Google 的连通性检测失败所致。我们的判据不依赖单一厂商(任一成功即通)，
+         * 但只有把逐目标结果记下来，这一点才是**可验证的**而不是口头保证。
+         */
         suspend fun defaultProbe(net: Network): Boolean = kotlinx.coroutines.withContext(
             kotlinx.coroutines.Dispatchers.IO,
         ) {
-            PROBE_TARGETS.any { (ip, port) ->
-                runCatching {
+            val results = PROBE_TARGETS.map { (ip, port) ->
+                val t0 = System.nanoTime()
+                val ok = runCatching {
                     net.socketFactory.createSocket().use { s ->
                         s.connect(InetSocketAddress(ip, port), PROBE_TIMEOUT_MS)
                         true
                     }
                 }.getOrDefault(false)
+                Triple(ip, ok, (System.nanoTime() - t0) / 1_000_000L)
             }
+            Ev.kw(
+                LogCat.NET, "egress.probe",
+                "net" to net.networkHandle,
+                "detail" to results.joinToString(",") { (ip, ok, ms) -> "$ip:${if (ok) "ok" else "fail"}/${ms}ms" },
+                "okCount" to results.count { it.second },
+            )
+            results.any { it.second }
         }
     }
 }

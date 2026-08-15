@@ -713,6 +713,12 @@ class ProxyServerRepository @Inject constructor(
             // 两者不一致本身就是信号，所以并排打而不是替换。
             "physNet" to (underlyingNetworkProvider?.current()?.networkHandle?.toString() ?: "none"),
             "egressNet" to (underlyingNetworkProvider?.egressNetwork()?.networkHandle?.toString() ?: "none"),
+            // **陈旧度**:距上次底层链路变化多少秒 / 当前出口句柄已存活多少秒。
+            // 0815 现场的形态是 physNet 在 27 分钟里换了四次，而 VPN 句柄一次没变 ——
+            // 这两个数并排看就是「底层刚换过(sincePhys 小)、出口句柄却很老(vpnAge 大)」，
+            // 那正是「句柄存在但不通」的时刻。单看任何一个都看不出来。
+            "sincePhys" to (underlyingNetworkProvider?.sincePhysChangeSec() ?: -1),
+            "vpnAge" to (underlyingNetworkProvider?.vpnAgeSec() ?: -1),
             // DIRECT 全局不可用态（无物理出口）——per-host 账本回答不了「是不是所有直连都废了」。
             "noEgress" to com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.noEgressState()
                 ?.let { (since, n) -> "${(System.currentTimeMillis() - since) / 1000}s/$n" },

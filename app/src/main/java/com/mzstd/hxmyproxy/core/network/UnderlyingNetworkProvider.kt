@@ -140,32 +140,99 @@ class UnderlyingNetworkProvider(context: Context) {
     private val wifiCb = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(n: Network) {
             val old = wifiNet; wifiNet = n
-            if (old != n) FileLog.w(TAG, "egress[wifi] -> $n (was $old)")
+            if (old != n) { markPhysChange("wifi", old, n); FileLog.w(TAG, "egress[wifi] -> $n (was $old)") }
         }
         override fun onLost(n: Network) {
-            if (wifiNet == n) { wifiNet = null; validated = false; FileLog.w(TAG, "egress[wifi] lost: $n") }
+            if (wifiNet == n) {
+                wifiNet = null; validated = false
+                markPhysChange("wifi", n, null)
+                FileLog.w(TAG, "egress[wifi] lost: $n")
+            }
         }
         override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
             if (n == wifiNet) validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         }
     }
     private val cellularCb = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(n: Network) { cellularNet = n }
-        override fun onLost(n: Network) { if (cellularNet == n) cellularNet = null }
+        override fun onAvailable(n: Network) {
+            if (cellularNet != n) markPhysChange("cellular", cellularNet, n)
+            cellularNet = n
+        }
+        override fun onLost(n: Network) {
+            if (cellularNet == n) { markPhysChange("cellular", n, null); cellularNet = null }
+        }
     }
     private val ethernetCb = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(n: Network) {
             val old = ethernetNet; ethernetNet = n
-            if (old != n) FileLog.w(TAG, "egress[ethernet] -> $n (was $old)")
+            if (old != n) { markPhysChange("ethernet", old, n); FileLog.w(TAG, "egress[ethernet] -> $n (was $old)") }
         }
         override fun onLost(n: Network) {
-            if (ethernetNet == n) { ethernetNet = null; FileLog.w(TAG, "egress[ethernet] lost: $n") }
+            if (ethernetNet == n) {
+                markPhysChange("ethernet", n, null); ethernetNet = null
+                FileLog.w(TAG, "egress[ethernet] lost: $n")
+            }
         }
     }
     private val vpnCb = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(n: Network) { vpnNet = n }
-        override fun onLost(n: Network) { if (vpnNet == n) vpnNet = null }
+        override fun onAvailable(n: Network) {
+            if (vpnNet != n) markVpnChange(vpnNet, n)
+            vpnNet = n
+        }
+        override fun onLost(n: Network) {
+            if (vpnNet == n) { markVpnChange(n, null); vpnNet = null }
+        }
     }
+
+    /**
+     * **底层物理链路换了 / 没了。**
+     *
+     * 为什么单独记这件事:0815 现场——底层 WiFi 句柄在 27 分钟里换了四次，
+     * 而出口用的 VPN 句柄(`egressNet`)**一次都没变、`vpn=on` 也全程为真**。
+     * VPN 是虚拟接口，底层链路换掉它照样"有效"，于是我们拿着一个存在但不通的句柄
+     * 继续建连，直到 [EgressHealth] 靠实际探测才发现——那之前有一整分钟的请求
+     * 全在等 2.5 秒起步的超时（摘网后同类请求 1ms 失败，差三个数量级）。
+     *
+     * 这一行是为了验证「physNet 变化 → 出口失败爆发」这个模式是否**稳定复现**。
+     * 它是低频事件（一天个位数到几十次），用日志行不会有量的问题；
+     * 而"距上次变化多久"这个高频侧的量走 [sincePhysChangeSec]，附在已有的失败行上，不新增行。
+     */
+    private fun markPhysChange(kind: String, old: Network?, new: Network?) {
+        lastPhysChangeAtNs = System.nanoTime()
+        physChangeCount.incrementAndGet()
+        Ev.kw(
+            LogCat.NET, "egress.phys.change",
+            "kind" to kind,
+            "handle" to "${old?.networkHandle ?: "none"}->${new?.networkHandle ?: "none"}",
+            // **同一时刻出口句柄是什么** —— 底层变了而它没变，正是陈旧态的特征。
+            "egressNet" to (egressNetwork()?.networkHandle?.toString() ?: "none"),
+            "vpnNet" to (vpnNet?.networkHandle?.toString() ?: "none"),
+            "vpnAgeSec" to vpnAgeSec(),
+        )
+    }
+
+    /** VPN 句柄本身的变化。与 [markPhysChange] 对照才能看出「底层换了几次而它没换」。 */
+    private fun markVpnChange(old: Network?, new: Network?) {
+        lastVpnChangeAtNs = System.nanoTime()
+        Ev.kw(
+            LogCat.NET, "egress.vpn.change",
+            "handle" to "${old?.networkHandle ?: "none"}->${new?.networkHandle ?: "none"}",
+            // 这一段时间里底层换了多少次:>0 说明它「扛过」了底层变化而没有重建。
+            "physChangesSince" to physChangeCount.getAndSet(0),
+        )
+    }
+
+    @Volatile private var lastPhysChangeAtNs = 0L
+    @Volatile private var lastVpnChangeAtNs = 0L
+    private val physChangeCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** 距上次底层链路变化多少秒；从未变过返回 -1。用于把失败与换网关联起来。 */
+    fun sincePhysChangeSec(): Long =
+        if (lastPhysChangeAtNs == 0L) -1 else (System.nanoTime() - lastPhysChangeAtNs) / 1_000_000_000L
+
+    /** 当前 VPN 句柄已存活多少秒；没有 VPN 或从未变过返回 -1。 */
+    fun vpnAgeSec(): Long =
+        if (lastVpnChangeAtNs == 0L) -1 else (System.nanoTime() - lastVpnChangeAtNs) / 1_000_000_000L
 
     /** 选了物理出口时的「拉起并保持」request 回调（保活网络，不做别的——句柄由上面监听更新）。 */
     @Volatile private var pendingReqCb: ConnectivityManager.NetworkCallback? = null
