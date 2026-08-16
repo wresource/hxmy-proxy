@@ -1104,11 +1104,6 @@ class ProxyServerRepository @Inject constructor(
         servers.firstOrNull { it.protocol == p }?.boundPort?.value != null
 
     private fun computeEntries(selected: List<ShareInterface>, s: ProxySettings): List<ProxyEntry> {
-        // hxmyproxy.local 不再作为入口便利名：NsdManager 任何版本都无法注册自定义 mDNS 主机名（无 setHostname），
-        // 该名从未被通告 A 记录、客户端解析不到（实测 macOS 解析失败、用 IP 正常）。故 mdnsName 恒 null、入口只给
-        // 真实 IP（符合 D1「IP 永为兜底」）。mDNS 仍注册 DNS-SD 服务（_http._tcp 等），进阶用户可用 Bonjour 服务发现；
-        // 要让 hxmyproxy.local 真正可解析须自建 mDNS responder（jmDNS），留作后续可选便利层。
-        val mdnsName: String? = null
         val list = ArrayList<ProxyEntry>()
         // v4 接口排在前面。首条 entry 是 primary——它进通知栏、二维码和「复制」按钮，
         // 而排序此前只由接口扫描顺序决定：同一张网卡的 v6 地址恰好排在 v4 前面，
@@ -1118,9 +1113,9 @@ class ProxyServerRepository @Inject constructor(
             val ip = iface.address.hostAddress ?: continue
             // 展示顺序 HTTP > SOCKS5 > PAC(HTTP 最通用、客户端配置最简单)。priority 与顺序一致(HTTP 最高),
             // 作为唯一优先级来源,避免与通知/主页硬编码的「HTTP 优先」相矛盾(旧值 SOCKS5 最高是反的)。
-            if (s.httpEnabled) list.add(ProxyEntry(ip, s.httpPort, ProxyProtocol.HTTP, iface.id, mdnsName, priority = 30))
-            if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, mdnsName, priority = 20))
-            if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, mdnsName, priority = 10))
+            if (s.httpEnabled) list.add(ProxyEntry(ip, s.httpPort, ProxyProtocol.HTTP, iface.id, priority = 30))
+            if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, priority = 20))
+            if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, priority = 10))
         }
         // 「显示 IPv6」默认关：v6 入口不出现在入口卡/通知/二维码/复制/PAC 正文里。
         // **过滤只在这一层**——`effective` 原样喂给准入(entrySubnets/accessController)，

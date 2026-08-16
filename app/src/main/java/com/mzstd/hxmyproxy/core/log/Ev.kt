@@ -17,7 +17,6 @@ enum class LogCat {
     /** 规则判定与规则表重建 */ RULE,
     /** DNS 解析/互援/DoH */ DNS,
     /** 出口句柄、DIRECT 分流、上游失败 */ EGRESS,
-    /** mDNS 注册 */ MDNS,
     /** relay、evict、隧道 */ RELAY,
     /** 心跳、耗时、压力 */ PERF,
 }

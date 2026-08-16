@@ -13,7 +13,6 @@ data class DiagnosticsSummary(
     val httpEnabled: Boolean = true,
     val socksEnabled: Boolean = true,
     val pacEnabled: Boolean = true,
-    val mdnsPublished: Boolean = false,
     val vpnDetected: Boolean = false,
     val batteryOptimizationIgnored: Boolean = false,
 )
