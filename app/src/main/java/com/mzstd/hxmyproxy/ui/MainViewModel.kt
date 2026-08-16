@@ -445,8 +445,6 @@ class MainViewModel @Inject constructor(
     fun importSettings(json: String, onDone: (Result<Int>) -> Unit) = viewModelScope.launch {
         onDone(runCatching { settingsRepository.importJson(json) })
     }
-    fun setMdnsEnabled(v: Boolean) = update { it.copy(mdnsEnabled = v) }
-
     fun setBackupDnsEnabled(v: Boolean) = update { it.copy(backupDnsEnabled = v) }
 
     /** 备用 DNS(DoH)走哪张网。见 [com.mzstd.hxmyproxy.core.model.DohEgressChoice]。 */
