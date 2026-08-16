@@ -34,4 +34,23 @@ data class ShareInterface(
 
     /** 接口地址的可读形式，如 "192.168.1.34/24"、"[fd00::1]/64"。 */
     val cidr: String get() = "$displayAddress/$prefixLength"
+
+    /** 是否 IPv6 地址（供「显示 IPv6」偏好过滤，见 [visibleUnderIpv6Pref]）。 */
+    val isIpv6: Boolean get() = address is java.net.Inet6Address
+}
+
+/**
+ * 按「显示 IPv6」偏好过滤展示列表。**只影响展示，不影响准入与转发**——
+ * 隐藏的 v6 接口照样进 `entrySubnets`，v6 客户端连进来照样放行。
+ *
+ * 用户的诉求是「v6 地址不容易记忆」，那是**抄地址**的问题，不是「v6 有害」；
+ * 所以这里只做视觉降噪，不做功能开关。
+ *
+ * 全空兜底：过滤后一条不剩（纯 IPv6 局域网）就原样返回。否则界面显示「无可共享接口」、
+ * 入口卡空白，而实际上共享是好的——那是比看到长地址严重得多的误导。
+ */
+fun <T> visibleUnderIpv6Pref(items: List<T>, showIpv6: Boolean, isIpv6: (T) -> Boolean): List<T> {
+    if (showIpv6) return items
+    val kept = items.filterNot(isIpv6)
+    return if (kept.isEmpty()) items else kept
 }

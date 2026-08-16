@@ -9,9 +9,11 @@ import com.mzstd.hxmyproxy.core.model.HistoryEndpointView
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
+import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.model.RuleEntry
+import com.mzstd.hxmyproxy.core.model.visibleUnderIpv6Pref
 import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
@@ -31,7 +33,17 @@ data class MainUiState(
     val settings: ProxySettings = ProxySettings(),
     val history: List<HistoryEndpointView> = emptyList(),
     val credentials: CredentialStore.Credentials = CredentialStore.Credentials(),
-)
+) {
+    /**
+     * 界面该展示的接口列表（受「显示 IPv6」偏好过滤）。
+     *
+     * **凡是给用户看的接口列表都用这个，别用 [share].interfaces**——后者是全量，
+     * 供准入、历史入口可用性判定、诊断使用，那些地方必须看见 v6，否则会把
+     * 「隐藏了」误判成「不存在」。
+     */
+    val visibleInterfaces: List<ShareInterface>
+        get() = visibleUnderIpv6Pref(share.interfaces, settings.showIpv6) { it.isIpv6 }
+}
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -165,6 +177,9 @@ class MainViewModel @Inject constructor(
     fun toggleInterface(id: String, selected: Boolean) = update {
         it.copy(selectedInterfaceIds = if (selected) it.selectedInterfaceIds + id else it.selectedInterfaceIds - id)
     }
+
+    /** 界面是否展示 IPv6 接口与入口。纯展示开关，不影响准入与转发。 */
+    fun setShowIpv6(v: Boolean) = update { it.copy(showIpv6 = v) }
 
     /** 启用/停用一个内置规则组（广告表等）；存入 enabledRuleGroups。 */
     fun toggleRuleGroup(id: String, on: Boolean) = update {

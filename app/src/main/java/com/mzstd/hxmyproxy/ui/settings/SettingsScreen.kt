@@ -167,7 +167,7 @@ fun SettingsScreen(
         // 卡片按理论使用频率高→低排列：核心代理配置 → 日常外观/语言 → 安全（认证/隐私）→
         // 高级调优（性能）→ 个性化（导航栏）→ 帮助。性能/通用不再并排双列（窄卡挤字），各自全宽。
         ProtoPortsCard(ui, viewModel)
-        GeneralCard(s.language, s.themeMode, viewModel, Modifier.fillMaxWidth())
+        GeneralCard(s.language, s.themeMode, s.showIpv6, viewModel, Modifier.fillMaxWidth())
         AuthCard(ui, viewModel)
         PrivacyCard(ui, viewModel)
         PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
@@ -279,7 +279,7 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
     // meta 小注：当前入口 IP（优先已选接口，其次推荐入口）；没有就不显示。
     // 用 displayAddress 而非裸 hostAddress：这行是给用户照着填到别的设备上的，
     // IPv6 不加方括号会被填成非法的 host:port（见 ShareInterface.displayAddress）。
-    val host = ui.share.interfaces.firstOrNull { it.isSelected }?.displayAddress
+    val host = ui.visibleInterfaces.firstOrNull { it.isSelected }?.displayAddress
         ?: ui.share.recommendedEntries.firstOrNull()?.host
     val (iconBg, iconFg) = avatarColors(0)
 
@@ -768,11 +768,12 @@ private fun LimitSlider(label: String, value: Int, range: IntRange, onChange: (I
     }
 }
 
-/** 通用卡：语言 / 外观 各一小节三段 chips（FlowRow 自适应——中文「跟随系统」在窄列可换行不截断）。 */
+/** 通用卡：语言 / 外观 各一小节三段 chips（FlowRow 自适应——中文「跟随系统」在窄列可换行不截断）+ 显示 IPv6 开关。 */
 @Composable
 private fun GeneralCard(
     language: AppLanguage,
     themeMode: ThemeMode,
+    showIpv6: Boolean,
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
 ) {
@@ -795,6 +796,18 @@ private fun GeneralCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OptionChipFlow(ThemeMode.entries, themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
+        HorizontalDivider(
+            Modifier.padding(top = 2.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
+        // 放「通用」而不是「协议与端口」：它是**显示**偏好，不是协议开关。
+        // 摆在协议行旁边会让人读成「关掉 IPv6 支持」，而实际上关掉只是不显示。
+        LabeledSwitchRow(
+            title = stringResource(R.string.settings_show_ipv6),
+            subtitle = stringResource(R.string.settings_show_ipv6_sub),
+            checked = showIpv6,
+            onCheckedChange = viewModel::setShowIpv6,
+        )
     }
 }
 

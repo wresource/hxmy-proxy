@@ -1069,7 +1069,9 @@ private fun FlowArrow(labelRes: Int) {
 private fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val share = ui.share
     var interfacesExpanded by remember { mutableStateOf(false) }
-    val interfaces = share.interfaces
+    // 受「显示 IPv6」偏好过滤：默认只列 v4，v6 地址太长、抄写困难。
+    // 隐藏的 v6 接口仍在准入集里生效（见 MainUiState.visibleInterfaces）。
+    val interfaces = ui.visibleInterfaces
     val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
     BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 4.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

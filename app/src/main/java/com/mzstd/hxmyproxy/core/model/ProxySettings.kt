@@ -14,6 +14,12 @@ data class ProxySettings(
     val socksPort: Int = 1080,
     val pacPort: Int = 8899,
     val selectedInterfaceIds: Set<String> = emptySet(),
+    /**
+     * 界面是否展示 IPv6 接口与入口（默认关）。**纯展示开关**：关掉只是不显示，
+     * 隐藏的 v6 网段照样进准入、v6 客户端照样能连（见 [com.mzstd.hxmyproxy.core.model.visibleUnderIpv6Pref]）。
+     * 默认关的理由是 v6 地址长、难记难抄，而绝大多数场景 v4 入口就够用。
+     */
+    val showIpv6: Boolean = false,
     /** 出站出口网络：AUTO 跟随系统默认（含 VPN）；否则把 PROXY 出站绑到选定 transport 的网络。 */
     val egressChoice: EgressNetworkChoice = EgressNetworkChoice.AUTO,
     /** 直连(DIRECT)出口。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；其余手动指定。独立于 [egressChoice]。 */

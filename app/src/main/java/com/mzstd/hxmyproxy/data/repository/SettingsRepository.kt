@@ -152,6 +152,7 @@ class SettingsRepository @Inject constructor(
         val SOCKS_PORT = intPreferencesKey("socks_port")
         val PAC_PORT = intPreferencesKey("pac_port")
         val SELECTED = stringSetPreferencesKey("selected_interface_ids")
+        val SHOW_IPV6 = booleanPreferencesKey("show_ipv6")
         val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val DIRECT_EGRESS_CHOICE = stringPreferencesKey("direct_egress_choice")
         val DOH_EGRESS_CHOICE = stringPreferencesKey("doh_egress_choice")
@@ -209,6 +210,7 @@ class SettingsRepository @Inject constructor(
             socksPort = this[SOCKS_PORT] ?: d.socksPort,
             pacPort = this[PAC_PORT] ?: d.pacPort,
             selectedInterfaceIds = this[SELECTED] ?: d.selectedInterfaceIds,
+            showIpv6 = this[SHOW_IPV6] ?: d.showIpv6,
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
             dohEgressChoice = this[DOH_EGRESS_CHOICE]?.let { runCatching { com.mzstd.hxmyproxy.core.model.DohEgressChoice.valueOf(it) }.getOrNull() } ?: d.dohEgressChoice,
@@ -247,6 +249,7 @@ class SettingsRepository @Inject constructor(
         prefs[SOCKS_PORT] = socksPort
         prefs[PAC_PORT] = pacPort
         prefs[SELECTED] = selectedInterfaceIds
+        prefs[SHOW_IPV6] = showIpv6
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
         prefs[DOH_EGRESS_CHOICE] = dohEgressChoice.name

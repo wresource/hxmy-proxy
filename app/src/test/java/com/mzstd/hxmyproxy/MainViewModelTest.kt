@@ -5,11 +5,13 @@ import com.mzstd.hxmyproxy.core.model.HistoryEndpoint
 import com.mzstd.hxmyproxy.core.model.InterfaceStatus
 import com.mzstd.hxmyproxy.core.model.InterfaceType
 import com.mzstd.hxmyproxy.core.model.PerformancePreset
+import com.mzstd.hxmyproxy.core.model.ProxyEntry
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
+import com.mzstd.hxmyproxy.core.model.visibleUnderIpv6Pref
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.core.rules.RuleCategory
@@ -662,5 +664,74 @@ class MainViewModelTest {
             s().userRuleSets.first { it.id == a }.domains,
         )
         assertEquals(listOf("b1.example.com"), s().userRuleSets.first { it.id == b }.domains)
+    }
+
+    // ==================== 显示 IPv6：藏的是显示，不是功能 ====================
+    //
+    // 这个开关最容易被实现歪成「关掉 IPv6 支持」。真要那样，1.33.0 刚做的 v6 入站
+    // 就被一个显示偏好废掉了，而且是静默的——v6 客户端连不上，日志里只有一条准入拒绝。
+    // 所以这一节的每条断言都是在钉同一件事：过滤只发生在给人看的那一层。
+
+    private fun iface6(ip: String) = ShareInterface(
+        id = "wlan0/$ip", name = "wlan0", type = InterfaceType.WIFI,
+        address = InetAddress.getByName(ip), prefixLength = 64,
+        gatewayLike = false, isSelected = true, status = InterfaceStatus.UP,
+    )
+
+    private fun visible() = observe(vm.uiState).visibleInterfaces.map { it.displayAddress }
+
+    @Test fun `默认隐藏 IPv6 接口而 IPv4 照常列出`() {
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34"), iface6("fd00::1")))
+        assertFalse(ProxySettings().showIpv6)
+        assertEquals(listOf("192.168.1.34"), visible())
+    }
+
+    @Test fun `打开开关后 IPv6 出现且带方括号`() {
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34"), iface6("fd00::1")))
+        vm.setShowIpv6(true)
+        // 方括号不是装饰——用户照着抄进别的设备，fd00::1:8080 是非法的（RFC 3986 §3.2.2）。
+        //
+        // ⚠️ 期望值里的 `fd00:0:0:0:0:0:0:1` 是 **JVM 的**输出：OpenJDK 的
+        // `Inet6Address.getHostAddress()` 不做 `::` 压缩。**Android 上不是这样**——
+        // libcore 走 inet_ntop，模拟器实测显示的是压缩形式 `[fec0::5054:ff:fe12:3456]`。
+        // 所以别拿这一行去推断界面上的样子，两边平台行为不同。
+        assertEquals(listOf("192.168.1.34", "[fd00:0:0:0:0:0:0:1]"), visible())
+    }
+
+    @Test fun `只有 IPv6 接口时照常显示——否则界面空白而共享其实是好的`() {
+        shareFlow.value = ShareState(interfaces = listOf(iface6("fd00::1"), iface6("fd00::2")))
+        // 全过滤掉的话，首页写着「无可共享接口」、入口卡空白，用户会以为软件坏了，
+        // 而那比看到一串长地址严重得多。
+        assertEquals(listOf("[fd00:0:0:0:0:0:0:1]", "[fd00:0:0:0:0:0:0:2]"), visible())
+    }
+
+    @Test fun `隐藏不影响准入——share 里仍是全量接口`() {
+        val all = listOf(iface("192.168.1.34"), iface6("fd00::1"))
+        shareFlow.value = ShareState(interfaces = all)
+        // entrySubnets / accessController 喂的就是 share.interfaces。它一旦被过滤，
+        // v6 客户端会被 fail-closed 拒掉，而 UI 上没有任何迹象说明为什么。
+        assertEquals(all, observe(vm.uiState).share.interfaces)
+    }
+
+    @Test fun `IPv6 历史入口在隐藏时仍标为可用`() {
+        val v6 = iface6("fd00::1")
+        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34"), v6))
+        // 历史里存的是 ProxyEntry.host，也就是 address.hostAddress——与接口同源同形式。
+        // 手写 "fd00::1" 会因为压缩形式不同而对不上，那测的就不是这条性质了。
+        historyFlow.value = listOf(ep(ProxyProtocol.HTTP, v6.address.hostAddress!!, 8080))
+        // 可用性判定走全量接口。若跟着显示一起过滤，这条会被标成不可用——
+        // 「隐藏了」就被读成了「连不上」，这正是要避免的那类误导。
+        assertEquals(listOf(true), historyViews().map { it.available })
+    }
+
+    @Test fun `入口过滤认的是地址里的冒号`() {
+        val v4 = ProxyEntry("192.168.1.34", 8080, ProxyProtocol.HTTP, "wlan0/192.168.1.34")
+        val v6 = ProxyEntry("fd00::1", 8080, ProxyProtocol.HTTP, "wlan0/fd00::1")
+        assertFalse(v4.isIpv6)
+        assertTrue(v6.isIpv6)
+        assertEquals(listOf(v4), visibleUnderIpv6Pref(listOf(v4, v6), showIpv6 = false) { it.isIpv6 })
+        assertEquals(listOf(v4, v6), visibleUnderIpv6Pref(listOf(v4, v6), showIpv6 = true) { it.isIpv6 })
+        // 纯 v6 兜底同样适用于入口：否则「开始共享」之后一个可填的地址都给不出来。
+        assertEquals(listOf(v6), visibleUnderIpv6Pref(listOf(v6), showIpv6 = false) { it.isIpv6 })
     }
 }

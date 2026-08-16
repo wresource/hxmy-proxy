@@ -10,6 +10,7 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
+import com.mzstd.hxmyproxy.core.model.visibleUnderIpv6Pref
 import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
 import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.Subnets
@@ -1132,7 +1133,11 @@ class ProxyServerRepository @Inject constructor(
         // 要让 hxmyproxy.local 真正可解析须自建 mDNS responder（jmDNS），留作后续可选便利层。
         val mdnsName: String? = null
         val list = ArrayList<ProxyEntry>()
-        for (iface in selected) {
+        // v4 接口排在前面。首条 entry 是 primary——它进通知栏、二维码和「复制」按钮，
+        // 而排序此前只由接口扫描顺序决定：同一张网卡的 v6 地址恰好排在 v4 前面，
+        // 于是主位给了那串最难抄的地址。开「显示 IPv6」是要**看见**它，不是要优先用它。
+        // sortedBy 稳定，同族内的原有顺序不变。
+        for (iface in selected.sortedBy { it.isIpv6 }) {
             val ip = iface.address.hostAddress ?: continue
             // 展示顺序 HTTP > SOCKS5 > PAC(HTTP 最通用、客户端配置最简单)。priority 与顺序一致(HTTP 最高),
             // 作为唯一优先级来源,避免与通知/主页硬编码的「HTTP 优先」相矛盾(旧值 SOCKS5 最高是反的)。
@@ -1140,7 +1145,10 @@ class ProxyServerRepository @Inject constructor(
             if (s.socksEnabled) list.add(ProxyEntry(ip, s.socksPort, ProxyProtocol.SOCKS5, iface.id, mdnsName, priority = 20))
             if (s.pacEnabled) list.add(ProxyEntry(ip, s.pacPort, ProxyProtocol.PAC, iface.id, mdnsName, priority = 10))
         }
-        return list
+        // 「显示 IPv6」默认关：v6 入口不出现在入口卡/通知/二维码/复制/PAC 正文里。
+        // **过滤只在这一层**——`effective` 原样喂给准入(entrySubnets/accessController)，
+        // 所以隐藏的 v6 网段照样放行，v6 客户端连进来能用，只是界面上不再显示那串难抄的地址。
+        return visibleUnderIpv6Pref(list, s.showIpv6) { it.isIpv6 }
     }
 
     private fun publishMdns(s: ProxySettings) {
