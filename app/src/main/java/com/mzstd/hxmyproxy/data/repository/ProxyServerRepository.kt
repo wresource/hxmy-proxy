@@ -15,7 +15,6 @@ import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
 import com.mzstd.hxmyproxy.core.network.InterfaceScanner
 import com.mzstd.hxmyproxy.core.network.Subnets
 import com.mzstd.hxmyproxy.core.network.LocalNetworkPermissionManager
-import com.mzstd.hxmyproxy.core.network.MdnsPublisher
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.FdBudget
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
@@ -76,7 +75,6 @@ class ProxyServerRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val connectivityObserver: ConnectivityObserver,
     private val interfaceScanner: InterfaceScanner,
-    private val mdnsPublisher: MdnsPublisher,
     private val localNetworkPermissionManager: LocalNetworkPermissionManager,
     private val permissionProbe: com.mzstd.hxmyproxy.core.network.PermissionProbe,
     private val egressGuard: DefaultEgressGuard,
@@ -134,8 +132,6 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var nioReactor: NioRelayReactor? = null
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
-    /** 上次刷新时已选接口的 IP 集合；与本次比较，在 WiFi 切换/IP 变化时主动重发 mDNS（新 IP 的 A 记录）。 */
-    @Volatile private var lastInterfaceIps: Set<String> = emptySet()
     // 上次实际生效的准入网段(hostAddress 集)。①换网瞬间 scan 空时保留旧准入不清空;②evict 只在准入真变化时跑。
     @Volatile private var lastAdmitKey: Set<String> = emptySet()
     /** 上次 refresh 的接口扫描快照（只在变化时落盘，避免刷屏淹没关键事件）。 */
@@ -224,9 +220,6 @@ class ProxyServerRepository @Inject constructor(
                 refresh()
             }
         }
-        // mDNS 注册是异步的（系统 Probing ~1s）：注册真正完成/失败后刷新诊断，
-        // 避免 mdnsPublished 停在 publish 那一刻的「未发布」假象（真机日志证实服务其实注册成功）。
-        session.launch { mdnsPublisher.registeredName.collect { refresh() } }
         session.launch {
             connectivityObserver.vpnState.collect { vpn ->
                 _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
@@ -777,7 +770,6 @@ class ProxyServerRepository @Inject constructor(
     fun stop() {
         running = false
         stopServers()
-        mdnsPublisher.unpublishAll()
         connectivityObserver.stop()
         underlyingNetworkProvider.pause()   // 撤销出口保活但保留监听：停止态出口卡仍显示在线状态
         // 取消本会话全部协程（收集器/ticker）：杜绝停止后 settings 收集器又把监听重启起来。
@@ -788,7 +780,6 @@ class ProxyServerRepository @Inject constructor(
         trafficHistory.flush()
         resetSessionCounters()   // 会话结束：计量归零，UI 立刻回到 0
         lastRecordedEntryKey = ""
-        lastInterfaceIps = emptySet()
         // 不在 stop 落盘 recent：lastSeenClients 含从盘上恢复的历史 IP,整体 record 会把它们的
         // 时间戳全部刷新——7 天 TTL 被每次启停无限续命,僵尸 IP 永生(review 抓的)。ticker 已每
         // 30s 落盘真正在线的集合,最多丢 30s 窗口,可接受。
@@ -1065,19 +1056,6 @@ class ProxyServerRepository @Inject constructor(
                 "keptAllow" to lastAdmitKey.joinToString("|").ifEmpty { "<empty>" },
             )
         }
-        publishMdns(s)
-        // WiFi 切换 / IP 变化（DHCP 续约）时主动重发 mDNS：端口不变故 publishMdns 幂等不重注册，
-        // 但必须重注册才能在新 IP 上通告 A 记录（NsdManager 不自动跟随网络变化）。仅在已有 IP→新 IP 时触发。
-        val currentIps = effective.mapNotNull { it.address.hostAddress }.toSet()
-        val ipChanged = running && s.mdnsEnabled && currentIps.isNotEmpty() &&
-            lastInterfaceIps.isNotEmpty() && currentIps != lastInterfaceIps
-        // **先**更新 lastInterfaceIps 再 republish：republish 会改 mdnsPublisher.registeredName，触发
-        // `registeredName.collect { refresh() }` 的另一次 refresh；若此时 lastInterfaceIps 仍是旧值，
-        // 那次 refresh 会判定 IP「还在变」→ 再次 republish → registeredName 又变 → 无限 republish 风暴
-        // （NsdManager 抖动 + CPU 打满 → 前台服务被系统杀 → 服务停止）。先更新即可让那次 refresh 不再 republish。
-        // 切换瞬间网卡可能短暂无 IP（currentIps 空）：此时不更新（保留旧 IP），等新 IP 出现再比较触发，避免漏发。
-        if (currentIps.isNotEmpty()) lastInterfaceIps = currentIps
-        if (ipChanged) mdnsPublisher.republish()
         val entries = computeEntries(effective, s)
         // 走蜂窝上网且没有任何可共享入口(没开热点)→ 引导用户开个人热点。放 refresh 里算,随网络变化即时更新。
         val needsHotspotHint = entries.isEmpty() && connectivityObserver.uplinkIsCellular()
@@ -1117,7 +1095,6 @@ class ProxyServerRepository @Inject constructor(
                     pacEnabled = s.pacEnabled,
                     notificationPermissionGranted = permissionProbe.notificationsEnabled(),
                     batteryOptimizationIgnored = permissionProbe.batteryUnrestricted(),
-                    mdnsPublished = s.mdnsEnabled && mdnsPublisher.lastRegisteredName != null,
                 ),
             )
         }
@@ -1149,16 +1126,6 @@ class ProxyServerRepository @Inject constructor(
         // **过滤只在这一层**——`effective` 原样喂给准入(entrySubnets/accessController)，
         // 所以隐藏的 v6 网段照样放行，v6 客户端连进来能用，只是界面上不再显示那串难抄的地址。
         return visibleUnderIpv6Pref(list, s.showIpv6) { it.isIpv6 }
-    }
-
-    private fun publishMdns(s: ProxySettings) {
-        if (!s.mdnsEnabled) { mdnsPublisher.unpublishAll(); return }
-        val specs = buildList {
-            if (s.httpEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy HTTP", "_http._tcp", s.httpPort))
-            if (s.socksEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy SOCKS5", "_socks._tcp", s.socksPort))
-            if (s.pacEnabled) add(MdnsPublisher.ServiceSpec("hxmy proxy PAC", "_http._tcp", s.pacPort))
-        }
-        if (specs.isNotEmpty()) mdnsPublisher.publish(specs)
     }
 
     /** 动态 PAC（委托 [PacGenerator]）。 */
