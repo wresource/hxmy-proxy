@@ -56,15 +56,13 @@ class NioRelayReactor(
         upstream: SocketChannel,
         bufferBytes: Int,
         idleMillis: Int,
-        /** 上游静默判死阈值(ms)；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
-        silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
-        /** 目标域名与请求追踪，透传给 worker——拆隧道时用来回答「死的是谁」。 */
+        /** 目标域名与请求追踪，透传给 worker——隧道结束时用来回答「结束的是谁」。 */
         host: String? = null,
         trace: RequestTrace? = null,
         onTraffic: (Long, Long) -> Unit,
     ) {
         val worker = aliveWorkerAt((rr.getAndIncrement() and Int.MAX_VALUE) % workers.size)
-        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), silenceMs, host, trace, onTraffic)
+        worker.relay(client, upstream, bufferBytes, idleMillis.toLong(), host, trace, onTraffic)
     }
 
     /** 各槽位上次重启时刻（ms）；冷却期内不再重建，防持续性崩溃源把重启变成风暴。 */
@@ -176,18 +174,16 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         upstream: SocketChannel,
         bufferBytes: Int,
         idleMs: Long,
-        /** 上游静默判死阈值；默认 [ProxyTuning.UPSTREAM_SILENCE_MS]，测试可注入短值。 */
-        silenceMs: Long = ProxyTuning.UPSTREAM_SILENCE_MS,
         /**
-         * 目标域名与请求追踪。**没有这两个，拆隧道时答不出「死的是谁」** ——
-         * 判死此前只记一个聚合计数，于是「90 秒静默」究竟杀掉了长思考的 API 请求
-         * 还是真正的死链路，无从分辨（0807 日志里 884 行判死，一个域名都定位不了）。
+         * 目标域名与请求追踪。**没有这两个，隧道结束时答不出「结束的是谁」** ——
+         * 早期只记聚合计数，于是一条被回收的隧道究竟是长思考的 API 请求
+         * 还是真正的死链路，无从分辨（0807 日志里 884 行回收，一个域名都定位不了）。
          */
         host: String? = null,
         trace: RequestTrace? = null,
         onTraffic: (Long, Long) -> Unit,
     ) = suspendCancellableCoroutine<Unit> { cont ->
-        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, silenceMs, host, trace, onTraffic, cont)
+        val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, host, trace, onTraffic, cont)
         // 取消（协程取消 / ProxyServer.stop 级联）→ 投递到 selector 线程拆隧道。
         cont.invokeOnCancellation { enqueue { tunnel.close(this) } }
         // 注册必须在 selector 线程（register 与 select 互斥，跨线程直接 register 会卡死）。
@@ -281,6 +277,29 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         while (t != null) { runCatching { t() }; t = tasks.poll() }
     }
 
+    /**
+     * 周期清扫。回收路径**只有两条**：空闲老化、对端已被外部关闭。
+     *
+     * ## 「上游静默判死」为什么被整个删掉（不要再加回来）
+     *
+     * 曾经有第三条：客户端发过数据而上游 90 秒没回 ⇒ 判定「单向死亡」并拆隧道。
+     * 它看起来很合理，实测却是纯粹的误伤，两轮数据连着否掉了它：
+     *
+     * · **判死时刻的客户端静默时长** `sinceTxSec` 的 p25/p50/p75 **全是 90**——
+     *   也就是客户端发完最后一个字节后整整 90 秒什么都没发。那是连接池里躺着的闲置连接，
+     *   不是「上游卡住的传输」。真正「正在传输被腰斩」(sinceTxSec<5s)只有 0.1~0.3%。
+     * · 改成**只标记不拆**之后拿到了零推断的铁证：`flag=revived` 两台合计 **264 条**
+     *   （13.5% / 7.8%）——这些连接被判死之后**又收到了上游字节**，它们一直是活的。
+     * · 而剩下那 86% 也证明不了自己死了：`flag=silent` 的终局 96% 是 `idle`、其余是 `eof`，
+     *   **没有一条是异常关闭**（`peer-closed` 是会落盘的，所以这不是「没测到」）。
+     *   换句话说，2290 次判死里没有任何一次抓到过真实故障。
+     * · 收益侧也不成立：silent 存活 p50=91.8s，idle 存活 p50=121.6s——不拆的话
+     *   idle(120s) 30 秒后必然接手，这些连接照样被回收。代价却是每天约 1900 次无谓的
+     *   TLS 重建，外加把 key 环塞满假的「故障信号」。
+     *
+     * 保留告警的理由（「链路半死时唯一的早期信号」）同样被数据推翻：它从未发出过有效信号。
+     * 判据、告警、以及为它服务的 `lastUpstreamRx`/`awaitingUpstream`/`flag` 全部移除。
+     */
     private fun sweepIdle(now: Long) {
         // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
         // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
@@ -288,32 +307,6 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
             when {
                 it.idleExpired(now) -> { it.markClosing("idle"); it.close(this) }
                 it.externallyClosed() -> { it.markClosing("peer-closed"); it.close(this) }
-                // **只标记与告警，不再拆隧道。**
-                //
-                // 0815 两台设备各跑一天的实测(n=1121 / 753)判了这条判据的死刑:
-                // 判死那一刻 `sinceTxSec` 的 p25/p50/p75 **全是 90**、max 只有 91 ——
-                // 也就是客户端发完最后一个字节后**整整 90 秒再没发过任何东西**，上游也没回。
-                // 这是连接池里闲置的连接，不是「上游卡住的传输」。
-                // 「正在传输被腰斩」(sinceTxSec<5s)两台合计只有 **4 条(0.3% / 0.1%)**。
-                //
-                // 而拆掉它换来的只有 30 秒:silent 存活 p50=91.8s，idle 存活 p50=121.6s，
-                // 也就是不拆的话 idle(120s)必然在 30 秒后接手 —— 这些连接照样会被回收。
-                // 代价却是每天约 1900 次无谓的 TLS 重建，以及 key.log 里 99.7% 的「故障信号」是假的。
-                //
-                // 保留检测与告警是因为它仍有观测价值(真的链路半死时这是唯一的早期信号)，
-                // 但降级为非 key(不再占 256KB 的 key 环)，并且**每条隧道只告警一次**。
-                it.upstreamSilent(now) && it.flagSilentOnce(now) -> {
-                    // 节流 key 按域名分桶：固定串会让 30 秒窗口内不同域名互相压制。
-                    Ev.throttled(
-                        LogCat.RELAY, "nio.upstream.silent", "usilent:${it.hostOrUnknown()}", 30_000L,
-                        kv = arrayOf(
-                            "host" to it.hostOrUnknown(), "aliveSec" to it.aliveSec(now),
-                            "up" to it.upBytesSoFar(), "down" to it.downBytesSoFar(),
-                            "sinceTxSec" to it.sinceClientTxSec(now),
-                            "tunnels" to tunnels.size,
-                        ),
-                    )
-                }
             }
         }
     }
@@ -374,7 +367,6 @@ private class Tunnel(
     upstream: SocketChannel,
     bufferBytes: Int,
     private val idleMs: Long,
-    private val silenceMs: Long,
     private val host: String?,
     private val trace: RequestTrace?,
     onTraffic: (Long, Long) -> Unit,
@@ -392,56 +384,13 @@ private class Tunnel(
 
     /**
      * 拆除原因。默认 `eof` = 正常收尾（任一端读到 -1 且两向都排空）。
-     * sweep 判死的三条路径各自在 close 前 [markClosing]，于是 `req.closed` 的 `why=`
-     * 直接分开「正常结束」「空闲老化」「上游静默判死」——**这是判断误杀率的唯一依据**。
+     * sweep 的两条回收路径各自在 close 前 [markClosing]，于是 `req.closed` 的 `why=`
+     * 直接分开「正常结束」「空闲老化」「对端已关」。
      */
     @Volatile private var closeReason = "eof"
 
-    /**
-     * 被静默判据标记过的时刻，以及标记那一刻的下行字节数。
-     *
-     * 判据现在**只标记不拆除**，于是可以直接观测一件此前无法观测的事:
-     * **被判为「上游静默死亡」的连接，后来到底有没有再收到上游字节。**
-     * 只要有一条 `flag=revived`，就说明这条判据当初拆掉的是活连接 —— 这是零推断的铁证。
-     * 此前它一标记就拆，答案被自己的动作抹掉了(观测者效应)。
-     */
-    @Volatile private var silentFlaggedAtNs = 0L
-    @Volatile private var downAtFlag = 0L
-
-    /** 每条隧道只标记一次;返回 true 表示这次是首次标记(用于只告警一次)。 */
-    fun flagSilentOnce(now: Long): Boolean {
-        if (silentFlaggedAtNs != 0L) return false
-        silentFlaggedAtNs = now
-        downAtFlag = downBytes
-        return true
-    }
-
-    /** null=从未被标记;revived=标记后上游又说话了(误判);silent=标记后确实一直没动静。 */
-    private fun silentVerdict(): String? =
-        if (silentFlaggedAtNs == 0L) null else if (downBytes > downAtFlag) "revived" else "silent"
-
     fun markClosing(reason: String) { closeReason = reason }
-    fun hostOrUnknown(): String = host ?: "?"
-    fun aliveSec(now: Long): Long = (now - startNs) / 1_000_000_000L
-    fun sinceClientTxSec(now: Long): Long = (now - lastClientTx) / 1_000_000_000L
-    fun upBytesSoFar(): Long = upBytes
-    fun downBytesSoFar(): Long = downBytes
 
-    /**
-     * 最后一次**从上游收到**字节的时刻，以及「客户端发过、上游还没回」的标记。
-     *
-     * 为什么单靠 [lastActivity] 不够：它对读和写一视同仁，于是
-     * **「客户端一直在发、上游一个字节都不回」也会被当成活跃**，隧道因此永远不被空闲回收。
-     * 这正是 VPN 静默断链（链路没了但没有 FIN/RST，内核也不知道对端已死）时的形态：
-     * 写进内核缓冲区就算「成功」，客户端却永远等不到响应。
-     *
-     * 用户侧的表现是：老窗口的 CLI 卡住不动，新开一个窗口却正常——
-     * 因为新窗口建的是新连接、新隧道，而老隧道还挂在那里续命。
-     */
-    @Volatile private var lastUpstreamRx = System.nanoTime()
-    @Volatile private var awaitingUpstream = false
-    /** 客户端最后一次写入的时刻；见 [onReadable] 里的说明。 */
-    @Volatile private var lastClientTx = System.nanoTime()
     /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
     private val startNs = System.nanoTime()
     private val closed = AtomicBoolean(false)
@@ -465,13 +414,6 @@ private class Tunnel(
             n == -1 -> { pipe.srcEof = true; finishIfDrained(pipe, w) }
             n > 0 -> {
                 touch()
-                // 方向记账：down 管道的 src 是上游，读到就说明上游还活着。
-                if (pipe === down) { lastUpstreamRx = System.nanoTime(); awaitingUpstream = false }
-                // 客户端发了东西，开始等上游回应。**同时记下这一刻** ——
-                // 判死时唯一答不出的问题是「客户端还在不在等」:一条事务做完躺在连接池里的隧道，
-                // 与一条正在上传、上游却不回的隧道，在 aliveSec/up/down 上完全同形。
-                // sinceTxSec 就是那个能把两者分开的字段（>60s ⇒ 池化闲置;<5s ⇒ 正在传）。
-                else { awaitingUpstream = true; lastClientTx = System.nanoTime() }
                 pipe.buf.flip()
                 pipe.draining = true
                 drain(pipe, w)
@@ -520,17 +462,6 @@ private class Tunnel(
 
     fun idleExpired(now: Long): Boolean = idleMs > 0 && (now - lastActivity) > idleMs * 1_000_000L
 
-    /**
-     * **单向死亡**：客户端发过数据、而上游超过 [ProxyTuning.UPSTREAM_SILENCE_MS] 没有任何回应。
-     *
-     * 与 [idleExpired] 互补——那条管「双向都没动静」，这条管「只出不进」。
-     * 只在 [awaitingUpstream] 为真时才判，所以**纯空闲的长连接不受影响**
-     * （没发过请求就谈不上等回应），WebSocket/SSE 这类只要上游还在推数据就会持续刷新
-     * [lastUpstreamRx]，也不会被误杀。
-     */
-    fun upstreamSilent(now: Long): Boolean =
-        silenceMs > 0 && awaitingUpstream && (now - lastUpstreamRx) > silenceMs * 1_000_000L
-
     /** 任一端已被外部关闭（准入收缩 evict 等）——隧道应拆，由 sweep 周期兜底调用。 */
     fun externallyClosed(): Boolean = !cCtx.channel.isOpen || !uCtx.channel.isOpen
 
@@ -548,7 +479,7 @@ private class Tunnel(
         RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs)
         // 隧道终局落盘。此前 RequestTrace.tunnelClosed 只有定义、**全仓零调用点**——
         // 于是「跑一天再看 req.closed」这个排查计划从一开始就取不到数据。
-        trace?.tunnelClosed(host, closeReason, upBytes, downBytes, silentVerdict())
+        trace?.tunnelClosed(host, closeReason, upBytes, downBytes)
         cCtx.key?.cancel(); uCtx.key?.cancel()
         cCtx.channel.closeQuietly(); uCtx.channel.closeQuietly()
         w.untrack(this)

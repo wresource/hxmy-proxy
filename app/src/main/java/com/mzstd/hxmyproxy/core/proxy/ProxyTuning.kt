@@ -17,17 +17,10 @@ object ProxyTuning {
     /** HTTP keep-alive 连接两次请求之间的空闲等待；超时则关闭连接释放 FD。 */
     const val KEEPALIVE_IDLE_MS = 15_000
 
-    /**
-     * 「客户端发了、上游多久不回就判这条隧道死了」。
-     *
-     * 取 90s 是刻意保守：普通 HTTP 请求响应远低于此，而 SSE / 长轮询这类只要上游还在推数据
-     * 就会持续刷新计时，不会被误伤。真正会撞上它的是**上游静默死亡**——
-     * 链路没了但没有 FIN/RST，写进内核缓冲区就算成功，客户端却永远等不到响应。
-     *
-     * 比用户可调的 idle（默认 120s）更短是有意的：那条管「双向都没动静」，
-     * 而这条管的是已经确定坏掉的情形，早拆早让客户端重建。
-     */
-    const val UPSTREAM_SILENCE_MS = 90_000L
+    // 曾有一个 UPSTREAM_SILENCE_MS = 90s 的「上游静默判死」阈值，已连同判据整个删除。
+    // 两轮实测证明它抓到的全是连接池里的闲置连接（判死时客户端静默时长 p50 = 90s 整），
+    // 且 264 条被判死的连接后来又收到了上游字节。详见 NioRelayReactor.sweepIdle 的说明。
+    // 隧道回收现在只由用户可调的 idle 超时负责。
     /** accept backlog。 */
     const val ACCEPT_BACKLOG = 128
 

@@ -85,21 +85,19 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         )
 
     /**
-     * 隧道拆除：区分正常结束与被判死，并带上存活时长与收发字节。
+     * 隧道结束：带上结束原因、存活时长与收发字节。
      *
      * **[host] 冗余记一遍是刻意的**——靠 id 回查 `req.rule` 才能知道是谁，
-     * 意味着「这一晚判死了哪些域名」得先 join 两类行；而排障时最想一条命令答完的
-     * 恰恰是这个问题（`grep 'why=upstream-silent' | grep -o 'host=[^ ]*' | sort | uniq -c`）。
+     * 意味着「这一晚是哪些域名在被回收」得先 join 两类行；而排障时最想一条命令答完的
+     * 恰恰是这个问题（`grep 'why=idle' | grep -o 'host=[^ ]*' | sort | uniq -c`）。
+     *
+     * 曾有一个 `flag=` 字段标记「上游静默判死」的终局（silent/revived）。判据已删除，
+     * 字段随之移除——它的使命就是证明那条判据在误杀，证完即止。
      */
-    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long, silentFlag: String? = null) =
+    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) =
         Ev.i(
             LogCat.RELAY, "req.closed",
             "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down,
-            // 只在被静默判据标记过时出现。**`flag=revived` 是那条判据的判决书**:
-            // 它意味着「被判为上游静默死亡」的连接，后来上游又说话了。
-            // 判据从「标记即拆」改成「只标记」之后，这个答案才第一次可观测 ——
-            // 此前它一标记就拆，观测对象被自己的动作抹掉了。
-            "flag" to silentFlag,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
 

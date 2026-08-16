@@ -4,6 +4,9 @@ import android.net.Network
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.log.LogCat
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -144,13 +147,45 @@ class EgressHealth(
          * 探测目标：**任一通即认为网络可用**。
          *
          * 刻意跨厂商跨境内外——单一目标自己故障时会把好网误判成坏网，而这几个同时挂掉的
-         * 概率远低于「我们这张网坏了」。用 53 端口是因为 DNS 服务器的可用性通常最高，
-         * 且不需要 TLS 握手，2 秒足够。
+         * 概率远低于「我们这张网坏了」。三个 IP 都免 DNS，直接 TCP 建连、不做 TLS 握手，2 秒足够。
+         *
+         * ## 端口为什么是 443 而不是 53（0815 现场的教训）
+         *
+         * 原来三个目标全是 **53**，理由是「DNS 服务器可用性最高」。这个理由本身没错，
+         * 错的是**它测的不是业务走的那条路**：
+         *
+         * 17:24 换 WiFi（192.168.50.x → 192.168.1.x）后，VPN 的 Network 句柄不变、底层链路却
+         * 换了，隧道进入「53 能过、443 过不去」的半死状态。于是——
+         *  · 业务侧：100+ 条 443 建连失败（`ms=1~3` 的 ENETUNREACH，或干脆卡满 10 秒）
+         *  · 探测侧：53 通 ⇒ 判定「这张网是好的」⇒ 不摘 ⇒ 继续拿坏句柄硬撞
+         *  · 心跳里 `probe=ok/ok` 全程绿着，而 Chrome 一直 ERR_TUNNEL_CONNECTION_FAILED
+         * 整整 12 分钟没有自愈。**为区分「站点坏」与「整张网坏」而建的机制，
+         * 因为探错了端口，在最需要它的时刻站到了错误的一边。**
+         *
+         * 443 是代理流量的实际承载端口（CONNECT 隧道几乎全是它），探它才代表业务可用性。
+         * 这三个地址的 443 都对外提供 DoH，可用性与 53 同级。
+         *
+         * 代价：若某网络恰好只封 443 而放行 53，会被判为不可用——但那种网络上业务本来就用不了，
+         * 判「不可用」正是我们要的结论。
          */
-        private val PROBE_TARGETS = listOf(
-            "223.5.5.5" to 53,      // 阿里，国内直连可达
-            "1.1.1.1" to 53,        // Cloudflare
-            "8.8.8.8" to 53,        // Google
+        /**
+         * 端口全部是 **443**（原来是 53，见上方说明），目标集则必须同时覆盖两种出口：
+         *
+         * · **物理网出口**（DIRECT 流量）走的是本地链路 —— 0816 在用户网络实测：
+         *   `1.1.1.1:443`、`8.8.8.8:443` 双双超时 2010ms，而同样三个地址的 **53 全通**。
+         *   也就是说国外 443 在这条链路上不可用。只用国外目标会把好的物理网判成坏网。
+         * · **VPN 出口**（PROXY 流量）走隧道 —— 国外目标在这里才是有意义的判据。
+         *
+         * 所以国内三家 + 国外两家，**任一通即认为可用**。三家国内 443 都是 0816 实测通过的
+         * DoH 端点（阿里 115ms / 腾讯 32ms / 360 48ms），彼此独立，一家被限不影响判定。
+         */
+        @androidx.annotation.VisibleForTesting
+        internal val PROBE_TARGETS = listOf(
+            "223.5.5.5" to 443,     // 阿里 DoH，国内直连可达
+            "120.53.53.53" to 443,  // 腾讯 DoH
+            "101.226.4.6" to 443,   // 360 DoH
+            "1.1.1.1" to 443,       // Cloudflare —— 物理网通常不可达，用于判 VPN 出口
+            "8.8.8.8" to 443,       // Google —— 同上
         )
 
         /**
@@ -168,15 +203,22 @@ class EgressHealth(
         suspend fun defaultProbe(net: Network): Boolean = kotlinx.coroutines.withContext(
             kotlinx.coroutines.Dispatchers.IO,
         ) {
-            val results = PROBE_TARGETS.map { (ip, port) ->
-                val t0 = System.nanoTime()
-                val ok = runCatching {
-                    net.socketFactory.createSocket().use { s ->
-                        s.connect(InetSocketAddress(ip, port), PROBE_TIMEOUT_MS)
-                        true
+            // **并行**：原来是串行 map，且不因某个目标成功而短路（逐目标记结果是刻意的）。
+            // 目标集扩到 5 个之后串行最坏要 5×2s = 10 秒，而这段时间里业务全在等判定。
+            // 并行后总耗时 = 最慢的那个（PROBE_TIMEOUT_MS 封顶 2 秒），逐目标结果照样拿得到。
+            val results = coroutineScope {
+                PROBE_TARGETS.map { (ip, port) ->
+                    async {
+                        val t0 = System.nanoTime()
+                        val ok = runCatching {
+                            net.socketFactory.createSocket().use { s ->
+                                s.connect(InetSocketAddress(ip, port), PROBE_TIMEOUT_MS)
+                                true
+                            }
+                        }.getOrDefault(false)
+                        Triple(ip, ok, (System.nanoTime() - t0) / 1_000_000L)
                     }
-                }.getOrDefault(false)
-                Triple(ip, ok, (System.nanoTime() - t0) / 1_000_000L)
+                }.awaitAll()
             }
             Ev.kw(
                 LogCat.NET, "egress.probe",

@@ -1026,8 +1026,10 @@ class OutboundConnector(
                 ch
             },
             // keepAlive：让内核主动探测「链路没了但没有 FIN/RST」的死连接。
-            // 注意它只是辅助——Java 无法设置探测间隔，系统默认约 2 小时，
-            // 快速发现仍要靠 relay 侧的 upstreamSilent（见 ProxyTuning.UPSTREAM_SILENCE_MS）。
+            // 注意它只是辅助——Java 无法设置探测间隔，系统默认约 2 小时。
+            // 曾经指望 relay 侧的「上游静默判死」来快速发现，但实测那条判据抓到的
+            // 全是闲置的池化连接、没有一次真故障，已删除（见 NioRelayReactor.sweepIdle）。
+            // 这类死连接现在由 idle 超时回收。
             connect = { ch, a ->
                 ch.socket().tcpNoDelay = true
                 ch.socket().keepAlive = true
