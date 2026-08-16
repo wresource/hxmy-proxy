@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy
 
 import com.mzstd.hxmyproxy.core.model.LinkStats
+import com.mzstd.hxmyproxy.core.network.LinkProbe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,5 +49,48 @@ class LinkLossStatsTest {
         assertEquals(0, 全丢.samples)
         assertTrue("有丢包样本", 全丢.lossSamples > 0)
         assertEquals(100, 全丢.lossPct)
+    }
+
+    // ==================== lossPct 的口径:在线设备的丢失率,不是「设备在不在」 ====================
+    //
+    // 0816 两台设备的对照暴露了这个误读:A 机 loss=0% 全程,B 机 p50=28%/max=56%,
+    // 同一个 WiFi、同一套探测。差别不在链路而在被探对象——A 探一直在用的 Mac,
+    // B 探的客户端反复离线(inboundSilenceSec 到过 371 秒)。
+    // 若把离线设备的失败照单计入,一台睡着的设备就能把丢包率拉到接近 100%。
+
+    @Test fun `离线设备不该把丢包率拉满`() {
+        LinkProbe.reset()
+        val dead = "192.168.1.188"
+        // 前 3 次失败照常入窗:那是真实的链路信号,不该被吞掉。
+        repeat(3) { LinkProbe.record(dead, null) }
+        assertEquals("头 3 次失败必须计入", 100, LinkProbe.stats()!!.lossPct)
+        assertEquals(3, LinkProbe.stats()!!.lossSamples)
+        // 之后这台设备已被判定「不在」,继续失败不再累加样本。
+        repeat(20) { LinkProbe.record(dead, null) }
+        assertEquals("离线设备的后续探测不得入窗", 3, LinkProbe.stats()!!.lossSamples)
+    }
+
+    @Test fun `一台设备离线不该污染另一台在线设备的丢包率`() {
+        LinkProbe.reset()
+        val dead = "192.168.1.188"
+        val live = "192.168.1.56"
+        repeat(3) { LinkProbe.record(dead, null) }        // 判定离线,入窗 3 次
+        repeat(30) { LinkProbe.record(dead, null) }       // 离线期间大量失败,不入窗
+        repeat(17) { LinkProbe.record(live, 12L) }        // 在线设备一直正常
+        val s = LinkProbe.stats()!!
+        assertEquals("窗口应为 3 次失败 + 17 次成功", 20, s.lossSamples)
+        assertEquals("丢包率 = 3/20,不应被离线设备拉高", 15, s.lossPct)
+    }
+
+    @Test fun `设备恢复后重新计入`() {
+        LinkProbe.reset()
+        val k = "192.168.1.188"
+        repeat(3) { LinkProbe.record(k, null) }
+        repeat(10) { LinkProbe.record(k, null) }          // 离线期,不入窗
+        assertEquals(3, LinkProbe.stats()!!.lossSamples)
+        LinkProbe.record(k, 20L)                          // 恢复
+        assertEquals("恢复的那次要入窗", 4, LinkProbe.stats()!!.lossSamples)
+        LinkProbe.record(k, null)                         // 恢复后再失败,是真实信号
+        assertEquals("恢复后的失败必须重新计入", 5, LinkProbe.stats()!!.lossSamples)
     }
 }

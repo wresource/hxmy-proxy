@@ -77,12 +77,32 @@ object LinkProbe {
      * `linkprobe.recovered`。只在状态翻转时各记一条，持续失败/持续正常都零噪音。
      */
     suspend fun sample(ips: List<InetAddress>) {
-        ips.forEach { ip ->
-            val ms = probe(ip)
-            addOutcome(ms != null)
-            if (ms != null) add(ms)
-            ip.hostAddress?.let { key -> if (ms != null) onOk(key) else onFail(key) }
-        }
+        ips.forEach { ip -> record(ip.hostAddress, probe(ip)) }
+    }
+
+    /**
+     * 记一次探测结果。从 [sample] 里抽出来是为了可测——[probe] 要真的建连，
+     * 单测无法构造「同一台设备连续失败 N 次后又恢复」这种序列。
+     *
+     * @param ms 成功时的耗时；null = 本次探测失败
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun record(key: String?, ms: Long?) {
+        // **已判定「不在」的客户端，其后续失败不再计入丢包率**（见 [stats] 的口径说明）。
+        // 前 [LOST_THRESHOLD] 次失败照常入窗——那是真实的链路信号；之后这台设备被认定为
+        // 离线，再把它的失败算成「丢包」只会污染链路质量。
+        //
+        // **只跳过失败，不跳过成功**：探测成功本身就证明设备回来了，那一次属于
+        // 「在线设备的探测结果」，必须入窗。跳掉它会让丢包率偏高（少一个成功样本）。
+        val skipOutcome = ms == null && key != null && isLost(key)
+        if (!skipOutcome) addOutcome(ms != null)
+        if (ms != null) add(ms)
+        key?.let { if (ms != null) onOk(it) else onFail(it) }
+    }
+
+    /** 该客户端是否已连续失败到「不在」的程度。 */
+    private fun isLost(key: String): Boolean = synchronized(lock) {
+        (failStreak[key] ?: 0) >= LOST_THRESHOLD
     }
 
     private fun onOk(key: String) {
@@ -123,6 +143,18 @@ object LinkProbe {
     /**
      * 当前窗口的 p50/p95 与丢包率；**无成功样本时也可能有丢包数据**——
      * 全丢的链路 [window] 是空的，但那恰恰是最该报出来的情况，所以判空只看 [okWindow]。
+     *
+     * ## lossPct 的口径：**在线设备的探测丢失率**，不含已离线的设备
+     *
+     * 0816 两台设备的对照暴露过一次误读：A 机 `loss=0%` 全程，B 机 `p50=28% / max=56%`，
+     * 同一个 WiFi、同一套探测。差别不在链路，而在**被探的对象**——
+     * A 探的是一直在用的 Mac，B 探的客户端反复离线（`inboundSilenceSec` 到过 371 秒，
+     * 同期 70 次 `client.unreachable`）。设备休眠时探测必然失败，若照单计入，
+     * 一台睡着的设备就能把丢包率拉到接近 100%，而链路其实好得很。
+     *
+     * 所以 [sample] 里对已判定 lost 的客户端停止入窗：这个数只回答
+     * **「还在线的设备，探测丢了多少」**。它不回答「设备在不在」——那是
+     * `linkprobe.lost` / `client.unreachable` 的职责。
      */
     fun stats(): LinkStats? = synchronized(lock) {
         if (window.isEmpty() && okWindow.isEmpty()) return null

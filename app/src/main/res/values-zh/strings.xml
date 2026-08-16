@@ -200,7 +200,7 @@
     <string name="stat_link">链路</string>
     <string name="stat_loss">丢包</string>
     <!-- 建议是**物理层**的：这一段是空口质量，软件层修不了（见 LinkLossBanner 的说明） -->
-    <string name="link_loss_banner">到设备的探测有 %1$d%% 丢失。让设备直连这台手机的热点（而不是共用 Wi-Fi），或把手机挪近路由器。</string>
+    <string name="link_loss_banner">到在线设备的探测有 %1$d%% 丢失。让设备直连这台手机的热点（而不是共用 Wi-Fi），或把手机挪近路由器。已休眠的设备不计入这个数。</string>
     <string name="settings_log_enabled">诊断日志</string>
     <string name="settings_log_enabled_sub">在本机记录运行事件(约 10MB,不上传),供「监控 → 错误日志」查看与排障</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
