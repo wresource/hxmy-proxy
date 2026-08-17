@@ -338,6 +338,8 @@
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
+    <string name="ipv6_hidden_hint">另有 %1$d 个 IPv6 地址,点击显示</string>
+    <string name="ipv6_collapse">收起 IPv6 地址</string>
     <string name="settings_show_ipv6">显示 IPv6 地址</string>
     <string name="settings_show_ipv6_sub">默认关闭——IPv6 地址长、不好记也不好抄。开关只影响列出什么，IPv6 客户端两种情况下都能正常连入。</string>
     <string name="lang_english">English</string>

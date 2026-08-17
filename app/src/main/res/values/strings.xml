@@ -338,6 +338,8 @@
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="ipv6_hidden_hint">%1$d more IPv6 address(es) — tap to show</string>
+    <string name="ipv6_collapse">Hide IPv6 addresses</string>
     <string name="settings_show_ipv6">Show IPv6 addresses</string>
     <string name="settings_show_ipv6_sub">Off by default — IPv6 addresses are long and hard to copy. IPv6 clients can still connect either way; this only affects what is listed.</string>
     <string name="lang_english">English</string>

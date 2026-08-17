@@ -1171,6 +1171,35 @@ private fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: 
                 ExpandCollapseButton(interfacesExpanded, interfaces.size) { interfacesExpanded = !interfacesExpanded }
             }
         }
+        // **被隐藏的 IPv6 必须留一行痕迹。**
+        // 第一版藏得一点提示都没有,用户的第一反应是「IPv6 代理被取消了」——
+        // 找不到的功能和删掉没有区别。这一行既解释了「为什么少了几个地址」,
+        // 又是就地打开的入口(不必翻到设置页去找那个开关)。
+        IPv6HintRow(ui, viewModel)
+    }
+}
+
+/**
+ * 「另有 N 个 IPv6 地址」/「收起 IPv6」——隐藏状态的可见痕迹 + 就地切换。
+ *
+ * 点它直接改 `showIpv6` 设置,而不是只在本卡内临时展开:两处状态分离会造出
+ * 「卡上展开了、设置里却是关的」这种自相矛盾,而入口卡/通知/PAC 跟的是设置。
+ */
+@Composable
+private fun IPv6HintRow(ui: MainUiState, viewModel: MainViewModel) {
+    val hidden = ui.hiddenIpv6Count
+    val showing = ui.settings.showIpv6
+    // 没有 v6 可显示时两个分支都不出现——别为不存在的东西留提示。
+    if (hidden == 0 && !(showing && ui.share.interfaces.any { it.isIpv6 })) return
+    TextButton(
+        onClick = { viewModel.setShowIpv6(!showing) },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            if (showing) stringResource(R.string.ipv6_collapse)
+            else stringResource(R.string.ipv6_hidden_hint, hidden),
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

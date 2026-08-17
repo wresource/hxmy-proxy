@@ -43,6 +43,16 @@ data class MainUiState(
      */
     val visibleInterfaces: List<ShareInterface>
         get() = visibleUnderIpv6Pref(share.interfaces, settings.showIpv6) { it.isIpv6 }
+
+    /**
+     * 因「显示 IPv6」关着而**没被列出来**的接口数;为 0 表示没有东西被藏。
+     *
+     * 界面必须据此留一行痕迹。第一版藏得一点提示都没有,用户的第一反应是
+     * 「IPv6 代理被取消了」——**找不到的功能和删掉没有区别**。
+     * 用 visibleInterfaces 反推而不是自己数一遍,是为了让它和实际展示的口径
+     * 永远一致(含「全是 v6 时不过滤」那条兜底)。
+     */
+    val hiddenIpv6Count: Int get() = share.interfaces.size - visibleInterfaces.size
 }
 
 @HiltViewModel
