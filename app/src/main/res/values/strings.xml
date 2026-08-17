@@ -380,6 +380,11 @@
     <string name="egress_ethernet">Eth/USB</string>
     <string name="direct_egress_title">Direct egress</string>
     <string name="direct_egress_sub">Where DIRECT (bypass) traffic exits</string>
+    <string name="egress_priority_title">Auto-pick priority (reorderable)</string>
+    <string name="egress_priority_offline">offline</string>
+    <string name="egress_priority_up">Move up</string>
+    <string name="egress_priority_down">Move down</string>
+    <string name="egress_priority_hint">Picks the first network that is online. Also used to reroute when your chosen exit fails — it never picks the one that just failed.</string>
     <string name="direct_egress_auto_desc">Ethernet/USB → Wi-Fi → Cellular; disconnect if none</string>
     <string name="egress_cellular_metered">Cellular egress uses mobile data</string>
     <string name="cellular_confirm_title">Use cellular as egress?</string>

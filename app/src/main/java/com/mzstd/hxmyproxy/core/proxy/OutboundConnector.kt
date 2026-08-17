@@ -305,10 +305,14 @@ class OutboundConnector(
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
-                connectAny(orderAddresses(resolve(host, null, trace)), port, null)
+                // **不再回落系统默认路由**:egress=VPN 时那正是刚失败的同一条 VPN,
+                // 降级等于原地打转。改为按用户配置的物理出口优先级挑一条,且排除刚失败的那条。
+                val alt = underlyingNetworkProvider?.fallbackEgress(network)
+                    ?: throw ProxyException(e.error, "degrade-no-route")
+                connectAny(orderAddresses(resolve(host, alt, trace)), port, alt)
                     .also {
-                        trace?.connected(host, it.inetAddress?.hostAddress, port, null)
-                        reportEgress(onEgress, null)
+                        trace?.connected(host, it.inetAddress?.hostAddress, port, alt.networkHandle)
+                        reportEgress(onEgress, alt)
                     }
             }
         }
@@ -932,12 +936,16 @@ class OutboundConnector(
             }
             throttledFileLog("egress:$host", "egress fail $host: ${e.error} — degrading to default")
             degradeToDefault(host, e.error) {
-                connectAnyChannel(orderAddresses(resolve(host, null, trace)), port, null)
+                // 同 connect():降级绝不回落系统默认路由(那可能就是刚失败的 VPN)。
+                val alt = underlyingNetworkProvider?.fallbackEgress(network)
+                    ?: throw ProxyException(e.error, "degrade-no-route")
+                connectAnyChannel(orderAddresses(resolve(host, alt, trace)), port, alt)
                     .also {
                         trace?.connected(
-                            host, (it.remoteAddress as? InetSocketAddress)?.address?.hostAddress, port, null,
+                            host, (it.remoteAddress as? InetSocketAddress)?.address?.hostAddress,
+                            port, alt.networkHandle,
                         )
-                        reportEgress(onEgress, null)
+                        reportEgress(onEgress, alt)
                     }
             }
         }

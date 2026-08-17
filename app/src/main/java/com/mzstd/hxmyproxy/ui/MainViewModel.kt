@@ -188,6 +188,17 @@ class MainViewModel @Inject constructor(
         it.copy(selectedInterfaceIds = if (selected) it.selectedInterfaceIds + id else it.selectedInterfaceIds - id)
     }
 
+    /**
+     * 把优先级表里第 [from] 项挪到 [to]。越界即忽略——UI 的箭头已按边界禁用，
+     * 但状态是异步流过来的，连点两下可能撞上一次过期的 index。
+     */
+    fun moveEgressPriority(from: Int, to: Int) = update { s ->
+        val cur = s.egressPriority
+        if (from !in cur.indices || to !in cur.indices || from == to) return@update s
+        val next = cur.toMutableList().apply { add(to, removeAt(from)) }
+        s.copy(egressPriority = com.mzstd.hxmyproxy.core.model.normalizeEgressPriority(next))
+    }
+
     /** 界面是否展示 IPv6 接口与入口。纯展示开关，不影响准入与转发。 */
     fun setShowIpv6(v: Boolean) = update { it.copy(showIpv6 = v) }
 

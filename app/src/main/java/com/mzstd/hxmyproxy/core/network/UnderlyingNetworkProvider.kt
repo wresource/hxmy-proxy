@@ -44,6 +44,9 @@ class UnderlyingNetworkProvider(context: Context) {
 
     @Volatile private var choice: EgressNetworkChoice = EgressNetworkChoice.AUTO
     @Volatile private var directChoice: DirectEgressChoice = DirectEgressChoice.AUTO
+    /** 物理出口优先级(AUTO 挑网、降级挑替代路线都按它)。由 applyTunables 推入。 */
+    @Volatile private var priority: List<DirectEgressChoice> =
+        com.mzstd.hxmyproxy.core.model.PHYSICAL_EGRESS_ORDER_DEFAULT
     @Volatile private var dohChoice: com.mzstd.hxmyproxy.core.model.DohEgressChoice =
         com.mzstd.hxmyproxy.core.model.DohEgressChoice.FOLLOW_DIRECT
 
@@ -53,11 +56,36 @@ class UnderlyingNetworkProvider(context: Context) {
      * 拿不到返回 null，交由 OutboundConnector fail-closed 断开（绝不回落默认路由=VPN）。
      */
     fun current(): Network? = when (directChoice) {
-        DirectEgressChoice.AUTO -> ethernetNet ?: wifiNet ?: cellularNet
+        // AUTO 按**用户配置的优先级**挑第一张在线的。顺序此前硬编码成
+        // 以太网→WiFi→蜂窝,而哪条更该优先完全取决于现场。
+        DirectEgressChoice.AUTO -> priority.firstNotNullOfOrNull { handleOf(it) }
         DirectEgressChoice.ETHERNET -> ethernetNet
         DirectEgressChoice.WIFI -> wifiNet
         DirectEgressChoice.CELLULAR -> cellularNet
     }
+
+    /** 某个物理出口当前的句柄;不在线为 null。 */
+    private fun handleOf(kind: DirectEgressChoice): Network? = when (kind) {
+        DirectEgressChoice.ETHERNET -> ethernetNet
+        DirectEgressChoice.WIFI -> wifiNet
+        DirectEgressChoice.CELLULAR -> cellularNet
+        DirectEgressChoice.AUTO -> null
+    }
+
+    /**
+     * 「指定出口连不通」时的**替代路线**:按优先级挑第一张在线的物理网,
+     * 且**排除 [exclude]**(刚刚失败的那条)。
+     *
+     * 为什么不能沿用旧的「回落系统默认路由」:egress=VPN 时系统默认路由**正是那条 VPN**,
+     * 降级等于回到刚失败的同一条路,白等一轮。DIRECT 那侧早就因此改成了 fail-closed
+     * (绝不回落默认路由),而 PROXY 的降级分支一直还踩着这个坑。
+     *
+     * 返回 null 表示没有可用的替代路线——调用方应当失败,而不是"随便找条路"。
+     */
+    fun fallbackEgress(exclude: Network?): Network? =
+        priority.firstNotNullOfOrNull { kind ->
+            handleOf(kind)?.takeIf { it.networkHandle != exclude?.networkHandle }
+        }
 
     /** PROXY 出站按用户选择的出口网络；AUTO 返回 null（走系统默认，含 VPN）。 */
     /**
@@ -282,6 +310,11 @@ class UnderlyingNetworkProvider(context: Context) {
     fun setDirectEgressChoice(c: DirectEgressChoice) {
         directChoice = c
         reconcileDirectRequest()
+    }
+
+    /** 由 applyTunables 推入物理出口优先级(已在设置层规范化)。 */
+    fun setEgressPriority(p: List<DirectEgressChoice>) {
+        priority = com.mzstd.hxmyproxy.core.model.normalizeEgressPriority(p)
     }
 
     /** DIRECT 手动指定物理出口时拉起并保活对应网络；AUTO 只用被动句柄不主动拉起（省电，见耗电边界）。幂等。 */

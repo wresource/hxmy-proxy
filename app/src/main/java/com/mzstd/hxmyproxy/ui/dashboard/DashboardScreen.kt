@@ -1352,6 +1352,97 @@ private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modi
 }
 
 /** 直连出口卡：DIRECT(bypass) 流量走哪张物理网。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；可手动指定。 */
+/**
+ * 物理出口的**优先级顺序**,可用上下箭头调整。
+ *
+ * 为什么把不在线的也列出来(灰显但**仍可移动**):最需要调顺序的时刻,恰恰是某条网
+ * 刚出问题的时候;只列在线的话,USB 网卡拔掉后就再也没法预设「等它插回来排第几」。
+ * 灰色表示的是「此刻不在线」,不是「不可配置」。
+ *
+ * 用箭头而不是拖拽:表只有三项,按一次就到位;而拖拽在 Compose 里要么加依赖、
+ * 要么自己处理长按/自动滚动/无障碍,复杂度和收益不成比例。
+ */
+@Composable
+private fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
+    val order = ui.settings.egressPriority
+    val st = ui.share.egressStatus
+    fun online(c: DirectEgressChoice) = when (c) {
+        DirectEgressChoice.ETHERNET -> st.ethernetCapable
+        DirectEgressChoice.WIFI -> st.wifi
+        DirectEgressChoice.CELLULAR -> st.cellularCapable
+        DirectEgressChoice.AUTO -> false
+    }
+    fun labelOf(c: DirectEgressChoice) = when (c) {
+        DirectEgressChoice.ETHERNET -> R.string.egress_ethernet
+        DirectEgressChoice.WIFI -> R.string.egress_wifi
+        DirectEgressChoice.CELLULAR -> R.string.egress_cellular
+        DirectEgressChoice.AUTO -> R.string.egress_auto
+    }
+    Text(
+        stringResource(R.string.egress_priority_title),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    order.forEachIndexed { i, c ->
+        val up = online(c)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "${i + 1}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                stringResource(labelOf(c)),
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                // 灰显=此刻不在线,但仍可调整顺序(见上方说明)。
+                color = if (up) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!up) {
+                Text(
+                    stringResource(R.string.egress_priority_offline),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            }
+            IconButton(
+                onClick = { viewModel.moveEgressPriority(i, i - 1) },
+                enabled = i > 0,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_b_arrow_up),
+                    contentDescription = stringResource(R.string.egress_priority_up),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            IconButton(
+                onClick = { viewModel.moveEgressPriority(i, i + 1) },
+                enabled = i < order.size - 1,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_b_arrow_down),
+                    contentDescription = stringResource(R.string.egress_priority_down),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+    Text(
+        stringResource(R.string.egress_priority_hint),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
@@ -1405,12 +1496,9 @@ private fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier
                 )
             }
         }
+        // AUTO 才需要看顺序——手动钉死某张网时优先级不参与决策,列出来只会误导。
         if (choice == DirectEgressChoice.AUTO) {
-            Text(
-                stringResource(R.string.direct_egress_auto_desc),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            EgressPriorityList(ui, viewModel)
         }
         if (choice == DirectEgressChoice.CELLULAR) {
             Text(

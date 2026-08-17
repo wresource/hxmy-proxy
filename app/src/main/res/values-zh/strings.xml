@@ -380,6 +380,11 @@
     <string name="egress_ethernet">以太网/USB</string>
     <string name="direct_egress_title">直连出口</string>
     <string name="direct_egress_sub">直连(绕过 VPN)流量从哪张网出去</string>
+    <string name="egress_priority_title">自动选择的优先级（可调整）</string>
+    <string name="egress_priority_offline">不在线</string>
+    <string name="egress_priority_up">上移</string>
+    <string name="egress_priority_down">下移</string>
+    <string name="egress_priority_hint">按此顺序挑第一张在线的网；指定出口连不上时也按它换路，且不会换回刚失败的那条。</string>
     <string name="direct_egress_auto_desc">以太网/USB → Wi-Fi → 蜂窝；都没有则断开</string>
     <string name="egress_cellular_metered">蜂窝出口会消耗移动数据</string>
     <string name="cellular_confirm_title">使用蜂窝作为出口?</string>

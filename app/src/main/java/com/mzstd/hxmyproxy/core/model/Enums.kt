@@ -30,6 +30,29 @@ enum class EgressNetworkChoice { AUTO, VPN, WIFI, CELLULAR, ETHERNET }
 enum class DirectEgressChoice { AUTO, ETHERNET, WIFI, CELLULAR }
 
 /**
+ * 物理出口的**优先级顺序**——[DirectEgressChoice.AUTO] 按它挑第一张在线的网,
+ * 「指定出口连不上」时的降级也按它挑替代路线。
+ *
+ * 顺序此前硬编码在 `current()` 里(以太网 → WiFi → 蜂窝),用户改不了;
+ * 而哪条网更该优先完全取决于现场(办公室有 USB 网卡、外出只有蜂窝)。
+ */
+val PHYSICAL_EGRESS_ORDER_DEFAULT: List<DirectEgressChoice> =
+    listOf(DirectEgressChoice.ETHERNET, DirectEgressChoice.WIFI, DirectEgressChoice.CELLULAR)
+
+/**
+ * 把存下来的顺序**规范化**:剔除 [DirectEgressChoice.AUTO] 与重复项,
+ * 再把缺失的补到末尾(按默认相对顺序)。
+ *
+ * 必须有这一层:存储可能是旧版本写的、可能被导入的备份污染、也可能将来加了新的
+ * 物理网类型。任何一种情况下都得吐出一个**完整且无重复**的全排列,
+ * 否则 `current()` 会漏掉某张实际可用的网,表现为「明明连着却说没网」。
+ */
+fun normalizeEgressPriority(raw: List<DirectEgressChoice>): List<DirectEgressChoice> {
+    val kept = raw.filter { it in PHYSICAL_EGRESS_ORDER_DEFAULT }.distinct()
+    return kept + PHYSICAL_EGRESS_ORDER_DEFAULT.filterNot { it in kept }
+}
+
+/**
  * 备用 DNS（DoH）走哪张网。
  *
  * 为什么需要独立于 [EgressNetworkChoice]：DoH 是「系统 DNS 已经失败之后」才被调用的救济手段，

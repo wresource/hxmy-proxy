@@ -155,6 +155,7 @@ class SettingsRepository @Inject constructor(
         val SHOW_IPV6 = booleanPreferencesKey("show_ipv6")
         val EGRESS_CHOICE = stringPreferencesKey("egress_choice")
         val DIRECT_EGRESS_CHOICE = stringPreferencesKey("direct_egress_choice")
+        val EGRESS_PRIORITY = stringPreferencesKey("egress_priority")
         val DOH_EGRESS_CHOICE = stringPreferencesKey("doh_egress_choice")
         val EGRESS_FALLBACK = stringPreferencesKey("egress_fallback")
         val CELLULAR_EGRESS_CONFIRMED = booleanPreferencesKey("cellular_egress_confirmed")
@@ -212,6 +213,11 @@ class SettingsRepository @Inject constructor(
             showIpv6 = this[SHOW_IPV6] ?: d.showIpv6,
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
+            // **必须是有序字符串,不能用 stringSet**——Set 不保序,存进去顺序就没了。
+            egressPriority = com.mzstd.hxmyproxy.core.model.normalizeEgressPriority(
+                this[EGRESS_PRIORITY]?.split(',').orEmpty()
+                    .mapNotNull { runCatching { DirectEgressChoice.valueOf(it.trim()) }.getOrNull() },
+            ),
             dohEgressChoice = this[DOH_EGRESS_CHOICE]?.let { runCatching { com.mzstd.hxmyproxy.core.model.DohEgressChoice.valueOf(it) }.getOrNull() } ?: d.dohEgressChoice,
             egressFallback = this[EGRESS_FALLBACK]?.let { runCatching { com.mzstd.hxmyproxy.core.model.EgressFallback.valueOf(it) }.getOrNull() } ?: d.egressFallback,
             cellularEgressConfirmed = this[CELLULAR_EGRESS_CONFIRMED] ?: d.cellularEgressConfirmed,
@@ -250,6 +256,7 @@ class SettingsRepository @Inject constructor(
         prefs[SHOW_IPV6] = showIpv6
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
+        prefs[EGRESS_PRIORITY] = egressPriority.joinToString(",") { it.name }
         prefs[DOH_EGRESS_CHOICE] = dohEgressChoice.name
         prefs[EGRESS_FALLBACK] = egressFallback.name
         prefs[CELLULAR_EGRESS_CONFIRMED] = cellularEgressConfirmed

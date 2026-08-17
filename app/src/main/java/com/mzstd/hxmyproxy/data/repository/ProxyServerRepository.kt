@@ -978,6 +978,7 @@ class ProxyServerRepository @Inject constructor(
         lastEgressChoice = s.egressChoice
         lastDirectEgressChoice = s.directEgressChoice
         underlyingNetworkProvider.setEgressChoice(s.egressChoice)
+        underlyingNetworkProvider.setEgressPriority(s.egressPriority)
         underlyingNetworkProvider.setDirectEgressChoice(s.directEgressChoice)
         underlyingNetworkProvider.setDohEgressChoice(s.dohEgressChoice)
     }

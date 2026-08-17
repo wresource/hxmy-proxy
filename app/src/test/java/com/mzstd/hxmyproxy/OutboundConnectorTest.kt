@@ -563,26 +563,39 @@ class OutboundConnectorTest {
     }
 
     /**
-     * **PROXY 出口分流建连失败 → 降级默认重试**，且上报的出口必须是**降级后**真正走的那张网。
-     * 这一层是唯一知道「最后到底走了哪条路」的地方；若上报仍按最初选的出口算，
-     * 历史流量表会把降级后跑在 VPN 上的字节记成 Wi-Fi 直连，用户拿它对账蜂窝用量就会被误导。
-     * 构造：解析在出口网络上成功，但建 socket 时炸（模拟绑定失败）→ 必须换默认路由重来。
+     * **PROXY 出口分流建连失败 → 按优先级降级到另一张物理网**，且上报的出口必须是
+     * **降级后**真正走的那张网。这一层是唯一知道「最后到底走了哪条路」的地方；
+     * 若上报仍按最初选的出口算，历史流量表会把降级后的字节记到错误的那一档，
+     * 用户拿它对账蜂窝用量就会被误导。
+     *
+     * 降级目标此前是「系统默认路由」(null)，已改为 [UnderlyingNetworkProvider.fallbackEgress]：
+     * egress=VPN 时系统默认路由**正是刚失败的那条 VPN**，回落等于原地打转。
+     *
+     * 构造：解析在出口网络上成功，但建 socket 时炸（模拟绑定失败）→ 必须换替代网络重来。
      */
-    @Test(timeout = 15000) fun `出口分流建连失败后降级默认且上报降级后的出口`() = runBlocking {
+    @Test(timeout = 15000) fun `出口分流建连失败后降级到替代网络且上报降级后的出口`() = runBlocking {
         val echo = CountingEcho()
         try {
             val net = mockk<Network>()
             every { net.networkHandle } returns 105L   // 缓存键按 netId 分桶，mock 必须给
             every { net.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             every { net.socketFactory } throws RuntimeException("模拟绑定出口网络失败")
+            // 替代网络:能正常解析与建连,代表「优先级里下一张在线的物理网」。
+            val alt = mockk<Network>()
+            every { alt.networkHandle } returns 206L
+            every { alt.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+            every { alt.socketFactory } returns javax.net.SocketFactory.getDefault()
             val provider = mockk<UnderlyingNetworkProvider>()
             every { provider.egressNetwork() } returns net
+            every { provider.fallbackEgress(any()) } returns alt
 
             val kinds = mutableListOf<EgressKind>()
             val c = OutboundConnector(
                 allowAll,
                 underlyingNetworkProvider = provider,
-                egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
+                // 替代网络归 WIFI 档,最初的出口归 VPN 档——两者必须能区分,
+                // 否则「上报的是哪一张」这条断言就没有意义了。
+                egressClassifier = { n -> if (n?.networkHandle == 206L) EgressKind.WIFI else EgressKind.VPN },
             ).apply {
                 // 默认已改为 STRICT（出口不通即断开，保出口身份）。这条测的是降级路径本身，
                 // 所以显式选 DEGRADE —— 否则测的就变成「STRICT 会不会断」了。
@@ -591,10 +604,12 @@ class OutboundConnectorTest {
             val s = c.connect("localhost", echo.port, onEgress = { kinds.add(it) })
             assertEquals("出口分流失败后没有降级重试", "hi", echoRoundTrip(s))
             s.close()
-            assertEquals("上报的仍是降级前的出口 —— 流量会被记到错误的那一档", listOf(EgressKind.VPN), kinds)
-            // 出口槽确实被读到了（返回的是非空 net），而最终上报的却是 null 对应的档位 ——
-            // 二者合起来才说明「先试出口、失败后降级默认」这条路真的走完了，而不是一开始就没绑出口。
+            assertEquals("上报的仍是降级前的出口 —— 流量会被记到错误的那一档", listOf(EgressKind.WIFI), kinds)
+            // 出口槽被读到（返回非空 net），而最终上报的是替代网络的档位 ——
+            // 二者合起来才说明「先试出口、失败后换一张」这条路真的走完了，而不是一开始就没绑出口。
             verify(exactly = 1) { provider.egressNetwork() }
+            // **降级时必须把刚失败的那条传进去排除**，否则可能又挑回同一张网。
+            verify(exactly = 1) { provider.fallbackEgress(net) }
         } finally { echo.close() }
     }
 

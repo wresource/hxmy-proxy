@@ -24,6 +24,11 @@ data class ProxySettings(
     val egressChoice: EgressNetworkChoice = EgressNetworkChoice.AUTO,
     /** 直连(DIRECT)出口。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；其余手动指定。独立于 [egressChoice]。 */
     val directEgressChoice: DirectEgressChoice = DirectEgressChoice.AUTO,
+    /**
+     * 物理出口优先级(AUTO 挑网 + 降级挑替代路线都按它)。默认与旧硬编码顺序一致,
+     * 所以升级上来的用户行为不变。存取都过 [normalizeEgressPriority]。
+     */
+    val egressPriority: List<DirectEgressChoice> = PHYSICAL_EGRESS_ORDER_DEFAULT,
     /** 是否已确认「蜂窝出口产生移动流量」——首次选蜂窝出口弹确认后置 true，不再打扰。 */
     val cellularEgressConfirmed: Boolean = false,
     /** 备用 DNS（DoH）：系统解析双路全败后经 8.8.8.8/1.1.1.1 的 DoH 端点兜底重试（IP 直连 443）。 */
