@@ -247,7 +247,13 @@ class OutboundConnector(
             if (egressUnusable(network, bypassVpn)) {
                 throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
                 if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
-                    throw ProxyException(ProxyError.RemoteUnreachable, "egress-down")
+                    // **不是 RemoteUnreachable**：那说的是「那个目标连不上」，而这里是
+                    // 「我们自己把这条出口摘了，请求根本没发出去」。共用一个码时，日志里
+                    // 分不开「我们主动拒的」和「站点真挂了」——这才是分开它的理由。
+                    throw ProxyException(
+                        ProxyError.EgressSidelined, "egress-down",
+                        retryAfterSeconds = egressHealth.retryAfterSeconds(network),
+                    )
                 }
                 return connectAny(orderAddresses(resolve(host, null)), port, null)
                     .also { reportEgress(onEgress, null) }
@@ -873,7 +879,13 @@ class OutboundConnector(
             if (egressUnusable(network, bypassVpn)) {
                 throttledFileLog("egress-down:$host", "egress marked down, skipping wait - $host")
                 if (egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) {
-                    throw ProxyException(ProxyError.RemoteUnreachable, "egress-down")
+                    // **不是 RemoteUnreachable**：那说的是「那个目标连不上」，而这里是
+                    // 「我们自己把这条出口摘了，请求根本没发出去」。共用一个码时，日志里
+                    // 分不开「我们主动拒的」和「站点真挂了」——这才是分开它的理由。
+                    throw ProxyException(
+                        ProxyError.EgressSidelined, "egress-down",
+                        retryAfterSeconds = egressHealth.retryAfterSeconds(network),
+                    )
                 }
                 return connectAnyChannel(orderAddresses(resolve(host, null)), port, null)
                     .also { reportEgress(onEgress, null) }

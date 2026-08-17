@@ -5,6 +5,8 @@ import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
+import com.mzstd.hxmyproxy.core.proxy.ProxyException
+import com.mzstd.hxmyproxy.core.proxy.ProxyError
 import com.mzstd.hxmyproxy.core.proxy.ProxyServer
 import com.mzstd.hxmyproxy.core.proxy.RelayEngine
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
@@ -285,6 +287,67 @@ class HttpProxyProtocolTest {
             "CONNECT example.invalid:443 HTTP/1.1\r\nHost: x\r\n\r\n",
         )
         assertEquals("必须回状态码而不是关连接（-1 表示读到 EOF）", 502, head.status)
+    }
+
+    // ---- 摘网:503 + Retry-After ----
+
+    /**
+     * **摘网回 503 且带 `Retry-After`,目标不可达回 502 且不带。**
+     *
+     * 这两条必须能互相区分,否则「我们自己主动拒的」和「那个站点真挂了」在一份日志里
+     * 就是同一件事 —— 0817 排查换网断线时正是被这个混用绕了一圈。
+     *
+     * 别误解这条测试的目的:0818 实测过一轮,CONNECT 路径上 Chrome 统一成
+     * ERR_TUNNEL_CONNECTION_FAILED、CFNetwork 统一成 310、OkHttp/Cronet/mihomo/sing-box
+     * 一视同仁 —— **换状态码不会改变任何主流客户端的行为**。锁住它是为了我们自己的
+     * 可诊断性,以及少数真的做了区分的上游。
+     */
+    @Test(timeout = 20000) fun `摘网应回503并带RetryAfter`() {
+        val down = mockk<OutboundConnector>()
+        coEvery {
+            down.connect(any<String>(), any(), any(), any(), any())
+        } throws ProxyException(ProxyError.EgressSidelined, "egress-down", retryAfterSeconds = 30)
+        val head = exchange(
+            proxy(connector = down),
+            "CONNECT example.invalid:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertEquals(503, head.status)
+        assertTrue("状态行要配对的 reason: ${head.statusLine}", head.statusLine.contains("Service Unavailable"))
+        assertEquals("30", head.value("Retry-After"))
+    }
+
+    /**
+     * **`Retry-After` 绝不能是 0。**
+     *
+     * 0818 实测:OkHttp 是唯一会读这个头的 HTTP 栈,判据恰恰是 `== 0`,
+     * 反应是立即无退避重试 —— 在「整张网不通」的当口发 0,等于把自己的故障
+     * 放大成一轮重试风暴。复检窗口末尾剩余时间趋近 0,正是最容易踩到的时刻。
+     */
+    @Test(timeout = 20000) fun `RetryAfter 即使上游给0也必须至少为1`() {
+        val down = mockk<OutboundConnector>()
+        coEvery {
+            down.connect(any<String>(), any(), any(), any(), any())
+        } throws ProxyException(ProxyError.EgressSidelined, "egress-down", retryAfterSeconds = 0)
+        val head = exchange(
+            proxy(connector = down),
+            "CONNECT example.invalid:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertEquals(503, head.status)
+        assertEquals("发 0 会让 OkHttp 立即无退避重试", "1", head.value("Retry-After"))
+    }
+
+    /** 目标不可达是另一回事:502,且**不得**凭空造一个 Retry-After —— 我们并不知道它什么时候好。 */
+    @Test(timeout = 20000) fun `目标不可达回502且不带RetryAfter`() {
+        val down = mockk<OutboundConnector>()
+        coEvery {
+            down.connect(any<String>(), any(), any(), any(), any())
+        } throws ProxyException(ProxyError.RemoteUnreachable, "connect")
+        val head = exchange(
+            proxy(connector = down),
+            "CONNECT example.invalid:443 HTTP/1.1\r\nHost: x\r\n\r\n",
+        )
+        assertEquals(502, head.status)
+        assertFalse("不知道何时恢复就不该发 Retry-After", head.has("Retry-After"))
     }
 
     // ---- 规则拦截 ----

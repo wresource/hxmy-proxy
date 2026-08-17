@@ -11,6 +11,20 @@ sealed class ProxyError(val label: String) {
     data object DnsFailure : ProxyError("DNS resolution failed")
     data object RemoteTimeout : ProxyError("remote connect timeout")
     data object RemoteUnreachable : ProxyError("remote unreachable")
+
+    /**
+     * **我们自己把这条出口摘了**（[com.mzstd.hxmyproxy.core.network.EgressHealth] 判定整张网不通），
+     * 请求根本没被发出去。与 [RemoteUnreachable]「那个目标连不上」是两件事。
+     *
+     * 分开的理由是**可诊断性**，不是客户端行为——0818 实测过一轮，CONNECT 路径上
+     * Chrome / CFNetwork / OkHttp / Cronet / mihomo / sing-box 对 502、503、504
+     * 的反应完全一致（Chrome 统一成 ERR_TUNNEL_CONNECTION_FAILED，CFNetwork 统一成
+     * 310，连「代理端口有没有人监听」都传不出去）。指望换个状态码去驱动别人的行为是幻想。
+     *
+     * 真正的收益在我们自己这侧：此前摘网与目标不可达共用 `err=unreachable`，
+     * 一份日志里根本分不开「我们主动拒的」和「那个站点真连不上」。
+     */
+    data object EgressSidelined : ProxyError("egress temporarily unavailable")
     data object ConnectionRefused : ProxyError("connection refused")
     data object AccessDenied : ProxyError("denied by access control / egress guard")
     data object TooManyConnections : ProxyError("too many connections")
@@ -28,6 +42,7 @@ sealed class ProxyError(val label: String) {
             DnsFailure -> "dns"
             ConnectionRefused -> "refused"
             RemoteUnreachable -> "unreachable"
+            EgressSidelined -> "sidelined"
             AccessDenied -> "denied"
             VpnUnavailable -> "vpn"
             LocalNetworkPermissionDenied -> "perm"
@@ -41,6 +56,10 @@ sealed class ProxyError(val label: String) {
         get() = when (this) {
             ConnectionRefused -> 0x05
             RemoteUnreachable, DnsFailure -> 0x04   // host unreachable
+            // RFC 1928 的 REP 码里没有「暂时不可用」这个概念，最接近的 0x03(network
+            // unreachable)并不比 0x04 多传递任何信息。刻意保持与改动前一致，
+            // 免得为一个零收益的语义调整改变既有 SOCKS5 客户端的行为。
+            EgressSidelined -> 0x04
             AccessDenied -> 0x02                     // not allowed by ruleset
             else -> 0x01                             // general SOCKS server failure
         }
@@ -50,6 +69,10 @@ sealed class ProxyError(val label: String) {
         get() = when (this) {
             AccessDenied -> 403
             RemoteTimeout -> 504
+            // 503：我方此刻主动拒绝，且是暂时的。不用 502(它硬性要求「收到了上游的
+            // 无效响应」，而摘网时我们一个响应都没收到)，也不用 504(那已经被
+            // 「目标连接超时」占着，混用会让两件事在日志里再也分不开)。
+            EgressSidelined -> 503
             else -> 502
         }
 
@@ -64,6 +87,7 @@ sealed class ProxyError(val label: String) {
         get() = when (httpStatus) {
             403 -> "Forbidden"
             504 -> "Gateway Timeout"
+            503 -> "Service Unavailable"
             else -> "Bad Gateway"
         }
 }
@@ -77,5 +101,13 @@ sealed class ProxyError(val label: String) {
  * `trace.failed(host, "connect-strict", …)`，而 server 层的 catch 又记一次 ——
  * 0814 日志里 750 行 `req.failed` 实际只对应 **432 次**失败（318 个 id 落两行），
  * 直接数行数会把失败量高估 74%。**失败只能有一个所有者**，多一个记录点就多一份重复。
+ *
+ * @param retryAfterSeconds 仅 [ProxyError.EgressSidelined] 使用：距离下次出口复检还有多久。
+ * **必须 ≥ 1**——0818 实测 OkHttp 是唯一会读 `Retry-After` 的栈，而它的判据恰恰是 `== 0`，
+ * 反应是「立即无退避重试」。在「整张网不通」的当口发 0，等于喊一声「马上再来」。
  */
-class ProxyException(val error: ProxyError, val stage: String? = null) : Exception(error.label)
+class ProxyException(
+    val error: ProxyError,
+    val stage: String? = null,
+    val retryAfterSeconds: Int? = null,
+) : Exception(error.label)

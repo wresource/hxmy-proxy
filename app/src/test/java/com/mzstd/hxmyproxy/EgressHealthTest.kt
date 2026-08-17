@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -149,5 +150,37 @@ class EgressHealthTest {
             EgressHealth.PROBE_TARGETS.size,
             EgressHealth.PROBE_TARGETS.map { it.first }.toSet().size,
         )
+    }
+
+    // ==================== Retry-After:那个 0 会变成重试风暴 ====================
+
+    /**
+     * **`Retry-After` 永远不能是 0。**
+     *
+     * 0818 实测:OkHttp 是唯一会读这个头的 HTTP 栈,而它的判据恰恰是 `== 0`,
+     * 反应是**立即无退避重试**。也就是说在「整张网不通」的当口发一个 0,
+     * 等于对着所有 OkHttp 客户端喊「马上再来」,把我们自己的故障放大成重试风暴。
+     *
+     * 复检窗口末尾剩余时间趋近 0,正是最容易踩到的时刻——所以下限必须在这里兜住。
+     */
+    @Test fun `Retry-After 在复检窗口末尾也不得为 0`() {
+        val h = EgressHealth(probe = { false }, nowMs = { now })
+        val net = net(1)
+        repeat(4) { h.recordFailure(net, "h$it.example.com") }
+        runBlocking { h.confirmOrSideline(net) }
+        // 刚摘网:应接近完整的复检周期
+        val fresh = h.retryAfterSeconds(net)!!
+        assertTrue("刚摘网应约等于 RECHECK_MS: $fresh", fresh in 40..45)
+        // 推进到窗口只剩几毫秒 —— 最容易算出 0 的时刻
+        now += EgressHealth.RECHECK_MS - 5
+        val tail = h.retryAfterSeconds(net)!!
+        assertTrue("窗口末尾必须 >= 1,拿到的是 $tail", tail >= 1)
+    }
+
+    /** 没被摘的网不该有 Retry-After —— 凭空造一个数字就是撒谎。 */
+    @Test fun `健康的网络不给 Retry-After`() {
+        val h = EgressHealth(probe = { true }, nowMs = { now })
+        assertNull(h.retryAfterSeconds(net(2)))
+        assertNull("null 网络同样不给", h.retryAfterSeconds(null))
     }
 }

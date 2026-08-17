@@ -132,6 +132,7 @@ class HttpProxyServer(
                 trace.failed(hp.first, e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
                 writeStatus(
                     output, e.error.httpStatus, e.error.httpReason,
+                    *retryAfterHeader(e),
                     body = failureBody(hp.first, hp.second, e.error),
                 )
                 return
@@ -162,6 +163,7 @@ class HttpProxyServer(
             trace.failed(hp.first, e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect", e.error)
             writeStatus(
                 output, e.error.httpStatus, e.error.httpReason,
+                *retryAfterHeader(e),
                 body = failureBody(hp.first, hp.second, e.error),
             )
             return
@@ -250,6 +252,7 @@ class HttpProxyServer(
             trace.failed(host, e.stage ?: if (plainTimedOut) "connect-phase-timeout" else "connect", e.error)
             writeStatus(
                 output, e.error.httpStatus, e.error.httpReason,
+                *retryAfterHeader(e),
                 body = if (wantsBody) failureBody(host, port, e.error) else null,
             )
             return false
@@ -405,10 +408,26 @@ class HttpProxyServer(
      * 之所以点明 "hxmy proxy"：链路上可能还有别的中间层（本机 shim 之类），
      * 客户端看到 502 时第一个问题是「谁返回的」。
      */
-    private fun failureBody(host: String, port: Int, err: ProxyError): String =
+    /**
+     * 摘网响应上的 `Retry-After`（RFC 9110 §10.2.3，delta-seconds 形式）。
+     *
+     * 只在 [ProxyError.EgressSidelined] 时出现——它是**唯一**我们知道恢复时刻的失败，
+     * 其余失败（目标连不上/超时）我们无从预测，凭空造一个数字是撒谎。
+     *
+     * **值必须 ≥ 1**：0818 实测 OkHttp 是唯一会读这个头的 HTTP 栈，判据恰恰是 `== 0`，
+     * 收到 0 会立即无退避重试。EgressHealth.retryAfterSeconds 已保证下限，这里再兜一次。
+     */
+    private fun retryAfterHeader(e: ProxyException): Array<String> {
+        if (e.error !== ProxyError.EgressSidelined) return emptyArray()
+        val secs = (e.retryAfterSeconds ?: return emptyArray()).coerceAtLeast(1)
+        return arrayOf("Retry-After: $secs")
+    }
+
+    private fun failureBody(host: String, port: Int, err: ProxyError, retryAfter: Int? = null): String =
         "hxmy proxy: upstream connect failed\n" +
             "target: $host:$port\n" +
-            "cause: ${err.label} (${err.code})\n"
+            "cause: ${err.label} (${err.code})\n" +
+            (if (retryAfter != null) "retry after: ${retryAfter}s\n" else "")
 
     /** 规则拦截的说明正文；与 `X-Proxy-Rule` 头同源，便于不看 header 的客户端也能读到。 */
     private fun blockedBody(host: String, src: RuleSrc?): String =

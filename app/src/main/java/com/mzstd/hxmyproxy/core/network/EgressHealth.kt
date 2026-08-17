@@ -86,6 +86,22 @@ class EgressHealth(
         return true
     }
 
+    /**
+     * 距离这张网下次复检还有几秒，供 `Retry-After` 用。**下限 1 秒**。
+     *
+     * 下限不是保守，是必须的：0818 实测 OkHttp 是唯一会读 `Retry-After` 的 HTTP 栈，
+     * 而它的判据恰恰是 `== 0` —— 收到 0 就**立即无退避重试**。在「整张网不通」的
+     * 当口发 0，等于把我们自己的故障放大成一轮重试风暴。
+     *
+     * 没被摘的网返回 null（调用方不该为它发 `Retry-After`）。
+     */
+    fun retryAfterSeconds(net: Network?): Int? {
+        val id = net?.networkHandle ?: return null
+        val at = sidelined[id] ?: return null
+        val remainMs = RECHECK_MS - (nowMs() - at)
+        return ((remainMs + 999) / 1000).coerceAtLeast(1).toInt()
+    }
+
     /** 到了重检时刻的网络（调用方应对它们再探一次，通了就放回）。 */
     fun needsRecheck(net: Network?): Boolean {
         val id = net?.networkHandle ?: return false
