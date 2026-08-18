@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -85,7 +84,6 @@ fun QuickRulesDetailScreen(
             }
             // 完整列表：发丝线分隔，条目=类型徽章 + 等宽地址 + 删除（与规则页预览行同款）。
             rules.forEach { entry ->
-                HorizontalDivider(color = ruleHairline())
                 RuleEntryRow(
                     entry, accent,
                     onToggle = { toggle(entry.value) },

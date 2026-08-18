@@ -30,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -431,10 +430,10 @@ private fun DohEgressPicker(
     }
 }
 
-/** hero 卡内的行间发丝分隔线。 */
+/** 行间分隔:M3 列表不用 divider(2026-08 工作台对齐),行距由 Row 自身撑起——保留空实现少动调用点。 */
 @Composable
-private fun RowDivider() =
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+private fun RowDivider() {
+}
 
 /** DoH 绿徽章（一次性形态）：与 [ProtoBadge] 同构，取头像板草绿档。 */
 @Composable
@@ -693,13 +692,43 @@ private fun PresetCard(
     modifier: Modifier = Modifier,
 ) {
     val (iconBg, iconFg) = avatarColors(4)
-    BentoCard(modifier, contentPadding = 12.dp, spacing = 8.dp) {
+    // 折叠形态(用户拍板):平时收起只显当前档摘要,点开才是档位选择与滑块。
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    BentoCard(modifier, contentPadding = 12.dp, spacing = 8.dp, onClick = { expanded = !expanded }) {
         CardHeader(
             title = stringResource(R.string.settings_preset),
             icon = painterResource(R.drawable.ic_b_gauge),
             iconBg = iconBg,
             iconTint = iconFg,
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CountBadge(
+                        stringResource(preset.labelRes()),
+                        fg = MaterialTheme.colorScheme.onPrimaryContainer,
+                        bg = MaterialTheme.colorScheme.primaryContainer,
+                    )
+                    Icon(
+                        painterResource(if (expanded) R.drawable.ic_b_chevron_up else R.drawable.ic_b_chevron_down),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            },
         )
+        if (!expanded) {
+            // 收起态摘要:当前生效参数一行小字。
+            Text(
+                stringResource(R.string.limit_global) + " ${limits.maxGlobalConnections} · " +
+                    stringResource(R.string.limit_per_client) + " ${limits.maxPerClientConnections} · " +
+                    stringResource(R.string.limit_idle) + " ${limits.idleTimeoutSeconds}s",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            return@BentoCard
+        }
         // 2×2 预设 chips（选中带对勾，HTML chip.sel）。
         PerformancePreset.entries.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -727,7 +756,6 @@ private fun PresetCard(
             }
         }
         // 当前档参数小字（2×2）：任何预设都能一眼看到实际生效值。
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         val spec = listOf(
             stringResource(R.string.limit_global) to limits.maxGlobalConnections.toString(),
             stringResource(R.string.limit_per_client) to limits.maxPerClientConnections.toString(),
@@ -825,10 +853,6 @@ private fun GeneralCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OptionChipFlow(ThemeMode.entries, themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
-        HorizontalDivider(
-            Modifier.padding(top = 2.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-        )
         // 放「通用」而不是「协议与端口」：它是**显示**偏好，不是协议开关。
         // 摆在协议行旁边会让人读成「关掉 IPv6 支持」，而实际上关掉只是不显示。
         LabeledSwitchRow(

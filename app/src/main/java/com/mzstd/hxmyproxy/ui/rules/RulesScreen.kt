@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -426,7 +425,6 @@ private fun QuickRuleCard(
         RulePillInputRow(accent, onAdd)
         RuleFormatHint()
         rules.sortedForDisplay().take(2).forEach { entry ->
-            HorizontalDivider(color = ruleHairline())
             RuleEntryRow(
                 entry, accent,
                 onToggle = { onToggle(entry.value) },
@@ -434,7 +432,6 @@ private fun QuickRuleCard(
                 onEdit = { onEdit(entry) },
             )
         }
-        HorizontalDivider(color = ruleHairline())
         // 「管理全部」行：语义色文字 + 计数徽章 + 右进入尖角。
         Row(
             Modifier

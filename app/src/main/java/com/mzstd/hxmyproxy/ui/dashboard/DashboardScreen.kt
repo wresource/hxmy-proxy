@@ -35,7 +35,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -649,14 +648,12 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
             stringResource(R.string.stat_unit_devices),
         )
         if (share.signalLevel >= 0) {
-            HorizontalDivider(color = hairline)
             StatCell(Modifier.weight(1f), stringResource(R.string.stat_signal), "${share.signalDbm}", "dBm")
         }
         // 段①（客户端 → 本机）链路时延：手机当代理时，这一段最先劣化，而此前 UI 上完全看不到
         // ——监控页的「服务延迟」测的是本机→互联网（段②），所以「手机自己正常、客户端却卡死」时毫无线索。
         val ls = share.linkStats
         if (ls.samples > 0) {
-            HorizontalDivider(color = hairline)
             StatCell(
                 Modifier.weight(1f),
                 stringResource(R.string.stat_link),
@@ -674,7 +671,6 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
         // 在上面那格里完全看不出来——8-01 真机日志正是这个形状（p50 <20ms 占 34.8%，
         // 而自愈突发每 10 发只回 3~5 发）。这条链路真正的病是丢包，不是延迟。
         if (ls.lossSamples > 0) {
-            HorizontalDivider(color = hairline)
             StatCell(
                 Modifier.weight(1f),
                 stringResource(R.string.stat_loss),
@@ -687,7 +683,6 @@ private fun StatColumn(ui: MainUiState, modifier: Modifier = Modifier) {
                 },
             )
         }
-        HorizontalDivider(color = hairline)
         val total = com.mzstd.hxmyproxy.ui.formatBytes(share.totalBytes)
         StatCell(
             Modifier.weight(1f),
@@ -867,8 +862,7 @@ private fun EntryCard(ui: MainUiState) {
             val collapsedEntries = listOfNotNull(primaryEntry, pacEntry)
             val shownEntries = if (entriesExpanded) allEntries else collapsedEntries
             shownEntries.forEachIndexed { i, e ->
-                if (i > 0) HorizontalDivider(color = hairline)
-                Row(
+                if (i > 0)                Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1115,7 +1109,6 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
             }
             // 走蜂窝上网时没有局域网可共享,追加引导开个人热点。
             if (share.needsHotspotHint) {
-                HorizontalDivider(Modifier.padding(vertical = 4.dp), color = hairline)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Icon(
                         painterResource(R.drawable.ic_b_hotspot),
@@ -1133,8 +1126,7 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
         } else {
             val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
             shownIfaces.forEachIndexed { i, iface ->
-                if (i > 0) HorizontalDivider(color = hairline)
-                Row(
+                if (i > 0)                Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

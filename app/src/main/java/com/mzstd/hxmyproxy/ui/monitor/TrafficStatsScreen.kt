@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -292,8 +291,7 @@ private fun EgressCard(s: PeriodStats) {
         }
         StackedBar(s.slices, s.bytes)
         s.slices.forEachIndexed { i, slice ->
-            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-            EgressRow(slice, s.bytes)
+            if (i > 0)            EgressRow(slice, s.bytes)
         }
         Text(
             stringResource(R.string.traffic_egress_note),

@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -157,8 +156,7 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
                             )
                         } else {
                             shownUserSets.forEachIndexed { i, set ->
-                                if (i > 0) HorizontalDivider()
-                                UserRuleSetRow(set, viewModel, onEdit)
+                                if (i > 0)                                UserRuleSetRow(set, viewModel, onEdit)
                             }
                         }
                     }
@@ -511,8 +509,7 @@ private fun ExpandedCategoryCard(
             onToggleAll = { viewModel.setCategoryEnabled(cat, it) },
         )
         groups.forEachIndexed { i, group ->
-            if (i > 0) HorizontalDivider()
-            BuiltinGroupRow(group, group.id in enabledIds, overrides[group.id], viewModel, onEdit)
+            if (i > 0)            BuiltinGroupRow(group, group.id in enabledIds, overrides[group.id], viewModel, onEdit)
         }
     }
 }
