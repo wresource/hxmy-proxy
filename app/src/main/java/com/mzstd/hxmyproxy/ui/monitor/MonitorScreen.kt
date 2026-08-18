@@ -488,6 +488,16 @@ fun MonitorScreen(
             }
         }
 
+        // —— 链路质量四格(诊断段专属;设计稿):丢包/往返 p50/p95/信号。数据=段①客户端→本机探测。 ——
+        if (section == MonitorSection.HEALTH) item {
+            LinkQualityCard(ui)
+        }
+
+        // —— 实时日志预览(诊断段专属;设计稿):最近 3 条快照 + 查看全部。 ——
+        if (section == MonitorSection.HEALTH) item {
+            LogPreviewCard(onOpenLogs)
+        }
+
         // —— 客户端 / 目标域名：上下单列（各占满整行宽，域名/客户端行不再被挤窄）——
         if (section != MonitorSection.HEALTH) item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1002,6 +1012,89 @@ private fun EntryCard(
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(13.dp),
             )
+        }
+    }
+}
+
+/** 链路质量四格(诊断段):丢包 / 往返 p50 / p95 / Wi-Fi 信号。无样本显示 —。 */
+@Composable
+private fun LinkQualityCard(ui: MainUiState) {
+    val link = ui.share.linkStats
+    val hasLink = link.samples > 0
+    val hasSignal = ui.share.signalLevel >= 0
+    BentoCard(tier = CardTier.Default, contentPadding = 14.dp, spacing = 8.dp) {
+        CardHeader(
+            title = stringResource(R.string.link_quality_title),
+            icon = painterResource(R.drawable.ic_b_activity),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinkCell(stringResource(R.string.link_loss), if (hasLink) "${link.lossPct}%" else "—", Modifier.weight(1f))
+            LinkCell(stringResource(R.string.link_p50), if (hasLink) "${link.p50Ms}ms" else "—", Modifier.weight(1f))
+            LinkCell(stringResource(R.string.link_p95), if (hasLink) "${link.p95Ms}ms" else "—", Modifier.weight(1f))
+            LinkCell(stringResource(R.string.link_signal), if (hasSignal) "${ui.share.signalDbm}dBm" else "—", Modifier.weight(1f))
+        }
+        Text(
+            stringResource(R.string.link_quality_note),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun LinkCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+            maxLines = 1,
+        )
+    }
+}
+
+/** 实时日志预览(诊断段):最近 3 条(快照,进入段时加载),点卡或「查看全部」进日志详情。 */
+@Composable
+private fun LogPreviewCard(onOpenLogs: () -> Unit) {
+    val logsVm: com.mzstd.hxmyproxy.ui.LogsViewModel = hiltViewModel()
+    val entries by logsVm.entries.collectAsStateWithLifecycle()
+    BentoCard(tier = CardTier.Sunken, contentPadding = 14.dp, spacing = 6.dp, onClick = onOpenLogs) {
+        CardHeader(
+            title = stringResource(R.string.log_preview_title),
+            icon = painterResource(R.drawable.ic_b_bars),
+            trailing = {
+                Text(
+                    stringResource(R.string.monitor_view_all_domains),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            },
+        )
+        if (entries.isEmpty()) {
+            Text(
+                stringResource(R.string.monitor_no_logs),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            entries.take(3).forEach { e ->
+                Text(
+                    "${e.timestamp} ${e.level}/${e.tag}: ${e.message}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = when (e.level) {
+                        "E" -> MaterialTheme.colorScheme.error
+                        "W" -> StatusColors.warn()
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

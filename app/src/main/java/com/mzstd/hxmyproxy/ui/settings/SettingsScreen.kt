@@ -185,19 +185,21 @@ fun SettingsScreen(
         when (seg) {
             0 -> {
                 InterfacesCard(ui, viewModel)
+                Ipv6Card(s.showIpv6, viewModel)
                 ProtoPortsCard(ui, viewModel)
                 AuthCard(ui, viewModel)
             }
             1 -> {
                 EgressCard(ui, viewModel)
                 DirectEgressCard(ui, viewModel)
+                DohCard(ui, viewModel)
             }
             2 -> {
                 PrivacyCard(ui, viewModel)
                 BackupCard(viewModel)
             }
             else -> {
-                GeneralCard(s.language, s.themeMode, s.showIpv6, viewModel, Modifier.fillMaxWidth())
+                GeneralCard(s.language, s.themeMode, viewModel, Modifier.fillMaxWidth())
                 PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
                 NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
                 // 帮助 / 重看引导 双联入口卡。
@@ -367,8 +369,17 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
             portLabel = stringResource(R.string.port_pac),
             onCommitPort = viewModel::setPacPort,
         )
-        RowDivider()
-        // DoH 行：绿徽章、无端口（上游为一组 DoH 端点，见 OutboundConnector.DOH_ENDPOINTS）。
+    }
+}
+
+/**
+ * 备用 DNS(DoH) 卡——设置/出口段。从 ProtoPortsCard 拆出（工作台设计稿：DoH 是
+ * 解析失败后的**出口救济**，归出口段；混在协议端口里会被读成「又一个协议」）。
+ */
+@Composable
+private fun DohCard(ui: MainUiState, viewModel: MainViewModel) {
+    val s = ui.settings
+    BentoCard(tier = CardTier.Default, contentPadding = 12.dp, spacing = 8.dp) {
         ProtoPortRow(
             badge = { DohBadge() },
             name = stringResource(R.string.backup_dns),
@@ -830,7 +841,6 @@ private fun LimitSlider(label: String, value: Int, range: IntRange, onChange: (I
 private fun GeneralCard(
     language: AppLanguage,
     themeMode: ThemeMode,
-    showIpv6: Boolean,
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
 ) {
@@ -853,8 +863,16 @@ private fun GeneralCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OptionChipFlow(ThemeMode.entries, themeMode, { stringResource(it.labelRes()) }, viewModel::setThemeMode)
-        // 放「通用」而不是「协议与端口」：它是**显示**偏好，不是协议开关。
-        // 摆在协议行旁边会让人读成「关掉 IPv6 支持」，而实际上关掉只是不显示。
+    }
+}
+
+/**
+ * 「显示 IPv6 地址」卡——设置/入口段（工作台设计稿：它决定入口列表**列出什么**，
+ * 与准入网段同属一件事）。副标题写明只影响显示、代理本身仍双栈——防「功能被删」误读。
+ */
+@Composable
+private fun Ipv6Card(showIpv6: Boolean, viewModel: MainViewModel) {
+    BentoCard(tier = CardTier.Default, contentPadding = 12.dp, spacing = 0.dp) {
         LabeledSwitchRow(
             title = stringResource(R.string.settings_show_ipv6),
             subtitle = stringResource(R.string.settings_show_ipv6_sub),

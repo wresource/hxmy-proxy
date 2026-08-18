@@ -261,10 +261,9 @@ internal fun SummaryGrid(
             modifier = Modifier.weight(1f),
         )
         SummaryCell(
-            label = stringResource(R.string.overview_session_bytes),
-            value = formatBytes(share.totalBytes).substringBefore(' '),
-            unit = formatBytes(share.totalBytes).substringAfter(' ', ""),
-            onClick = onOpenMonitor,
+            label = stringResource(R.string.overview_egress),
+            value = egressValueText(ui),
+            onClick = onOpenConfig,
             modifier = Modifier.weight(1f),
         )
         SummaryCell(
@@ -344,4 +343,23 @@ private fun SummaryCell(
             }
         }
     }
+}
+
+/**
+ * 出口格显示值:诚实口径——显示**设置值**(自动/VPN/Wi-Fi/…),VPN 已检测到时自动档
+ * 标注 VPN(自动=跟随系统默认,系统 VPN 开着流量就走它)。app 目前没有「实际在用哪张网」
+ * 的实况字段,不编造实况。
+ */
+@Composable
+private fun egressValueText(ui: MainUiState): String {
+    val choice = ui.settings.egressChoice
+    val res = when (choice) {
+        com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.AUTO ->
+            if (ui.share.vpn.detected) R.string.egress_vpn else R.string.egress_auto
+        com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.VPN -> R.string.egress_vpn
+        com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.WIFI -> R.string.egress_wifi
+        com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.CELLULAR -> R.string.egress_cellular
+        com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.ETHERNET -> R.string.egress_ethernet
+    }
+    return stringResource(res)
 }

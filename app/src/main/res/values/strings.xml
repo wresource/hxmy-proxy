@@ -651,4 +651,12 @@
     <string name="seg_set_privacy">Privacy</string>
     <string name="seg_set_general">General</string>
     <string name="seg_rule_sets">Rule sets</string>
+    <string name="link_quality_title">Link quality</string>
+    <string name="link_loss">Loss</string>
+    <string name="link_p50">RTT p50</string>
+    <string name="link_p95">p95</string>
+    <string name="link_signal">Signal</string>
+    <string name="link_quality_note">Client-to-phone leg, online devices only.</string>
+    <string name="log_preview_title">Live log</string>
+    <string name="overview_egress">Egress</string>
 </resources>

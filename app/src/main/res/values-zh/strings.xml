@@ -647,4 +647,12 @@
     <string name="seg_set_privacy">隐私</string>
     <string name="seg_set_general">通用</string>
     <string name="seg_rule_sets">规则集</string>
+    <string name="link_quality_title">链路质量</string>
+    <string name="link_loss">丢包</string>
+    <string name="link_p50">往返 p50</string>
+    <string name="link_p95">p95</string>
+    <string name="link_signal">信号</string>
+    <string name="link_quality_note">客户端到本机这一段;只统计在线设备。</string>
+    <string name="log_preview_title">实时日志</string>
+    <string name="overview_egress">出口</string>
 </resources>
