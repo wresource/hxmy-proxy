@@ -646,4 +646,5 @@
     <string name="seg_set_out">出口</string>
     <string name="seg_set_privacy">隐私</string>
     <string name="seg_set_general">通用</string>
+    <string name="seg_rule_sets">规则集</string>
 </resources>

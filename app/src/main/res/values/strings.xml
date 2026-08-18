@@ -650,4 +650,5 @@
     <string name="seg_set_out">Egress</string>
     <string name="seg_set_privacy">Privacy</string>
     <string name="seg_set_general">General</string>
+    <string name="seg_rule_sets">Rule sets</string>
 </resources>

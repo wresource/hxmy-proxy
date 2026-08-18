@@ -39,6 +39,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.mzstd.hxmyproxy.ui.components.SegTabs
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -110,6 +113,7 @@ fun RulesScreen(
     val allowAcc = allowAccent()
     // 正在编辑的条目 + 它属于哪张表（两张表的更新方法不同）。点条目打开，值看全与改写都在弹窗里。
     var editing by remember { mutableStateOf<Pair<RuleEntry, Boolean>?>(null) }
+    var seg by rememberSaveable { mutableIntStateOf(0) }
     Column(
         // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
@@ -128,6 +132,17 @@ fun RulesScreen(
             trailing = { StatLabel(stringResource(R.string.rules_mode_line)) },
         )
 
+        // 工作台重构:三段横切(拦截/放行/规则集)。lockdown 警示三段都显示——它让直连整体失效,不该被藏。
+        SegTabs(
+            labels = listOf(
+                stringResource(R.string.rules_group_reject),
+                stringResource(R.string.rules_group_bypass),
+                stringResource(R.string.seg_rule_sets),
+            ),
+            selected = seg,
+            onSelect = { seg = it },
+        )
+
         // lockdown 红警示（条件显示）：VPN「无 VPN 时阻断」会掐死直连分流。
         if (ui.share.lockdownSuspected) {
             WarnBanner(
@@ -138,7 +153,7 @@ fun RulesScreen(
         }
 
         // ========== 拦截区（粉盾圈；命中即拒绝连接，有没有 VPN 都生效）==========
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (seg == 0) Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             ZoneHeader(
                 iconRes = R.drawable.ic_b_shield_x,
                 accent = rejectAcc,
@@ -173,7 +188,7 @@ fun RulesScreen(
         }
 
         // ========== 放行区（蓝地球圈；直连出口，绕过共享 VPN）==========
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (seg == 1) Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             ZoneHeader(
                 iconRes = R.drawable.ic_b_globe,
                 accent = allowAcc,
@@ -208,7 +223,7 @@ fun RulesScreen(
         }
 
         // ========== App 与服务规则集（灰格圈；每集一个开关，⇄ 在放行/拦截两行间移动）==========
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (seg == 2) Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             // 已启用 = 内置组开着的 + 自建集开着的（两行网格里实际生效的数量）。
             val enabledCount = RuleCatalog.appGroups.count { it.id in s.enabledRuleGroups } +
                 s.userRuleSets.count { it.enabled }
