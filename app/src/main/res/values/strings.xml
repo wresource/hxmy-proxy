@@ -661,4 +661,6 @@
     <string name="overview_egress">Egress</string>
     <string name="overview_conns">Conns</string>
     <string name="overview_uptime">Uptime</string>
+    <string name="about_version">Version</string>
+    <string name="about_source">Open source — view on GitHub</string>
 </resources>

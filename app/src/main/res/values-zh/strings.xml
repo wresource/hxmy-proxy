@@ -657,4 +657,6 @@
     <string name="overview_egress">出口</string>
     <string name="overview_conns">连接</string>
     <string name="overview_uptime">已运行</string>
+    <string name="about_version">版本</string>
+    <string name="about_source">开源项目 — 在 GitHub 查看</string>
 </resources>

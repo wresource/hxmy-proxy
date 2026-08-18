@@ -208,6 +208,7 @@ fun SettingsScreen(
                     LinkTile(R.drawable.ic_b_help, stringResource(R.string.help_open), onOpenHelp, Modifier.weight(1f))
                     LinkTile(R.drawable.ic_b_replay, stringResource(R.string.replay_onboarding), onReplayOnboarding, Modifier.weight(1f))
                 }
+                AboutCard()
             }
         }
     }
@@ -1091,6 +1092,50 @@ private fun LinkTile(icon: Int, label: String, onClick: () -> Unit, modifier: Mo
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+/** 关于卡(通用段尾):版本号 + 开源地址。版本此前全 app 无处可看,排查沟通都靠猜。 */
+@Composable
+private fun AboutCard() {
+    val context = LocalContext.current
+    BentoCard(tier = CardTier.Sunken, contentPadding = 12.dp, spacing = 4.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.about_version),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            // BuildConfig 未启用(项目关掉了 buildFeatures.buildConfig),运行时从 PackageManager 取。
+            val pkg = remember {
+                runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+            }
+            Text(
+                (pkg?.versionName ?: "?") + " (" + (pkg?.longVersionCode ?: 0) + ")",
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/wresource/hxmy-proxy"),
+                        ),
+                    )
+                }
+            },
+        ) {
+            Text(
+                stringResource(R.string.about_source),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
             )
         }
     }

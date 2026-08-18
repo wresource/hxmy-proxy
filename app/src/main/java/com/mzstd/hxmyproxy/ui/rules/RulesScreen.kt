@@ -426,7 +426,8 @@ private fun QuickRuleCard(
         }
         RulePillInputRow(accent, onAdd)
         RuleFormatHint()
-        rules.sortedForDisplay().take(2).forEach { entry ->
+        // 直列 4 条(设计稿:主页直接可管理,更多进详情)。
+        rules.sortedForDisplay().take(4).forEach { entry ->
             RuleEntryRow(
                 entry, accent,
                 onToggle = { onToggle(entry.value) },

@@ -180,7 +180,8 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable(NavTab.RUN.route) {
                         RunScreen(
                             ui, viewModel,
-                            onOpenConfig = { navController.navigate("dashboard") },
+                            // 收编:入口/出口的配置本体已在设置 tab,概览直接切过去(dashboard 详情页仅保留给深链)。
+                            onOpenConfig = { navController.switchTo(NavTab.SETTINGS) },
                             onOpenProtection = { navController.navigate("protection") },
                             onOpenHistory = { navController.navigate("history_detail") },
                             onOpenLogs = { navController.navigate("logs_detail") },
