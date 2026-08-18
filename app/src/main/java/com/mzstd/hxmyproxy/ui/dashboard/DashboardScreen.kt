@@ -78,6 +78,7 @@ import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.BannerLevel
+import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.BigStat
 import com.mzstd.hxmyproxy.ui.components.IconDisc
@@ -909,99 +910,7 @@ private fun EntryCard(ui: MainUiState) {
     // 扫码配置底部弹层：一开即完整展开(skipPartiallyExpanded,不遮内容);文字全部在上、
     // 二维码垫底;白底 QR 容器保深色下扫码可靠;文案精简 + 「点击空白处关闭」提示。
     if (showQr) {
-        val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
-        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val conf = androidx.compose.ui.platform.LocalConfiguration.current
-        val landscape = conf.screenWidthDp > conf.screenHeightDp
-        androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { showQr = false },
-            sheetState = sheetState,
-        ) {
-            if (!ui.settings.pacEnabled || setupUrl == null) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else if (landscape) {
-                // 横屏：左文右码并排——竖排在横屏高度里放不下,二维码会被底边截断(用户实测「失效」)。
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp)
-                        .padding(bottom = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                ) {
-                    Column(
-                        Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            stringResource(R.string.qr_sheet_hint),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(setupUrl, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
-                            TextButton(onClick = {
-                                clipboard.setText(AnnotatedString(setupUrl))
-                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                            }) { Text(stringResource(R.string.copy)) }
-                        }
-                        Text(
-                            stringResource(R.string.qr_dismiss_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Surface(shape = MaterialTheme.shapes.large, color = Color.White) {
-                        Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = 180) }
-                    }
-                }
-            } else {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        stringResource(R.string.qr_sheet_hint),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            setupUrl,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        TextButton(onClick = {
-                            clipboard.setText(AnnotatedString(setupUrl))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                        }) { Text(stringResource(R.string.copy)) }
-                    }
-                    Text(
-                        stringResource(R.string.qr_dismiss_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = Color.White,
-                    ) {
-                        Column(Modifier.padding(18.dp)) { QrImage(setupUrl, sizeDp = 216) }
-                    }
-                }
-            }
-        }
+        QrSheet(ui, onDismiss = { showQr = false })
     }
 }
 
@@ -1428,11 +1337,14 @@ private fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
             }
         }
     }
-    Text(
-        stringResource(R.string.egress_priority_hint),
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.egress_priority_title),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        InfoDot(stringResource(R.string.egress_priority_title), stringResource(R.string.egress_priority_hint))
+    }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -1565,4 +1477,110 @@ private fun startStopColors(running: Boolean): Pair<Color, Color> {
         dark -> cs.primary to cs.onPrimary
         else -> cs.primaryContainer to cs.onPrimaryContainer
     }
+}
+
+/**
+ * 扫码接入 bottom sheet(从旧首页抽出,概览与 dashboard 详情共用)。
+ * 依赖 PAC:二维码内容是 PAC 配置页 URL,PAC 关闭时给引导文案。
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+internal fun QrSheet(ui: MainUiState, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val primaryEntry = ui.share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.HTTP }
+        ?: ui.share.recommendedEntries.firstOrNull()
+        val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val conf = androidx.compose.ui.platform.LocalConfiguration.current
+        val landscape = conf.screenWidthDp > conf.screenHeightDp
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { onDismiss() },
+            sheetState = sheetState,
+        ) {
+            if (!ui.settings.pacEnabled || setupUrl == null) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (landscape) {
+                // 横屏：左文右码并排——竖排在横屏高度里放不下,二维码会被底边截断(用户实测「失效」)。
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                ) {
+                    Column(
+                        Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            stringResource(R.string.qr_sheet_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(setupUrl, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                            TextButton(onClick = {
+                                clipboard.setText(AnnotatedString(setupUrl))
+                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            }) { Text(stringResource(R.string.copy)) }
+                        }
+                        Text(
+                            stringResource(R.string.qr_dismiss_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Surface(shape = MaterialTheme.shapes.large, color = Color.White) {
+                        Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = 180) }
+                    }
+                }
+            } else {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        stringResource(R.string.qr_sheet_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            setupUrl,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(setupUrl))
+                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                        }) { Text(stringResource(R.string.copy)) }
+                    }
+                    Text(
+                        stringResource(R.string.qr_dismiss_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = Color.White,
+                    ) {
+                        Column(Modifier.padding(18.dp)) { QrImage(setupUrl, sizeDp = 216) }
+                    }
+                }
+            }
+        }
 }

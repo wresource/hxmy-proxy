@@ -91,6 +91,7 @@ import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardHeader
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.CountBadge
+import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.LabeledSwitchRow
 import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.ProtoBadge
@@ -432,12 +433,8 @@ private fun DohEgressPicker(
                 )
             }
         }
-        Text(
-            stringResource(R.string.doh_egress_hint),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
+        // 说明收进 ⓘ(工作台纪律:常驻解释句不占版面)。
+        InfoDot(stringResource(R.string.doh_egress_title), stringResource(R.string.doh_egress_hint))
     }
 }
 

@@ -55,6 +55,7 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MonitorViewModel
 import com.mzstd.hxmyproxy.ui.components.AvatarCircle
+import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.BigStat
 import com.mzstd.hxmyproxy.ui.components.CardGrid
@@ -462,11 +463,7 @@ fun MonitorScreen(
                     },
                 )
                 if (!ui.share.vpn.detected) {
-                    Text(
-                        stringResource(R.string.monitor_novpn_hint),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    InfoDot(stringResource(R.string.monitor_latency), stringResource(R.string.monitor_novpn_hint))
                 }
                 // 测量中保持默认顺序(逐格点亮不跳位)；测完一次性按延迟升序排(最快在前)。
                 CardGrid(

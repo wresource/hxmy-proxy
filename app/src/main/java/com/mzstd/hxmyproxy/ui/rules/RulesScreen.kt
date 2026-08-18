@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.SegTabs
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -418,10 +419,11 @@ private fun QuickRuleCard(
     // 视觉主角卡（HTML hero/flat 都落 Primary 档：浅色近白、深色 High 浮出）。
     BentoCard(tier = CardTier.Primary, contentPadding = 14.dp, spacing = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            InfoDot(title, hint)
+            Spacer(Modifier.weight(1f))
             if (trailing != null) trailing()
         }
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         RulePillInputRow(accent, onAdd)
         RuleFormatHint()
         rules.sortedForDisplay().take(2).forEach { entry ->

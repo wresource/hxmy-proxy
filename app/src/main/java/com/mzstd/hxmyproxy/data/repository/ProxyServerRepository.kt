@@ -1078,6 +1078,7 @@ class ProxyServerRepository @Inject constructor(
         _state.update { st ->
             st.copy(
                 running = running,
+                sessionStartedAtMs = if (running) sessionStartedAt else 0,
                 localNetworkPermissionGranted = perm,
                 interfaces = interfaces,
                 recommendedEntries = entries,

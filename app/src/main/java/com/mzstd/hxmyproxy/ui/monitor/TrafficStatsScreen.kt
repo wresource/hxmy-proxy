@@ -50,6 +50,7 @@ import com.mzstd.hxmyproxy.core.stats.PeriodStats
 import com.mzstd.hxmyproxy.core.stats.StatsPeriod
 import com.mzstd.hxmyproxy.core.stats.TrafficBucket
 import com.mzstd.hxmyproxy.ui.TrafficStatsViewModel
+import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.BigStat
 import com.mzstd.hxmyproxy.ui.components.CardHeader
@@ -293,11 +294,7 @@ private fun EgressCard(s: PeriodStats) {
         s.slices.forEachIndexed { i, slice ->
             if (i > 0)            EgressRow(slice, s.bytes)
         }
-        Text(
-            stringResource(R.string.traffic_egress_note),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        InfoDot(stringResource(R.string.traffic_by_egress), stringResource(R.string.traffic_egress_note))
     }
 }
 
@@ -372,12 +369,8 @@ private fun CellularCard(s: PeriodStats) {
                     maxLines = 1,
                 )
             }
-            Text(
-                stringResource(R.string.traffic_cellular_note),
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.weight(1f))
+            InfoDot(stringResource(R.string.traffic_cellular_month), stringResource(R.string.traffic_cellular_note))
         }
     }
 }

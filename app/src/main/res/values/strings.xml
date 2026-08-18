@@ -659,4 +659,6 @@
     <string name="link_quality_note">Client-to-phone leg, online devices only.</string>
     <string name="log_preview_title">Live log</string>
     <string name="overview_egress">Egress</string>
+    <string name="overview_conns">Conns</string>
+    <string name="overview_uptime">Uptime</string>
 </resources>

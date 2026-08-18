@@ -41,6 +41,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.dashboard.QrSheet
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.InfoDot
@@ -98,6 +99,8 @@ internal fun AddressCard(ui: MainUiState, viewModel: MainViewModel) {
         Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
     }
 
+    var showQr by remember { mutableStateOf(false) }
+    if (showQr) QrSheet(ui, onDismiss = { showQr = false })
     BentoCard(tier = CardTier.Primary, contentPadding = 16.dp, spacing = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatLabel(stringResource(R.string.entry_config))
@@ -106,6 +109,12 @@ internal fun AddressCard(ui: MainUiState, viewModel: MainViewModel) {
                 body = stringResource(R.string.overview_addr_info),
             )
             Spacer(Modifier.weight(1f))
+            if (share.running && entries.isNotEmpty()) {
+                AssistChip(
+                    onClick = { showQr = true },
+                    label = { Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.labelMedium) },
+                )
+            }
         }
         when {
             !share.running -> Text(
@@ -232,7 +241,46 @@ internal fun RateStatsCard(ui: MainUiState, viewModel: MainViewModel) {
                 Sparkline(hist.up, color = upColor)
             }
         }
+        // 数字四格(设计稿):今日(流量 DAO)/拦截/连接/已运行。已运行搭 rateHistory 每秒
+        // 重组的便车刷新,不另起 ticker。
+        val monitorVm: com.mzstd.hxmyproxy.ui.MonitorViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+        val traffic by monitorVm.trafficSummary.collectAsStateWithLifecycle()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniStat(stringResource(R.string.traffic_period_today), formatBytes(traffic.todayBytes), Modifier.weight(1f))
+            MiniStat(stringResource(R.string.monitor_blocked), "%,d".format(share.blockedTotal), Modifier.weight(1f))
+            MiniStat(stringResource(R.string.overview_conns), "${share.activeConnections}", Modifier.weight(1f))
+            MiniStat(stringResource(R.string.overview_uptime), uptimeText(share.sessionStartedAtMs), Modifier.weight(1f))
+        }
     }
+}
+
+@Composable
+private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 已运行时长:h:mm 或 m 分;未运行 —。 */
+private fun uptimeText(startedAtMs: Long): String {
+    if (startedAtMs <= 0) return "—"
+    val sec = (System.currentTimeMillis() - startedAtMs) / 1000
+    val h = sec / 3600; val m = (sec % 3600) / 60
+    return if (h > 0) "%d:%02d".format(h, m) else "${m}m"
 }
 
 /**

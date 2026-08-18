@@ -66,6 +66,8 @@ data class LinkStats(
  */
 data class ShareState(
     val running: Boolean = false,
+    /** 本次共享会话开始时刻(epoch ms);0=未在运行。UI 据此显示「已运行」。 */
+    val sessionStartedAtMs: Long = 0,
     val vpn: VpnState = VpnState(),
     val localNetworkPermissionGranted: Boolean = false,
     val interfaces: List<ShareInterface> = emptyList(),
