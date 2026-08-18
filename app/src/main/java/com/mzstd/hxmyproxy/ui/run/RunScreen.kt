@@ -62,6 +62,7 @@ import com.mzstd.hxmyproxy.ui.components.InfoDot
 import com.mzstd.hxmyproxy.ui.components.SegTabs
 import com.mzstd.hxmyproxy.ui.formatRate
 import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
+import com.mzstd.hxmyproxy.ui.monitor.MonitorSection
 import com.mzstd.hxmyproxy.ui.monitor.TrafficStatsScreen
 import com.mzstd.hxmyproxy.ui.theme.StatusColors
 
@@ -123,8 +124,9 @@ fun RunScreen(
         SegTabs(
             labels = listOf(
                 stringResource(R.string.seg_overview),
-                stringResource(R.string.seg_monitor),
+                stringResource(R.string.seg_devices),
                 stringResource(R.string.seg_traffic),
+                stringResource(R.string.monitor_diagnostics),
             ),
             selected = seg,
             onSelect = { seg = it },
@@ -140,8 +142,18 @@ fun RunScreen(
                 onOpenDomains = onOpenDomains,
                 onOpenTrafficStats = onOpenTrafficStats,
                 contentPadding = innerPadding,
+                section = MonitorSection.DEVICES,
             )
-            else -> TrafficStatsScreen(onBack = { seg = 0 })
+            2 -> TrafficStatsScreen(onBack = { seg = 0 }, embedded = true, contentPadding = innerPadding)
+            else -> MonitorScreen(
+                ui, viewModel,
+                onOpenHistory = onOpenHistory,
+                onOpenLogs = onOpenLogs,
+                onOpenDomains = onOpenDomains,
+                onOpenTrafficStats = onOpenTrafficStats,
+                contentPadding = innerPadding,
+                section = MonitorSection.HEALTH,
+            )
         }
     }
 }

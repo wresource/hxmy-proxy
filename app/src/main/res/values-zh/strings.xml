@@ -632,6 +632,7 @@
     <!-- 工作台重构(2026-08):3 tab + 分段 -->
     <string name="nav_run">运行</string>
     <string name="seg_overview">概览</string>
+    <string name="seg_devices">设备</string>
     <string name="seg_monitor">监控</string>
     <string name="seg_traffic">流量</string>
     <string name="done">完成</string>

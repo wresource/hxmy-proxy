@@ -75,7 +75,11 @@ import java.util.Locale
  * 不标清楚就会打架。
  */
 @Composable
-fun TrafficStatsScreen(onBack: () -> Unit) {
+fun TrafficStatsScreen(
+    onBack: () -> Unit,
+    embedded: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
     val vm: TrafficStatsViewModel = hiltViewModel()
     val period by vm.period.collectAsStateWithLifecycle()
     val stats by vm.stats.collectAsStateWithLifecycle()
@@ -98,17 +102,8 @@ fun TrafficStatsScreen(onBack: () -> Unit) {
         )
     }
 
-    DetailScaffold(
-        title = stringResource(R.string.traffic_stats_title),
-        onBack = onBack,
-        actions = {
-            if (stats?.firstDayEpoch != null) {
-                TextButton(onClick = { confirmClear = true }) {
-                    Text(stringResource(R.string.traffic_clear))
-                }
-            }
-        },
-    ) { padding ->
+    // 嵌入模式(工作台「流量」分段):无顶栏壳,清空动作移到列表末尾;独立路由仍走 DetailScaffold。
+    val body: @Composable (PaddingValues) -> Unit = { padding ->
         val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
         // 必须在 LazyColumn **之外**读 —— LazyListScope 的 lambda 不是 @Composable，
         // 在里面读 State 不会建立订阅：首帧拿到 null 之后就再也不刷新，
@@ -145,8 +140,31 @@ fun TrafficStatsScreen(onBack: () -> Unit) {
                 item { TotalCard(s) }
                 item { EgressCard(s) }
                 item { CellularCard(s) }
+                // 嵌入模式没有顶栏 action,清空入口移到列表末尾(仍有确认对话框)。
+                if (embedded && s.firstDayEpoch != null) {
+                    item {
+                        TextButton(onClick = { confirmClear = true }) {
+                            Text(stringResource(R.string.traffic_clear), color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
         }
+    }
+    if (embedded) {
+        body(contentPadding)
+    } else {
+        DetailScaffold(
+            title = stringResource(R.string.traffic_stats_title),
+            onBack = onBack,
+            actions = {
+                if (stats?.firstDayEpoch != null) {
+                    TextButton(onClick = { confirmClear = true }) {
+                        Text(stringResource(R.string.traffic_clear))
+                    }
+                }
+            },
+        ) { padding -> body(padding) }
     }
 }
 

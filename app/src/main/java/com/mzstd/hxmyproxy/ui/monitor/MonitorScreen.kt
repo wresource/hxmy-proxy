@@ -197,6 +197,9 @@ private fun GridCell(
  * 客户端|目标域名 双卡并排(RatioBar 占比) / 已拦截(绿计数+域名 chip 流) / 历史 IP|错误日志 双入口卡。
  * 行为与旧版一致：修复引导弹窗、本地网络版本说明、HostOverrideDialog、展开折叠全保留。
  */
+/** 监控内容分区(工作台分段用):ALL=整页(详情路由) · DEVICES=客户端/域名/历史 · HEALTH=诊断/延迟。 */
+enum class MonitorSection { ALL, DEVICES, HEALTH }
+
 @Composable
 fun MonitorScreen(
     ui: MainUiState,
@@ -206,6 +209,7 @@ fun MonitorScreen(
     onOpenDomains: () -> Unit,
     onOpenTrafficStats: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    section: MonitorSection = MonitorSection.ALL,
 ) {
     val vm: MonitorViewModel = hiltViewModel()
     val latency by vm.latency.collectAsStateWithLifecycle()
@@ -276,7 +280,7 @@ fun MonitorScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // —— 页头：标题 + 右侧运行状态胶囊（绿点=共享中 / 中性点=已停止）——
-        item {
+        if (section == MonitorSection.ALL) item {
             PageHeader(
                 title = stringResource(R.string.nav_monitor),
                 trailing = {
@@ -289,7 +293,8 @@ fun MonitorScreen(
         }
 
         // —— 实时速率大卡（运行时）：双列 BigStat+sparkline + 底部地址·连接·累计 strip ——
-        if (ui.share.running) {
+        // 分段模式下概览段已有速率卡，这里只在整页(详情路由)形态渲染。
+        if (section == MonitorSection.ALL && ui.share.running) {
             item {
                 BentoCard(tier = CardTier.Primary) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -352,7 +357,7 @@ fun MonitorScreen(
         }
 
         // —— 诊断：可修复异常置顶横幅（Error 级,点弹引导）+ 其余 2 列小格 ——
-        item {
+        if (section != MonitorSection.DEVICES) item {
             BentoCard(tier = CardTier.Primary) {
                 val diag = ui.share.diagnostics
                 // 本地网络权限 Android 17(SDK 37) 起才强制;更低版本显示中性「无需授权」而非绿✓,
@@ -441,7 +446,7 @@ fun MonitorScreen(
         }
 
         // —— 服务延迟（头像网格 + 刷新）——
-        item {
+        if (section != MonitorSection.DEVICES) item {
             BentoCard(tier = CardTier.Default) {
                 CardHeader(
                     title = stringResource(R.string.monitor_latency),
@@ -486,7 +491,7 @@ fun MonitorScreen(
         }
 
         // —— 客户端 / 目标域名：上下单列（各占满整行宽，域名/客户端行不再被挤窄）——
-        item {
+        if (section != MonitorSection.HEALTH) item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ClientsCard(
                     Modifier.fillMaxWidth(),
@@ -505,7 +510,7 @@ fun MonitorScreen(
         }
 
         // —— 已拦截（广告/拒绝规则命中；绿色计数 + 域名 chip 流）——
-        item {
+        if (section != MonitorSection.HEALTH) item {
             BentoCard(tier = CardTier.Primary) {
                 if (ui.share.blockedTotal <= 0L) {
                     CardHeader(
@@ -549,12 +554,13 @@ fun MonitorScreen(
 
         // —— 流量统计入口（整卡而非第三个 pill）：History/Error logs 是「去看列表」，
         //    而流量统计本身就有一个值得当场读到的数字——不点进去也已回答「今天用了多少」。——
-        item { TrafficStatsEntryCard(trafficSummary, onOpenTrafficStats) }
+        if (section == MonitorSection.ALL) item { TrafficStatsEntryCard(trafficSummary, onOpenTrafficStats) }
 
         // —— 双入口卡：历史 IP | 错误日志 ——
         // 排在流量统计**之后**：这两个是排障入口，用户找它们时是带着目的来的，
         // 而流量统计是随手一瞥的数字。夹在中间反而让「错误日志在哪」变得难找。
-        item {
+        // 设备段(DEVICES)也渲染:历史 IP 归设备,错误日志顺带可达(二合一卡不拆)。
+        if (section != MonitorSection.HEALTH) item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 EntryCard(
                     Modifier.weight(1f),
