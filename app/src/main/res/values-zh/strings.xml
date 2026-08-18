@@ -642,4 +642,8 @@
     <string name="overview_clients">客户端</string>
     <string name="overview_inbound">入口</string>
     <string name="overview_open_config">入口与出口设置</string>
+    <string name="seg_set_in">入口</string>
+    <string name="seg_set_out">出口</string>
+    <string name="seg_set_privacy">隐私</string>
+    <string name="seg_set_general">通用</string>
 </resources>

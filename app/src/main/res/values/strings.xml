@@ -646,4 +646,8 @@
     <string name="overview_clients">Clients</string>
     <string name="overview_inbound">Inbound</string>
     <string name="overview_open_config">Inbound &amp; egress settings</string>
+    <string name="seg_set_in">Inbound</string>
+    <string name="seg_set_out">Egress</string>
+    <string name="seg_set_privacy">Privacy</string>
+    <string name="seg_set_general">General</string>
 </resources>

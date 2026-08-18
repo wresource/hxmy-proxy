@@ -39,6 +39,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +83,10 @@ import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.NavTab
+import com.mzstd.hxmyproxy.ui.components.SegTabs
+import com.mzstd.hxmyproxy.ui.dashboard.DirectEgressCard
+import com.mzstd.hxmyproxy.ui.dashboard.EgressCard
+import com.mzstd.hxmyproxy.ui.dashboard.InterfacesCard
 import com.mzstd.hxmyproxy.ui.components.BannerLevel
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardHeader
@@ -146,6 +152,7 @@ fun SettingsScreen(
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val s = ui.settings
+    var seg by rememberSaveable { mutableIntStateOf(0) }
     Column(
         // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
         modifier = Modifier
@@ -164,20 +171,42 @@ fun SettingsScreen(
             trailing = { StatLabel(stringResource(R.string.settings_mode_line)) },
         )
 
-        // 卡片按理论使用频率高→低排列：核心代理配置 → 日常外观/语言 → 安全（认证/隐私）→
-        // 高级调优（性能）→ 个性化（导航栏）→ 帮助。性能/通用不再并排双列（窄卡挤字），各自全宽。
-        ProtoPortsCard(ui, viewModel)
-        GeneralCard(s.language, s.themeMode, s.showIpv6, viewModel, Modifier.fillMaxWidth())
-        AuthCard(ui, viewModel)
-        PrivacyCard(ui, viewModel)
-        PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
-        NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
-        BackupCard(viewModel)
-
-        // 帮助 / 重看引导 双联入口卡。
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            LinkTile(R.drawable.ic_b_help, stringResource(R.string.help_open), onOpenHelp, Modifier.weight(1f))
-            LinkTile(R.drawable.ic_b_replay, stringResource(R.string.replay_onboarding), onReplayOnboarding, Modifier.weight(1f))
+        // 工作台重构:设置按链路分四段——入口(准入+端口+认证)/出口(选择+优先级+直连+DoH 在
+        // 各卡内)/隐私/通用。准入与出口卡从旧 dashboard 迁入(internal 复用,单一实现)。
+        SegTabs(
+            labels = listOf(
+                stringResource(R.string.seg_set_in),
+                stringResource(R.string.seg_set_out),
+                stringResource(R.string.seg_set_privacy),
+                stringResource(R.string.seg_set_general),
+            ),
+            selected = seg,
+            onSelect = { seg = it },
+        )
+        when (seg) {
+            0 -> {
+                InterfacesCard(ui, viewModel)
+                ProtoPortsCard(ui, viewModel)
+                AuthCard(ui, viewModel)
+            }
+            1 -> {
+                EgressCard(ui, viewModel)
+                DirectEgressCard(ui, viewModel)
+            }
+            2 -> {
+                PrivacyCard(ui, viewModel)
+                BackupCard(viewModel)
+            }
+            else -> {
+                GeneralCard(s.language, s.themeMode, s.showIpv6, viewModel, Modifier.fillMaxWidth())
+                PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
+                NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
+                // 帮助 / 重看引导 双联入口卡。
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LinkTile(R.drawable.ic_b_help, stringResource(R.string.help_open), onOpenHelp, Modifier.weight(1f))
+                    LinkTile(R.drawable.ic_b_replay, stringResource(R.string.replay_onboarding), onReplayOnboarding, Modifier.weight(1f))
+                }
+            }
         }
     }
 }

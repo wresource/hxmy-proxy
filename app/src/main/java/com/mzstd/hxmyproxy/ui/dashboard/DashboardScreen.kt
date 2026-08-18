@@ -1066,7 +1066,7 @@ private fun FlowArrow(labelRes: Int) {
 
 /** 可分享入口卡：逐接口开关直嵌 + 「已选 n/m」徽章；默认 2 行、超出折叠；空态双文案。 */
 @Composable
-private fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val share = ui.share
     var interfacesExpanded by remember { mutableStateOf(false) }
     // 受「显示 IPv6」偏好过滤：默认只列 v4，v6 地址太长、抄写困难。
@@ -1206,7 +1206,7 @@ private fun IPv6HintRow(ui: MainUiState, viewModel: MainViewModel) {
 /** 出口网络卡：5 FilterChip 页内直选；离线物理网络置灰，VPN 冲突黄警示（行为原样保留）。 */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+internal fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val choice = ui.settings.egressChoice
     val st = ui.share.egressStatus
     val vpnActive = ui.share.vpn.detected
@@ -1445,7 +1445,7 @@ private fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+internal fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val choice = ui.settings.directEgressChoice
     val st = ui.share.egressStatus
     var showCellularConfirm by remember { mutableStateOf(false) }
