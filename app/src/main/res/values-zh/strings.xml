@@ -629,4 +629,16 @@
     <string name="egress_fallback_degrade">改走其他线路</string>
     <string name="egress_fallback_strict_desc">流量只从你指定的出口走，走不了就断。出口地址保持不变——会核对地址的服务不会看到你中途换网。</string>
     <string name="egress_fallback_degrade_desc">退回默认线路，保证还能用——但流量会从另一个地址出去，不再是你指定的那个。</string>
+    <!-- 工作台重构(2026-08):3 tab + 分段 -->
+    <string name="nav_run">运行</string>
+    <string name="seg_overview">概览</string>
+    <string name="seg_monitor">监控</string>
+    <string name="seg_traffic">流量</string>
+    <string name="done">完成</string>
+    <string name="overview_addr_info">别的设备填这个地址就能借这台手机上网 · 点徽标即复制 · PAC 复制的是完整 URL(只填 IP:端口对 PAC 不生效)</string>
+    <string name="overview_actual_egress">出口</string>
+    <string name="overview_session_bytes">本次</string>
+    <string name="overview_clients">客户端</string>
+    <string name="overview_inbound">入口</string>
+    <string name="overview_open_config">入口与出口设置</string>
 </resources>

@@ -633,4 +633,16 @@
     <string name="egress_fallback_degrade">Use another route</string>
     <string name="egress_fallback_strict_desc">Traffic always leaves on the exit you picked, or not at all. Keeps your outgoing address stable — services that check it won\'t see you switching networks mid-session.</string>
     <string name="egress_fallback_degrade_desc">Falls back to the default route so things keep working — but traffic then leaves on a different address than the one you picked.</string>
+    <!-- 工作台重构(2026-08):3 tab + 分段 -->
+    <string name="nav_run">Running</string>
+    <string name="seg_overview">Overview</string>
+    <string name="seg_monitor">Monitor</string>
+    <string name="seg_traffic">Traffic</string>
+    <string name="done">Done</string>
+    <string name="overview_addr_info">Others enter this address to share this phone\u2019s connection \u00b7 tap a chip to copy \u00b7 PAC copies its full URL (a bare ip:port will not work for PAC)</string>
+    <string name="overview_actual_egress">Egress</string>
+    <string name="overview_session_bytes">Session</string>
+    <string name="overview_clients">Clients</string>
+    <string name="overview_inbound">Inbound</string>
+    <string name="overview_open_config">Inbound &amp; egress settings</string>
 </resources>

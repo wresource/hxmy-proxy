@@ -65,6 +65,7 @@ import com.mzstd.hxmyproxy.ui.rules.QuickRulesDetailScreen
 import com.mzstd.hxmyproxy.ui.rules.RuleSetEditScreen
 import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
 import com.mzstd.hxmyproxy.ui.rules.RulesScreen
+import com.mzstd.hxmyproxy.ui.run.RunScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
 // 大屏断点（Material：compact < 600dp 用底栏，medium/expanded 用侧边 nav rail）。
@@ -98,7 +99,7 @@ fun AppRoot(viewModel: MainViewModel) {
     LaunchedEffect(currentRoute, ui.settings.hiddenTabs) {
         val cur = NavTab.entries.firstOrNull { it.route == currentRoute }
         if (cur != null && !cur.fixed && cur.route in ui.settings.hiddenTabs) {
-            navController.switchTo(NavTab.DASHBOARD)
+            navController.switchTo(NavTab.RUN)
         }
     }
 
@@ -121,7 +122,7 @@ fun AppRoot(viewModel: MainViewModel) {
             ) {
                 NavHost(
                     navController = navController,
-                    startDestination = NavTab.DASHBOARD.route,
+                    startDestination = NavTab.RUN.route,
                     // 单列内容上限 840dp（M3 布局指南 pane 上限）：Fold 展开/横屏(~800dp)内容全宽,
                     // 消除「视觉边界与滑动边界差很多」的两侧空带;真正的大平板才触发限宽。
                     modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
@@ -176,14 +177,28 @@ fun AppRoot(viewModel: MainViewModel) {
                         }
                     },
                 ) {
-                    composable(NavTab.DASHBOARD.route) {
-                        DashboardScreen(
+                    composable(NavTab.RUN.route) {
+                        RunScreen(
                             ui, viewModel,
-                            onOpenProtection = { navController.navigate(NavTab.PROTECTION.route) },
+                            onOpenConfig = { navController.navigate("dashboard") },
+                            onOpenProtection = { navController.navigate("protection") },
+                            onOpenHistory = { navController.navigate("history_detail") },
+                            onOpenLogs = { navController.navigate("logs_detail") },
+                            onOpenDomains = { navController.navigate("top_domains") },
+                            onOpenTrafficStats = { navController.navigate("traffic_stats") },
                             contentPadding = padding,
                         )
                     }
-                    composable(NavTab.PROTECTION.route) {
+                    // 旧 5-tab 时代的顶层页,工作台重构后降级为详情页(入口与出口设置 / 防护)。
+                    // 保留注册:概览四格与 restoreState/深层链接都可能落到这里。
+                    composable("dashboard") {
+                        DashboardScreen(
+                            ui, viewModel,
+                            onOpenProtection = { navController.navigate("protection") },
+                            contentPadding = padding,
+                        )
+                    }
+                    composable("protection") {
                         ProtectionScreen(
                             ui, viewModel,
                             onOpenBlockedDetail = { navController.navigate("blocked_detail") },
@@ -209,7 +224,7 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable("quick_rules_direct") {
                         QuickRulesDetailScreen(reject = false, ui = ui, viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
-                    composable(NavTab.MONITOR.route) {
+                    composable("monitor") {
                         MonitorScreen(
                             ui,
                             viewModel,
@@ -300,7 +315,7 @@ private fun NavController.currentRoute(): String? =
 private fun NavController.switchTo(dest: NavTab) = navigate(dest.route) {
     launchSingleTop = true
     restoreState = true
-    popUpTo(NavTab.DASHBOARD.route) { saveState = true }
+    popUpTo(NavTab.RUN.route) { saveState = true }
 }
 
 @Composable
