@@ -31,7 +31,7 @@ class MainUiTest {
      *
      * 首屏内容取决于 onboarding 标志，它要从 DataStore 经 Flow 回到 composition；在这之前
      * `when(showOnboarding)` 的 null 分支**什么都不画**，导航栏并不存在。不等就断言，
-     * 拿到的是「还没画」的那一帧 —— 报错是 "nav_dashboard is not displayed"，
+     * 拿到的是「还没画」的那一帧 —— 报错是 "nav_run is not displayed"，
      * 与「导航栏真的坏了」完全同形，会把人往错的方向带。
      */
     @Before
@@ -42,13 +42,13 @@ class MainUiTest {
             // 在这之前 `when(showOnboarding)` 的 null 分支什么都不画，此时断言只会拿到空树，
             // 报错文本与「导航栏真的坏了」完全同形。
             rule.waitUntil(timeoutMillis = 15_000) {
-                rule.onAllNodesWithTag("nav_dashboard").fetchSemanticsNodes().isNotEmpty() ||
+                rule.onAllNodesWithTag("nav_run").fetchSemanticsNodes().isNotEmpty() ||
                     rule.onAllNodesWithTag("onboarding_skip").fetchSemanticsNodes().isNotEmpty()
             }
             if (rule.onAllNodesWithTag("onboarding_skip").fetchSemanticsNodes().isNotEmpty()) {
                 rule.onNodeWithTag("onboarding_skip").performClick()
                 rule.waitUntil(timeoutMillis = 15_000) {
-                    rule.onAllNodesWithTag("nav_dashboard").fetchSemanticsNodes().isNotEmpty()
+                    rule.onAllNodesWithTag("nav_run").fetchSemanticsNodes().isNotEmpty()
                 }
             }
         } catch (e: Throwable) {
@@ -61,8 +61,7 @@ class MainUiTest {
 
     @Test
     fun bottomNavTabsShown() {
-        rule.onNodeWithTag("nav_dashboard").assertIsDisplayed()
-        rule.onNodeWithTag("nav_monitor").assertIsDisplayed()
+        rule.onNodeWithTag("nav_run").assertIsDisplayed()
         rule.onNodeWithTag("nav_rules").assertIsDisplayed()
         rule.onNodeWithTag("nav_settings").assertIsDisplayed()
     }
@@ -73,7 +72,7 @@ class MainUiTest {
         rule.onNodeWithTag("nav_settings").performClick()
         rule.onNodeWithText("中文").assertIsDisplayed()
         // 回主页 → "中文" 不再存在
-        rule.onNodeWithTag("nav_dashboard").performClick()
+        rule.onNodeWithTag("nav_run").performClick()
         rule.onNodeWithText("中文").assertDoesNotExist()
     }
 
