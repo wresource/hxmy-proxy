@@ -72,3 +72,19 @@ Latest release: **1.24.10**.
 
 - Full overview, architecture and version history: **[简体中文 README](README.zh-CN.md)**
 - Technical deep-dives: [`version-md/`](./version-md/)
+
+## License
+
+Copyright (C) 2026 wresource
+
+hxmy proxy is free software: you can redistribute it and/or modify it under the terms of the
+**GNU Affero General Public License v3.0** as published by the Free Software Foundation. See
+[`LICENSE`](./LICENSE) for the full text.
+
+In short: you may use, study, modify and redistribute this software, but **any derivative work
+you distribute — or run as a network service — must also be released under the AGPL-3.0 with
+its complete source code**. This keeps every fork of a privacy tool auditable by the people
+who run it.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

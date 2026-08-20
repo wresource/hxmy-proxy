@@ -205,3 +205,16 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 技术子文档均在 [`version-md/`](./version-md/)：设计入口 `v1-design.md` · 代理核心 `v1-proxy-core.md` ·
 PAC/共享 `v1-pac-and-sharing.md` · 网络准入 `v1-network-and-admission.md` · 服务权限 `v1-service-permissions-compat.md` ·
 架构/UI `v1-architecture-ui-state.md` · 路线 `roadmap.md`。
+
+## 8. 许可证
+
+Copyright (C) 2026 wresource
+
+hxmy proxy 是自由软件，依据 **GNU Affero 通用公共许可证第 3 版（AGPL-3.0）** 发布，
+全文见 [`LICENSE`](./LICENSE)。
+
+简单说：你可以自由使用、研究、修改和再分发本软件，但**任何被你分发的衍生作品——
+或以网络服务形式提供给他人使用的版本——同样必须以 AGPL-3.0 公开其完整源码**。
+这条约束的目的是：一个隐私工具的每一个分支，都应当能被使用它的人审计。
+
+本程序按「现状」分发，不附带任何担保；亦无对适销性或特定用途适用性的默示担保。
