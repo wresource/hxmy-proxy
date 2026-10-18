@@ -6,31 +6,27 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import com.mzstd.hxmyproxy.ui.components.AppDropdownMenu as DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,131 +39,151 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
-import com.mzstd.hxmyproxy.core.model.ProxyProtocol
+import com.mzstd.hxmyproxy.data.repository.ManualResetPhase
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
-import com.mzstd.hxmyproxy.data.repository.ManualResetPhase
-import com.mzstd.hxmyproxy.ui.components.InfoDot
+import com.mzstd.hxmyproxy.ui.components.DomainRuleEditor
 import com.mzstd.hxmyproxy.ui.components.SegTabs
-import com.mzstd.hxmyproxy.ui.formatRate
-import com.mzstd.hxmyproxy.ui.monitor.MonitorScreen
-import com.mzstd.hxmyproxy.ui.monitor.MonitorSection
+import com.mzstd.hxmyproxy.ui.components.WorkbenchFold
+import com.mzstd.hxmyproxy.ui.components.WorkbenchHeader
+import com.mzstd.hxmyproxy.ui.components.WorkbenchRow
+import com.mzstd.hxmyproxy.ui.monitor.ActivityQuery
+import com.mzstd.hxmyproxy.ui.monitor.ActivityScreen
+import com.mzstd.hxmyproxy.ui.monitor.DomainActivityDialog
+import com.mzstd.hxmyproxy.ui.monitor.DomainSort
+import com.mzstd.hxmyproxy.ui.monitor.DomainTrafficRow
 import com.mzstd.hxmyproxy.ui.monitor.TrafficStatsScreen
-import com.mzstd.hxmyproxy.ui.theme.StatusColors
+import com.mzstd.hxmyproxy.ui.monitor.domainActivities
 
-/**
- * 「运行」tab（工作台重构 2026-08，规格=google-play/prototypes/ 的定稿设计）：
- * 常驻状态条（点 + RUN/STOP + 实时速率 + 刷新 + 启停开关）+ 分段（概览/监控/流量）。
- *
- * 分段策略（过渡期）：概览=本文件新实现；监控=原 MonitorScreen 整页（设备+诊断，
- * 下一批拆成两段）；流量=原 TrafficStatsScreen。旧 dashboard 路由保留为
- * 「入口与出口设置」详情页，概览四格的入口/出口格点进去——功能零丢失。
- */
 @Composable
-fun RunScreen(
-    ui: MainUiState,
-    viewModel: MainViewModel,
-    onOpenConfig: () -> Unit,
-    onOpenProtection: () -> Unit,
-    onOpenHistory: () -> Unit,
-    onOpenLogs: () -> Unit,
-    onOpenDomains: () -> Unit,
-    onOpenTrafficStats: () -> Unit,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
+fun RunScreen(ui: MainUiState, viewModel: MainViewModel, onOpenConfig: () -> Unit,
+    onOpenProtection: () -> Unit, onOpenHistory: () -> Unit, onOpenLogs: () -> Unit,
+    onOpenDomains: () -> Unit, onOpenTrafficStats: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(), onOpenAddresses: () -> Unit = {},
+    onOpenClients: () -> Unit = {}, onSettings: (String) -> Unit = {},
+    onRelatedLogs: (String) -> Unit = {}, onChanges: () -> Unit = {}, onHealthDetail: (String) -> Unit = {},
 ) {
     var seg by rememberSaveable { mutableIntStateOf(0) }
-    val ld = LocalLayoutDirection.current
+    var menu by remember { mutableStateOf(false) }
+    var stopConfirm by rememberSaveable { mutableStateOf(false) }
+    var editor by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedDomain by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
-    // 与旧 DashboardScreen 相同的 pending-result 防重投(详见那边的注释)。
+    val snapshot by viewModel.activitySnapshot.collectAsStateWithLifecycle()
+    val version by viewModel.ruleVersion.collectAsStateWithLifecycle()
+    val recent = remember(snapshot) { domainActivities(snapshot, ActivityQuery(sort = DomainSort.RECENT)) }
+    // Retain the pending-result guard: a permission result must not start a new sharing session twice.
     var startRequested by remember { mutableStateOf(false) }
-    val permLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        if (startRequested) {
-            startRequested = false
-            ProxyForegroundService.start(context)
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (startRequested) { startRequested = false; ProxyForegroundService.start(context) }
+    }
+    val start: () -> Unit = {
+        if (!startRequested && !ui.share.starting) {
+            val requested = buildList {
+                if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
+            }
+            if (requested.isEmpty()) ProxyForegroundService.start(context)
+            else { startRequested = true; permissions.launch(requested.toTypedArray()) }
         }
     }
-    val onStart = {
-        val perms = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-            if (Build.VERSION.SDK_INT >= 37) add("android.permission.ACCESS_LOCAL_NETWORK")
+    RefreshFeedback(viewModel)
+    Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
+        WorkbenchHeader("hxmy proxy", brand = true) {
+            val sharingAction = stringResource(if (ui.share.starting) R.string.cancel else if (ui.share.running) R.string.stop_sharing else R.string.start_sharing)
+            val sharingState = stringResource(if (ui.share.starting) R.string.notif_starting else if (ui.share.running) R.string.status_running else R.string.status_stopped)
+            Switch(checked = ui.share.running || ui.share.starting, onCheckedChange = {
+                when { ui.share.starting -> ProxyForegroundService.stop(context); ui.share.running -> stopConfirm = true; else -> start() }
+            }, modifier = Modifier.testTag("sharing_primary_action").semantics {
+                contentDescription = sharingAction
+                stateDescription = sharingState
+            })
+            Box {
+                IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_ui_more), stringResource(R.string.ui_more_actions)) }
+                DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                    listOf(R.string.refresh_service to { viewModel.manualReset() }, R.string.ui_all_addresses to onOpenAddresses,
+                        R.string.monitor_open_history to onOpenHistory, R.string.error_logs to onOpenLogs,
+                        R.string.ui_rule_changes to onChanges, R.string.nav_settings to onOpenConfig).forEach { (label, action) ->
+                        DropdownMenuItem(text = { Text(stringResource(label)) }, enabled = label != R.string.refresh_service || ui.share.running, onClick = { menu = false; action() })
+                    }
+                }
+            }
         }
-        if (perms.isEmpty()) {
-            ProxyForegroundService.start(context)
-        } else {
-            startRequested = true
-            permLauncher.launch(perms.toTypedArray())
-        }
-    }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(
-                start = contentPadding.calculateStartPadding(ld),
-                end = contentPadding.calculateEndPadding(ld),
-                top = contentPadding.calculateTopPadding(),
-            ),
-    ) {
-        StatusStrip(ui, viewModel, onStart)
-        SegTabs(
-            labels = listOf(
-                stringResource(R.string.seg_overview),
-                stringResource(R.string.seg_devices),
-                stringResource(R.string.seg_traffic),
-                stringResource(R.string.monitor_diagnostics),
-            ),
-            selected = seg,
-            onSelect = { seg = it },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        SegTabs(listOf(stringResource(R.string.seg_overview), stringResource(R.string.ui_activity), stringResource(R.string.seg_traffic), stringResource(R.string.ui_health)),
+            seg, { seg = it }, Modifier.padding(horizontal = 16.dp))
         val innerPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding())
         when (seg) {
-            0 -> OverviewSegment(ui, viewModel, onStart, onOpenConfig, onOpenProtection, { seg = 1 }, innerPadding)
-            1 -> MonitorScreen(
-                ui, viewModel,
-                onOpenHistory = onOpenHistory,
-                onOpenLogs = onOpenLogs,
-                onOpenDomains = onOpenDomains,
-                onOpenTrafficStats = onOpenTrafficStats,
-                contentPadding = innerPadding,
-                section = MonitorSection.DEVICES,
-            )
-            2 -> TrafficStatsScreen(onBack = { seg = 0 }, embedded = true, contentPadding = innerPadding)
-            else -> MonitorScreen(
-                ui, viewModel,
-                onOpenHistory = onOpenHistory,
-                onOpenLogs = onOpenLogs,
-                onOpenDomains = onOpenDomains,
-                onOpenTrafficStats = onOpenTrafficStats,
-                contentPadding = innerPadding,
-                section = MonitorSection.HEALTH,
-            )
+            0 -> BoxWithConstraints(Modifier.weight(1f)) {
+                val wide = maxWidth >= 720.dp
+                @Composable fun connection() {
+                    Text(stringResource(if (ui.share.starting) R.string.notif_starting else if (ui.share.running) R.string.status_running else R.string.status_stopped),
+                        Modifier.testTag("sharing_status"), style = MaterialTheme.typography.titleLarge)
+                    WarnBanners(ui)
+                    AddressCard(ui, viewModel, onOpenAddresses, onSettings, start)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { seg = 1 }, modifier = Modifier.weight(1f)) { Icon(painterResource(R.drawable.ic_b_search), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_activity), Modifier.padding(start = 8.dp)) }
+                        FilledTonalButton(onClick = { editor = "" }, modifier = Modifier.weight(1f).testTag("home_add_rule")) { Icon(painterResource(R.drawable.ic_b_plus), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_add_rule), Modifier.padding(start = 8.dp)) }
+                    }
+                }
+                @Composable fun details() {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.ui_recent_activity), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { seg = 1 }) { Text(stringResource(R.string.ui_activity)) }
+                    }
+                    if (recent.isEmpty()) Text(stringResource(R.string.monitor_no_domains), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val max = recent.maxOfOrNull { it.bytes ?: 0 }?.coerceAtLeast(1) ?: 1
+                    recent.take(if (wide) 2 else 1).forEach { row -> DomainTrafficRow(row, max, version.let { viewModel.decideHost(row.host) }) { selectedDomain = row.key } }
+                    WorkbenchFold(stringResource(R.string.ui_runtime_details), "runtime") {
+                        RateStatsCard(ui, viewModel)
+                        SummaryGrid(ui, onOpenConfig, onOpenProtection) { seg = 1 }
+                        WorkbenchRow(stringResource(R.string.settings_proto_ports), onClick = { onSettings("ports") })
+                        WorkbenchRow(stringResource(R.string.ui_all_devices), onClick = onOpenClients)
+                    }
+                }
+                if (wide) Row(Modifier.fillMaxSize().padding(bottom = innerPadding.calculateBottomPadding()), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { connection() }
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { details() }
+                } else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+                    .padding(top = 12.dp, bottom = innerPadding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { connection(); details() }
+            }
+            1 -> Box(Modifier.weight(1f)) { ActivityScreen(ui, viewModel, onOpenDomains, onOpenClients, onRelatedLogs, onSettings, onChanges, innerPadding) }
+            2 -> Box(Modifier.weight(1f)) { TrafficStatsScreen(onBack = { seg = 0 }, embedded = true, contentPadding = innerPadding) }
+            else -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+                .padding(top = 12.dp, bottom = innerPadding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                WorkbenchRow(stringResource(R.string.ui_connection_checks), icon = R.drawable.ic_b_shield_check, onClick = { onHealthDetail("checks") })
+                WorkbenchRow(stringResource(R.string.monitor_latency), icon = R.drawable.ic_b_timer, onClick = { onHealthDetail("latency") })
+                WorkbenchRow(stringResource(R.string.ui_link_quality), icon = R.drawable.ic_b_activity, onClick = { onHealthDetail("link") })
+                WorkbenchRow(stringResource(R.string.error_logs), icon = R.drawable.ic_b_doc, onClick = onOpenLogs)
+                WorkbenchRow(stringResource(R.string.ui_protection), icon = R.drawable.ic_b_shield, onClick = onOpenProtection)
+                TextButton(onClick = viewModel::manualReset, enabled = ui.share.running, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.refresh_service)) }
+            }
         }
+    }
+    if (stopConfirm) AlertDialog(onDismissRequest = { stopConfirm = false }, title = { Text(stringResource(R.string.ui_stop_title)) },
+        text = { Text(stringResource(R.string.ui_stop_body)) },
+        confirmButton = { TextButton(onClick = { stopConfirm = false; ProxyForegroundService.stop(context) }, modifier = Modifier.testTag("confirm_stop_sharing")) { Text(stringResource(R.string.stop_sharing)) } },
+        dismissButton = { TextButton(onClick = { stopConfirm = false }) { Text(stringResource(R.string.cancel)) } })
+    editor?.let { DomainRuleEditor(viewModel, it, onDismiss = { editor = null }, onSaved = { seg = 1 }) }
+    recent.firstOrNull { it.key == selectedDomain }?.let { row ->
+        DomainActivityDialog(row, snapshot.paused, ui, viewModel, { selectedDomain = null },
+            { selectedDomain = null; editor = row.host }, onRelatedLogs, onSettings)
     }
 }
 
-/**
- * 常驻状态条：任何分段下都看得见运行态与速率。
- * 启停开关走与旧 hero 圆钮完全相同的权限流程（POST_NOTIFICATIONS / ACCESS_LOCAL_NETWORK）。
- */
 @Composable
-private fun StatusStrip(ui: MainUiState, viewModel: MainViewModel, onStart: () -> Unit) {
+private fun RefreshFeedback(viewModel: MainViewModel) {
     val context = LocalContext.current
-    val share = ui.share
-    val running = share.running
-
     // 手动刷新的结果呈现（与旧 Dashboard 同一套；服务刷新是排障第一步）。
     val resetPhase by viewModel.manualResetState.collectAsStateWithLifecycle()
     LaunchedEffect(resetPhase) {
@@ -202,106 +218,4 @@ private fun StatusStrip(ui: MainUiState, viewModel: MainViewModel, onStart: () -
         )
     }
 
-    val cs = MaterialTheme.colorScheme
-    val dotColor = if (running) StatusColors.runningDot() else StatusColors.stoppedDot()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .height(48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(Modifier.size(9.dp).background(dotColor, CircleShape))
-        Text(
-            if (running) "RUN" else "STOP",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = cs.onSurface,
-        )
-        Text(
-            if (running) {
-                "↓${formatRate(share.downloadRateBps)} ↑${formatRate(share.uploadRateBps)}"
-            } else {
-                "—"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = cs.onSurfaceVariant,
-            maxLines = 1,
-        )
-        Spacer(Modifier.weight(1f))
-        if (running) {
-            IconButton(onClick = { viewModel.manualReset() }, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    painterResource(R.drawable.ic_b_refresh),
-                    contentDescription = stringResource(R.string.refresh_service),
-                    tint = cs.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        Switch(
-            checked = running,
-            onCheckedChange = { want ->
-                if (want) onStart() else ProxyForegroundService.stop(context)
-            },
-        )
-    }
-}
-
-/** 概览段：地址卡 → 速率+四格 → 四格摘要 → 启停大按钮（设计稿 Main 屏）。 */
-@Composable
-private fun OverviewSegment(
-    ui: MainUiState,
-    viewModel: MainViewModel,
-    onStart: () -> Unit,
-    onOpenConfig: () -> Unit,
-    onOpenProtection: () -> Unit,
-    onOpenMonitor: () -> Unit,
-    contentPadding: PaddingValues,
-) {
-    val context = LocalContext.current
-    val share = ui.share
-    val running = share.running
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        WarnBanners(ui)
-        AddressCard(ui, viewModel)
-        RateStatsCard(ui, viewModel)
-        SummaryGrid(ui, onOpenConfig, onOpenProtection, onOpenMonitor)
-        // 启停大按钮：与状态条开关同一套动作；停止态是页面的首要行动点。
-        StartStopBar(running) {
-            if (running) ProxyForegroundService.stop(context) else Unit
-        }
-        Spacer(Modifier.height(4.dp))
-    }
-}
-
-@Composable
-private fun StartStopBar(running: Boolean, onStart: () -> Unit) {
-    val context = LocalContext.current
-    val cs = MaterialTheme.colorScheme
-    if (running) {
-        Button(
-            onClick = { ProxyForegroundService.stop(context) },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = cs.errorContainer,
-                contentColor = cs.onErrorContainer,
-            ),
-        ) { Text(stringResource(R.string.stop_sharing), fontWeight = FontWeight.SemiBold) }
-    } else {
-        Button(
-            onClick = onStart,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = CircleShape,
-        ) { Text(stringResource(R.string.start_sharing), fontWeight = FontWeight.SemiBold) }
-    }
 }

@@ -1,4 +1,8 @@
 <resources>
+    <string name="rule_input_invalid">请输入一个有效域名、网址、IP 或 CIDR；请去掉空格、隐藏字符和不支持的前缀。</string>
+    <string name="rule_input_preview">将保存为：%1$s</string>
+    <string name="rule_needs_edit">需修正</string>
+    <string name="direct_egress_missing">所选直连出口（%1$s）当前不可用，直连规则暂时无法访问。请检查「设置→出口」；删除规则可能让该域名改走代理。</string>
     <string name="app_name">hxmy proxy</string>
 
     <!-- 导航 -->
@@ -107,7 +111,7 @@
     <string name="rules_add_domain">域名（如 example.com）</string>
     <string name="rules_add_from_history">添加移除过的</string>
     <string name="rules_history_empty">还没有移除过的域名</string>
-    <string name="rules_user_direct_hint">走手机真实网络直连出口，监控中仍显示并标注「直连」</string>
+    <string name="rules_user_direct_hint">走手机真实网络直连出口，访问列表中仍显示并标注「直连」</string>
     <string name="route_direct">直连</string>
     <string name="rules_app_sets_hint">点 − 停用 · 点 ⇄ 换行</string>
     <string name="cat_social">社交与通讯</string>
@@ -185,10 +189,10 @@
     <string name="rule_active">生效</string>
     <string name="rule_disabled">停用</string>
     <string name="monitor_view_all_domains">查看全部</string>
-    <string name="top_domain_rule_hint">写入你的规则(拦截 / 直连列表):</string>
-    <string name="top_domain_direct">直连(放行)</string>
+    <string name="top_domain_rule_hint">直连和拦截会写入规则页的对应列表。恢复默认后，父域或内置规则仍可能生效。</string>
+    <string name="top_domain_direct">直连（绕过 VPN）</string>
     <string name="top_domain_reject">拦截</string>
-    <string name="top_domain_clear">清除规则</string>
+    <string name="top_domain_clear">恢复默认</string>
     <string name="route_reject">拦截</string>
     <string name="settings_backup">设置备份</string>
     <string name="settings_backup_sub">导出配置,换机或重装后可一键恢复。不含代理密码。</string>
@@ -202,7 +206,7 @@
     <!-- 建议是**物理层**的：这一段是空口质量，软件层修不了（见 LinkLossBanner 的说明） -->
     <string name="link_loss_banner">到在线设备的探测有 %1$d%% 丢失。让设备直连这台手机的热点（而不是共用 Wi-Fi），或把手机挪近路由器。已休眠的设备不计入这个数。</string>
     <string name="settings_log_enabled">诊断日志</string>
-    <string name="settings_log_enabled_sub">在本机记录运行事件(约 10MB,不上传),供「监控 → 错误日志」查看与排障</string>
+    <string name="settings_log_enabled_sub">在本机记录运行事件(约 10MB,不上传),供「运行 → 诊断 → 错误日志」查看与排障</string>
     <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>
@@ -303,7 +307,7 @@
     <string name="qr_dismiss_hint">点击空白处关闭</string>
     <string name="localnet_versions_body">各版本的区别：\n· Android 15 及以下——没有这项权限，应用可直接访问局域网；\n· Android 16（当前系统）——本地网络保护为可选测试特性，普通应用不受限，因此无需授权；\n· Android 17 起——强制运行时权限，必须授权才能接受局域网设备连接，届时此项会显示授权状态并可点击开启。</string>
     <string name="help_f_title">避免共享间断</string>
-    <string name="help_f_body">长时间共享要防系统「杀后台」：① 电池优化设为「无限制」（设置 → 应用 → hxmy proxy → 电池；或直接在监控页诊断里点「电池优化」一键开启）。② 别划掉常驻通知——部分系统划掉通知会连带终止服务。③ 小米/华为等系统还需在「自启动 / 后台管理」里允许本应用。④ 系统「省电模式 / 极致省电」会冻结后台，共享期间建议关闭。⑤ 开着「流量节省程序」时，后台数据可能受限。做完 ①② 后，监控页诊断应显示「电池优化：无限制」「通知权限：正常」。</string>
+    <string name="help_f_body">长时间共享要防系统「杀后台」：① 电池优化设为「无限制」（设置 → 应用 → hxmy proxy → 电池；或直接在「运行 → 诊断 → 检查与权限」里点「电池优化」一键开启）。② 别划掉常驻通知——部分系统划掉通知会连带终止服务。③ 小米/华为等系统还需在「自启动 / 后台管理」里允许本应用。④ 系统「省电模式 / 极致省电」会冻结后台，共享期间建议关闭。⑤ 开着「流量节省程序」时，后台数据可能受限。做完 ①② 后，检查与权限应显示「电池优化：无限制」「通知权限：正常」。</string>
     <string name="pac_needs_backend">PAC 已开启但 HTTP 和 SOCKS 都关了，只会直连、不代理。请至少开启 HTTP 或 SOCKS。</string>
     <string name="qr_http_only">此扫码/配置仅用于 HTTP 代理；SOCKS5、PAC 请在入口卡复制地址手动配置。</string>
     <string name="start_to_show_entries">开始共享后，这里会显示代理地址。</string>
@@ -338,10 +342,10 @@
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
-    <string name="ipv6_hidden_hint">另有 %1$d 个 IPv6 地址,点击显示</string>
+    <string name="ipv6_hidden_hint">显示 IPv6 地址（%1$d）</string>
     <string name="ipv6_collapse">收起 IPv6 地址</string>
     <string name="settings_show_ipv6">显示 IPv6 地址</string>
-    <string name="settings_show_ipv6_sub">默认关闭——IPv6 地址长、不好记也不好抄。开关只影响列出什么，IPv6 客户端两种情况下都能正常连入。</string>
+    <string name="settings_show_ipv6_sub">仅影响显示，不关闭 IPv6 接入。</string>
     <string name="lang_english">English</string>
     <string name="lang_chinese">中文</string>
     <string name="settings_preset">性能预设</string>
@@ -409,6 +413,7 @@
     <!-- 通知 -->
     <string name="notif_channel">代理服务</string>
     <string name="notif_starting">正在启动…</string>
+    <string name="startup_failed">共享未能启动。请查看诊断日志后重试，已保存的规则仍保留。</string>
     <string name="notif_running">%1$s · %2$d 连接 · ↓%3$s ↑%4$s</string>
     <string name="notif_running_no_entry">运行中——未选择入口</string>
     <string name="notif_stopped">已停止</string>
@@ -628,7 +633,7 @@
     <string name="egress_fallback_strict">断开</string>
     <string name="egress_fallback_degrade">改走其他线路</string>
     <string name="egress_fallback_strict_desc">流量只从你指定的出口走，走不了就断。出口地址保持不变——会核对地址的服务不会看到你中途换网。</string>
-    <string name="egress_fallback_degrade_desc">退回默认线路，保证还能用——但流量会从另一个地址出去，不再是你指定的那个。</string>
+    <string name="egress_fallback_degrade_desc">按你设置的优先级尝试其他可用物理网络；流量可能从另一个地址出去，不再是你指定的那个。</string>
     <!-- 工作台重构(2026-08):3 tab + 分段 -->
     <string name="nav_run">运行</string>
     <string name="seg_overview">概览</string>
@@ -659,4 +664,13 @@
     <string name="overview_uptime">已运行</string>
     <string name="about_version">版本</string>
     <string name="about_source">开源项目 — 在 GitHub 查看</string>
+    <string name="ruleset_invalid_lines">第 %1$s 行规则无效，请修正后保存。</string>
+    <string name="rule_source_current">规则来源：%1$s</string>
+    <string name="rule_source_override">手动覆盖（优先于列表）</string>
+    <string name="rule_source_allow">你的直连列表</string>
+    <string name="rule_source_block">你的拦截列表</string>
+    <string name="rule_source_ads">内置广告拦截</string>
+    <string name="rule_source_builtin">内置规则</string>
+    <string name="rule_source_default">默认代理出口</string>
+    <string name="top_domain_proxy">使用代理出口</string>
 </resources>

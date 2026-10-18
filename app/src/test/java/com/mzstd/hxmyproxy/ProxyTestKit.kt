@@ -20,6 +20,9 @@ import kotlin.concurrent.thread
  * mock 掉 socket 等于把要守护的语义一起 mock 掉。
  */
 internal object ProxyTestKit {
+    // Darwin的双栈通配临时端口可能与IPv4专用监听重叠。明确绑定客户端实际访问的地址，
+    // 避免请求误入开发机其它本地服务；不关闭IPv6测试，也不改变Android生产默认绑定。
+    val loopback: InetAddress = InetAddress.getByName("127.0.0.1")
 
     /** 等待 server 绑定端口。超时直接失败，比后续读超时 8s 更容易定位是「没起来」。 */
     fun awaitPort(server: ProxyServer): Int {

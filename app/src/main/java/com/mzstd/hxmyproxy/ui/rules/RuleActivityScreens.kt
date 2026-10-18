@@ -1,0 +1,111 @@
+package com.mzstd.hxmyproxy.ui.rules
+
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mzstd.hxmyproxy.R
+import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.RuleScope
+import com.mzstd.hxmyproxy.ui.MainUiState
+import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.components.DetailScaffold
+import com.mzstd.hxmyproxy.ui.components.DomainRuleEditor
+import com.mzstd.hxmyproxy.ui.components.WorkbenchRow
+import com.mzstd.hxmyproxy.ui.monitor.actionLabel
+import com.mzstd.hxmyproxy.ui.monitor.activityTime
+
+@Composable
+fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActivity: (String) -> Unit, onOverrides: () -> Unit) {
+    val changes by viewModel.recentRuleChanges.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    DetailScaffold(stringResource(R.string.ui_rule_changes), onBack) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text(stringResource(R.string.ui_rule_changes_hint), style = MaterialTheme.typography.bodySmall) }
+            if (changes.isEmpty()) item { Text(stringResource(R.string.ui_no_rule_changes)) }
+            items(changes.reversed(), key = { it.id }) { change ->
+                Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(change.rule, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
+                        Text("${activityTime(change.at)} · ${stringResource(if (change.reverted) R.string.ui_reverted else change.action?.let(::actionLabel) ?: R.string.top_domain_clear)}")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { onActivity(change.host) }) { Text(stringResource(R.string.ui_view_traffic)) }
+                        if (!change.reverted) TextButton(modifier = Modifier.testTag("revert_rule_${change.id}"), onClick = {
+                            viewModel.revertDomainChange(change.id) { result ->
+                                Toast.makeText(context, if (result.getOrNull() == true) R.string.ui_reverted else R.string.ui_revert_conflict, Toast.LENGTH_LONG).show()
+                            }
+                        }) { Text(stringResource(R.string.ui_revert_rule)) }
+                        }
+                    }
+                }
+            }
+            item { WorkbenchRow(stringResource(R.string.ui_manual_overrides), onClick = onOverrides) }
+        }
+    }
+}
+
+@Composable
+fun ManualOverridesScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -> Unit, onChanges: () -> Unit) {
+    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    var removing by rememberSaveable { mutableStateOf<String?>(null) }
+    DetailScaffold(stringResource(R.string.ui_manual_overrides), onBack) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Button(onClick = { editing = "" }) { Text(stringResource(R.string.ui_add_rule)) }
+                TextButton(onClick = onChanges) { Text(stringResource(R.string.ui_rule_changes)) }
+            } }
+            item { Text(stringResource(R.string.ui_override_hint), style = MaterialTheme.typography.bodySmall) }
+            if (ui.settings.hostOverrides.isEmpty()) item { Text(stringResource(R.string.ui_no_overrides)) }
+            items(ui.settings.hostOverrides.entries.toList(), key = { it.key }) { (rule, action) ->
+                Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Row(Modifier.fillMaxWidth().clickable { editing = rule }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(rule, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+                                Text(stringResource(actionLabel(action)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(painterResource(R.drawable.ic_b_edit), stringResource(R.string.ui_change_domain_rule), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        TextButton(onClick = { removing = rule }) { Text(stringResource(R.string.ui_remove_override), color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+        }
+    }
+    editing?.let { rule -> DomainRuleEditor(viewModel, rule, ui.settings.hostOverrides[rule] ?: RuleAction.PROXY,
+        if (rule.isBlank()) RuleScope.EXACT else RuleScope.parse(rule).first, onDismiss = { editing = null }) }
+    removing?.let { rule -> AlertDialog(onDismissRequest = { removing = null },
+        title = { Text(stringResource(R.string.ui_remove_override)) }, text = { Text(rule) },
+        confirmButton = { TextButton(onClick = { viewModel.clearHostOverride(rule); removing = null }) { Text(stringResource(R.string.ui_remove_override)) } },
+        dismissButton = { TextButton(onClick = { removing = null }) { Text(stringResource(R.string.cancel)) } }) }
+}

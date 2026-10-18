@@ -5,6 +5,9 @@ import com.mzstd.hxmyproxy.core.network.EgressHealth
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -75,7 +78,7 @@ class EgressHealthTest {
 
         now += EgressHealth.RECHECK_MS + 1
         assertTrue("到点应复检", h.needsRecheck(n))
-        assertFalse("到点后不再算摘掉状态，交由复检决定", h.isSidelined(n))
+        assertTrue("到点后仍隔离，只有复检成功才能恢复", h.isSidelined(n))
 
         probeOk = true                                        // 网恢复了
         h.confirmOrSideline(n)
@@ -182,5 +185,70 @@ class EgressHealthTest {
         val h = EgressHealth(probe = { true }, nowMs = { now })
         assertNull(h.retryAfterSeconds(net(2)))
         assertNull("null 网络同样不给", h.retryAfterSeconds(null))
+    }
+
+    @Test fun `失败复检重新等待45秒且主动拒绝不提前触发`() = runBlocking {
+        var calls = 0
+        val n = net(80)
+        val h = EgressHealth(probe = { calls++; false }, nowMs = { now })
+        h.confirmOrSideline(n)
+        now += EgressHealth.RECHECK_MS
+        h.confirmOrSideline(n)
+        assertEquals(2, calls)
+        assertEquals(45, h.retryAfterSeconds(n))
+        repeat(100) {
+            now += 10
+            assertFalse(h.needsRecheck(n))
+            assertFalse(h.recordFailure(n, "retry-$it.example"))
+            h.confirmOrSideline(n)
+        }
+        assertEquals("不能被每个请求触发一轮探测", 2, calls)
+        assertTrue(h.isSidelined(n))
+        now += EgressHealth.RECHECK_MS
+        assertTrue(h.needsRecheck(n))
+    }
+
+    @Test fun `复检进行中仍隔离且并发请求只启动一个探测`() = runBlocking {
+        val began = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Boolean>()
+        var calls = 0
+        val n = net(81)
+        val h = EgressHealth(probe = {
+            if (++calls == 1) false else { began.complete(Unit); finish.await() }
+        }, nowMs = { now })
+        h.confirmOrSideline(n)
+        now += EgressHealth.RECHECK_MS
+        val recheck = launch { h.confirmOrSideline(n) }
+        began.await()
+        repeat(20) { h.confirmOrSideline(n) }
+        assertEquals(2, calls)
+        assertTrue("复检还没结果，不能先放行坏出口", h.isSidelined(n))
+        finish.complete(true)
+        recheck.join()
+        assertFalse(h.isSidelined(n))
+    }
+
+    @Test fun `reset期间完成的旧探测不能重新摘掉网络`() = runBlocking {
+        val began = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Boolean>()
+        val n = net(82)
+        val h = EgressHealth(probe = { began.complete(Unit); finish.await() }, nowMs = { now })
+        val job = launch { h.confirmOrSideline(n) }
+        began.await()
+        h.reset()
+        finish.complete(false)
+        job.join()
+        assertFalse(h.isSidelined(n))
+        assertNull(h.retryAfterSeconds(n))
+    }
+
+    @Test fun `取消探测不作为网络故障`() = runBlocking {
+        val began = CompletableDeferred<Unit>()
+        val n = net(83)
+        val h = EgressHealth(probe = { began.complete(Unit); CompletableDeferred<Boolean>().await() }, nowMs = { now })
+        val job = launch { h.confirmOrSideline(n) }
+        began.await()
+        job.cancelAndJoin()
+        assertFalse(h.isSidelined(n))
     }
 }

@@ -275,7 +275,7 @@ class EvTest {
     private fun keySection(): String {
         val s = FileLog.snapshot()
         if (!s.startsWith(KEY_HEAD)) return ""
-        return s.substring(KEY_HEAD.length, s.indexOf(MAIN_HEAD))
+        return s.substringAfter('\n').substringBefore(MAIN_HEAD)
     }
 
     /** snapshot 的主环段。 */
@@ -304,7 +304,7 @@ class EvTest {
     }
 
     private companion object {
-        const val KEY_HEAD = "===== KEY EVENTS (never rotated away) =====\n"
+        const val KEY_HEAD = "===== KEY EVENTS"
         const val MAIN_HEAD = "\n===== FULL LOG =====\n"
     }
 }

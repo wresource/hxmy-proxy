@@ -14,7 +14,8 @@ import android.os.Build
  * 而「被杀了」与「活着但卡住了」在文件里**完全同形**——这正是「客户端连不上」查了三轮仍未结案的
  * 岔路口之一。
  *
- * 系统侧的 [ApplicationExitInfo] 不受这个限制：它是内核/AMS 记的账，进程死得再突然也拿得到。
+ * 系统侧的 [ApplicationExitInfo] 能补应用来不及写出的证据，但有保留范围、异步记账和设备差异。
+ * 同一进程也可能有多条CRASH/终止记录；记录数不等于独立异常次数。
  *
  * 【必须同时记 lmkReported 的原因】
  * 官方明确：**不是所有设备都上报 [ApplicationExitInfo.REASON_LOW_MEMORY]**。不支持的设备上，
@@ -31,6 +32,8 @@ object ExitReason {
 
     private const val PREFS = "exit_reason"
     private const val KEY_LAST_SEEN = "lastSeenTs"
+    private const val KEY_SEEN_RECORDS = "seenRecordsV2"
+    private const val MAX_SEEN_RECORDS = 32
 
     /** 一次最多回溯几条历史退出记录（系统本身用环形缓冲，深度无文档承诺）。 */
     private const val MAX_RECORDS = 8
@@ -41,11 +44,11 @@ object ExitReason {
     /**
      * 进程启动时调用一次：把「上次（们）是怎么没的」落进 key.log。
      *
-     * **「没有新记录」本身就是结论**：系统保证每次进程死亡都记一笔，所以查不到新记录 =
-     * 上次是正常退出或进程压根没被杀过 —— 这与日志的静默不同，后者永远有歧义。因此这一支
-     * 也显式落盘（`none=true`），而不是悄悄返回。
+     * none只表示这次没有新的可用系统记录，不能证明没有发生崩溃。
+     * 首次使用身份游标时重录仍可用的历史，补齐旧版未保存的PID，而非跳过旧时间戳。
      */
     fun reportLastExit(context: Context) {
+        if (!FileLog.enabled) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             // 查不到 ≠ 没发生。API 29 上明确写出来，免得日后把空白当成「没被杀过」。
             Ev.k(LogCat.PROC, "proc.lastExit", "unavailable" to "api${Build.VERSION.SDK_INT}")
@@ -62,25 +65,49 @@ object ExitReason {
             }
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val lastSeen = prefs.getLong(KEY_LAST_SEEN, 0L)
-            val fresh = all.filter { it.timestamp > lastSeen }
+            val saved = prefs.getStringSet(KEY_SEEN_RECORDS, null)
+            val seen = saved.orEmpty().toSet()
+            val fresh = all.distinctBy(::recordKey).filter { recordKey(it) !in seen }
             if (fresh.isEmpty()) {
-                // 有历史但没有新的：同样是「本次启动之前没死过」的证据。
+                // 没有新的可用记录不证明上次未退出（系统记录有保留范围与实现边界）。
                 Ev.k(LogCat.PROC, "proc.lastExit", "none" to true, "seen" to all.size, "lmkReported" to lmk)
             } else {
                 // 按时间正序落盘（最老的先），读日志时与时间线一致。
-                fresh.sortedBy { it.timestamp }.forEach { info -> logOne(info, lmk) }
+                val written = fresh.sortedBy { it.timestamp }.map { info -> logOne(info, lmk, saved == null) }
+                if (written.all { it }) {
+                    val nextSeen = (seen + fresh.map(::recordKey))
+                        .sortedByDescending { it.substringBefore(':').toLongOrNull() ?: 0L }
+                        .take(MAX_SEEN_RECORDS).toSet()
+                    // 至少一次交付：关键环全部写成功才推进。异步偏好保存失败最多重放，不丢证据。
+                    prefs.edit()
+                        .putStringSet(KEY_SEEN_RECORDS, nextSeen)
+                        .putLong(KEY_LAST_SEEN, maxOf(lastSeen, fresh.maxOf { it.timestamp }))
+                        .apply()
+                }
             }
-            prefs.edit().putLong(KEY_LAST_SEEN, all.first().timestamp).apply()
         }.onFailure {
             Ev.w(LogCat.PROC, "proc.lastExit.error", "err" to it.toString())
         }
     }
 
-    private fun logOne(info: ApplicationExitInfo, lmk: Boolean?) {
-        Ev.k(
+    internal fun recordKey(info: ApplicationExitInfo): String = "${info.timestamp}:" + evidenceHash(listOf(
+        info.pid.toString(), info.realUid.toString(), info.packageUid.toString(), info.processName.orEmpty(),
+        info.reason.toString(), info.status.toString(), info.importance.toString(),
+        info.pss.toString(), info.rss.toString(), info.description.orEmpty(),
+        info.processStateSummary?.joinToString(",") { it.toString() }.orEmpty(),
+    ))
+
+    private fun logOne(info: ApplicationExitInfo, lmk: Boolean?, upgrading: Boolean): Boolean =
+        Ev.kConfirmed(
             LogCat.PROC, "proc.lastExit",
+            "record" to recordKey(info),
+            "replay" to if (upgrading) "identity-upgrade" else null,
+            "pid" to info.pid,
+            "uid" to info.realUid,
+            "packageUid" to info.packageUid,
+            "process" to info.processName,
             "reason" to "${reasonName(info.reason)}(${info.reason})",
-            // SIGNALED 时 status 就是信号号（9=SIGKILL）；CRASH 时是退出码。
+            // 信号号/自行退出码原样保留；CRASH的0不能解释成成功退出。
             "status" to info.status,
             "imp" to "${importanceName(info.importance)}(${info.importance})",
             "pssKb" to info.pss,
@@ -92,7 +119,6 @@ object ExitReason {
             // 死亡时刻附近的自定义状态摘要（见 updateStateSummary）。
             "state" to info.processStateSummary?.toString(Charsets.US_ASCII),
         )
-    }
 
     /**
      * 把「此刻在干什么」交给系统保管：进程被杀后，下一个进程能从
@@ -115,7 +141,8 @@ object ExitReason {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         runCatching {
             val am = context.getSystemService(ActivityManager::class.java) ?: return
-            val s = "sh=${if (sharing) 1 else 0} cl=$clients cn=$conns ac=$acceptTotal up=$uptimeSec"
+            val identity = ProcessDiagnostics.current?.let { "sid=${it.id} v=${it.versionCode} " }.orEmpty()
+            val s = identity + "sh=${if (sharing) 1 else 0} cl=$clients cn=$conns ac=$acceptTotal up=$uptimeSec"
             val bytes = s.toByteArray(Charsets.US_ASCII)
             am.setProcessStateSummary(
                 if (bytes.size <= SUMMARY_MAX_BYTES) bytes else bytes.copyOf(SUMMARY_MAX_BYTES),

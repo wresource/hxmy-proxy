@@ -47,7 +47,10 @@ class RuleRepository @Inject constructor(
      * 不再花那 1.1 秒。
      */
     @Synchronized
-    fun rebuild(settings: ProxySettings) {
+    fun rebuild(settings: ProxySettings, canApply: () -> Boolean = { true }): Boolean {
+        // A cancelled session may have been waiting on this monitor when a newer session
+        // loaded its rules. Monitor acquisition is not FIFO; never publish that old request.
+        if (!canApply()) return false
         val key = RuleInputs.of(settings)
         if (key == lastBuilt) {
             // 跳过也要留痕，而且**必须带各表规模**：rules.rebuilt 是全仓唯一记录规则表条数的地方
@@ -60,7 +63,7 @@ class RuleRepository @Inject constructor(
                 "userDirect" to s.userDirect.size, "userReject" to s.userReject.size,
                 "adsAllow" to s.adsAllow.size,
             )
-            return
+            return true
         }
         val t0 = System.currentTimeMillis()
         assetFailures = 0
@@ -110,6 +113,14 @@ class RuleRepository @Inject constructor(
         // 平手裁决用:两张用户表各自最近一条的添加时间(停用条目不算,它们不参与判定)。
         val newestAllow = settings.userDirectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
         val newestBlock = settings.userRejectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
+        // Reading assets is blocking: cancellation can arrive while it is in progress.
+        if (!canApply()) return false
+        // 不发布缺失 assets 的部分快照。冷启动保持关闭，热更新保留上一份完整快照。
+        if (assetFailures > 0 || !selfCheck(reject, probes)) {
+            Ev.kw(LogCat.RULE, "rules.rebuildFailed", "assetFail" to assetFailures)
+            lastBuilt = null
+            return false
+        }
         ruleEngine.update(
             RuleEngine.Snapshot(
                 ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
@@ -136,7 +147,8 @@ class RuleRepository @Inject constructor(
         // 装载失败过就**不**记忆化：留住「下次设置变更时顺带重试」的机会。
         // 否则一次 assets 读失败（见 loadAsset 的注释：这是静默失败最危险的一处）
         // 会被永久固化成空表，而 UI 上开关仍显示「已启用」。
-        lastBuilt = if (assetFailures == 0) key else null
+        lastBuilt = key
+        return true
     }
 
     /** 本轮 [rebuild] 中装载失败的 assets 数量（喂给 rules.rebuilt 的 assetFail 字段）。 */

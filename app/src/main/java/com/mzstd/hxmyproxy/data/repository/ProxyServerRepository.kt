@@ -33,6 +33,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,7 +119,7 @@ class ProxyServerRepository @Inject constructor(
         historySink = trafficHistory::record,
     )
     /** 规则重建请求（CONFLATED：只保留最新设置）。串行 worker 消费，杜绝快速开关导致多个 rebuild 乱序覆盖、状态残留。 */
-    private val rebuildRequests = kotlinx.coroutines.channels.Channel<ProxySettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private val lifecycleLock = Any()
 
     @Volatile private var currentSettings = ProxySettings()
     @Volatile private var running = false
@@ -183,36 +187,62 @@ class ProxyServerRepository @Inject constructor(
 
     /** 以服务 Scope 启动（幂等）。读取设置快照 → 建调度器/服务器 → 扫接口 → 起监听 → 订阅网络/设置变化。 */
     suspend fun start(scope: CoroutineScope) {
-        if (running) return
-        running = true
-        resetSessionCounters()
-        // 「一次共享」计数落在这里而不是 resetSessionCounters —— 那个函数 start/stop 两端都调，
-        // 放进去会把每次停止也算成一次新共享。start() 上面的 running 幂等闸保证一次共享只计一次
-        //（手动刷新走 stopServers/startServers，不重入 start，故不会多计）。
-        trafficHistory.noteSessionStart()
-        // 跨会话恢复最近客户端：路径保活/手动刷新从会话第一秒就有探测目标——
-        // 最需要被探的客户端恰恰是「本会话还没连上来的那台」。
-        lastSeenClients = RecentClients.load(appContext).keys
+        val session = synchronized(lifecycleLock) {
+            if (running || sessionScope != null) return
+            CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job])).also {
+                sessionScope = it
+                engineScope = it
+                _state.update { st -> st.copy(starting = true, startupFailed = false) }
+            }
+        }
+        try {
+            withContext(session.coroutineContext) { startSession(session) }
+        } catch (e: CancellationException) {
+            synchronized(lifecycleLock) { if (sessionScope === session) stop() }
+            throw e
+        } catch (e: Exception) {
+            Ev.e(LogCat.SVC, "start.failed", e)
+            synchronized(lifecycleLock) {
+                if (sessionScope === session) {
+                    stop()
+                    _state.update { it.copy(startupFailed = true) }
+                }
+            }
+        }
+    }
+
+    private suspend fun startSession(session: CoroutineScope) {
+        val rebuildRequests = kotlinx.coroutines.channels.Channel<ProxySettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
+        val rememberedClients = RecentClients.load(appContext).keys
             .mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
         val s = settingsRepository.settings.first()
-        currentSettings = s
-        applyTunables(s)
-        // 初始凭据就位（在 server 接受连接前），避免首个连接时认证器为空。
-        credentialStore.credentials.first().let { c ->
-            authenticator.username = c.username
-            authenticator.password = c.password
+        val credentials = credentialStore.credentials.first()
+        synchronized(lifecycleLock) {
+            if (sessionScope !== session || !session.isActive) throw CancellationException("Stopped during preparation")
+            resetSessionCounters()
+            lastSeenClients = rememberedClients
+            currentSettings = s
+            applyTunables(s)
+            authenticator.username = credentials.username
+            authenticator.password = credentials.password
+            connectivityObserver.start()
+            underlyingNetworkProvider.start()
         }
-
-        // 会话子 scope（SupervisorJob 挂在服务 scope 下）：stop() 取消它即停掉本会话全部协程，
-        // 服务 scope 仍存活以便下次 start；避免"停后残留的 settings 收集器又把监听重启起来"。
-        val session = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
-        sessionScope = session
-        engineScope = session
-        startServers(session, s)
-        refresh() // 入口历史记录在 refresh() 内完成（覆盖启动后才选接口 / IP 变化）
-
-        connectivityObserver.start()
-        underlyingNetworkProvider.start()
+        // IO 构建完整快照；任何加载失败都不开放监听。
+        val ready = withContext(Dispatchers.IO) {
+            ruleRepository.rebuild(s) { sessionScope === session && session.isActive }
+        }
+        check(ready) { "Initial rule snapshot could not be loaded" }
+        underlyingNetworkProvider.awaitInitialNetwork(false)
+        currentCoroutineContext().ensureActive()
+        synchronized(lifecycleLock) {
+            if (sessionScope !== session || !session.isActive) throw CancellationException("Stopped before listening")
+            running = true
+            trafficHistory.noteSessionStart()
+            _state.update { it.copy(starting = false) }
+            startServers(session, s)
+            refresh()
+        }
         session.launch {
             connectivityObserver.networkChanges.collect {
                 // 换网后旧网络下解析的 IP 可能不可达：清自建 DNS 缓存，让新请求立刻走新网络解析。
@@ -228,23 +258,26 @@ class ProxyServerRepository @Inject constructor(
         // 规则重建 worker：串行消费 + CONFLATED 取最新设置 —— 快速开关（如广告表开/关）时只会重建到最终状态，
         // 不会出现「关掉后慢的『开』重建后完成、把规则覆盖回开状态」的残留 bug。
         session.launch(Dispatchers.IO) {
-            for (s in rebuildRequests) ruleRepository.rebuild(s)
+            for (s in rebuildRequests) ruleRepository.rebuild(s) { sessionScope === session && session.isActive }
         }
         session.launch {
             settingsRepository.settings.collect { ns ->
-                currentSettings = ns
-                applyTunables(ns)
-                rebuildRequests.trySend(ns)
-                if (running && serverKey(ns) != lastServerKey) {
-                    // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
-                    stopServers()
-                    // 与 start()/stop() 一致地清零计数：stopServers 会 shutdownNow 掉 dispatcher，
-                    // 在途连接 finally 里的 registry.release() 恢复时机不可控 → 计数可能残留，
-                    // 表现为某个客户端 IP 卡在 maxPerClient、之后新连接被静默拒绝（唯一按来源 IP 的闸门）。
-                    registry.reset()
-                    startServers(session, ns)
+                synchronized(lifecycleLock) {
+                    if (sessionScope !== session || !session.isActive) return@collect
+                    currentSettings = ns
+                    applyTunables(ns)
+                    rebuildRequests.trySend(ns)
+                    if (running && serverKey(ns) != lastServerKey) {
+                        // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
+                        stopServers()
+                        // 与 start()/stop() 一致地清零计数：stopServers 会 shutdownNow 掉 dispatcher，
+                        // 在途连接 finally 里的 registry.release() 恢复时机不可控 → 计数可能残留，
+                        // 表现为某个客户端 IP 卡在 maxPerClient、之后新连接被静默拒绝（唯一按来源 IP 的闸门）。
+                        registry.reset()
+                        startServers(session, ns)
+                    }
+                    refresh()
                 }
-                refresh()
             }
         }
         // 凭据变更即时推入认证器（与 server 生命周期解耦，无需重启）。
@@ -326,6 +359,9 @@ class ProxyServerRepository @Inject constructor(
                     session.launch(Dispatchers.IO) { runCatching { selfProbe() } }
                 }
                 // PERF 心跳（60s）：静默期也有一句话现状。放在 ticker 协程里直接调（本就在 IO 上）。
+                if (underlyingNetworkProvider.current() != null) {
+                    com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.clearNoEgress()
+                }
                 if (tick % HEARTBEAT_TICKS == 0L) heartbeat(snap.clients.size, sig)
                 _state.update {
                     it.copy(
@@ -340,6 +376,7 @@ class ProxyServerRepository @Inject constructor(
                         topDomains = snap.topDomains,
                         blockedTotal = snap.blockedTotal,
                         topBlockedDomains = snap.topBlocked,
+                        directEgressUnavailable = com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.noEgressState() != null,
                         // 直连持续不通的域名（fail-closed 的失败对用户静默，必须让它在 UI 上现形）
                         directFailures = com.mzstd.hxmyproxy.core.proxy.DirectEgressFailures.snapshot()
                             .map {
@@ -400,6 +437,7 @@ class ProxyServerRepository @Inject constructor(
      * 清了就再也找不回来。两个数字口径不同是有意的，UI 上分别标注了周期。
      */
     private fun resetSessionCounters() {
+        com.mzstd.hxmyproxy.core.proxy.RequestActivity.store.reset()
         totalUp.set(0)
         totalDown.set(0)
         registry.reset()
@@ -432,7 +470,8 @@ class ProxyServerRepository @Inject constructor(
             val result = runCatching {
                 Ev.k(LogCat.SVC, "manual.reset", "by" to "user")
                 // 段①：全量重置 app 层。
-                connector.clearDnsCache()
+                connector.cancelPendingDns()
+                connector.clearDnsCache() // preserve manual reset's existing health reset
                 stopServers()
                 registry.reset()
                 connectivityObserver.stop()
@@ -655,7 +694,7 @@ class ProxyServerRepository @Inject constructor(
      */
     private fun heartbeat(clients: Int, sig: com.mzstd.hxmyproxy.core.network.SignalInfo) {
         heartbeatN++
-        // 背压归因（见 RelayStallStats）：取走并清零 → 这一窗口的聚合。无隧道结束则为 null，
+        // 背压统计：本窗口结束隧道的完整存活期聚合，非活跃隧道实时值。无隧道结束则为 null，
         // 此时整组字段省略，不打 0% 噪音。
         val stall = com.mzstd.hxmyproxy.core.proxy.RelayStallStats.snapshotAndReset()
         // 显式类型参数:字段数已到几十个、值类型混杂(String/Int/Long/枚举/null),
@@ -724,12 +763,13 @@ class ProxyServerRepository @Inject constructor(
             "loss" to (LinkProbe.stats()?.takeIf { it.lossSamples > 0 }?.let { "${it.lossPct}%" }),
             "probe" to lastSelfProbe,
             // 「慢，卡在哪一段」：stallIn=写客户端写不动(入口段)，stallOut=写上游写不动(出口段)，
-            // 均为本窗口内**时长加权**占比；maxStall 是单条隧道的最高占比（均值会被大量短连接稀释，
+            // 均为本窗口结束隧道的**全存活期时长加权**占比；maxStall 是单条隧道的最高占比（均值会被大量短连接稀释，
             // 极值不会）；relayN 是本窗口结束的隧道数，用于判断样本量。
             "stallIn" to stall?.let { "${it.inPct}%" },
             "stallOut" to stall?.let { "${it.outPct}%" },
             "maxStall" to stall?.let { "${it.maxPct}%" },
             "relayN" to stall?.tunnels,
+            "stallScope" to stall?.let { "closed-lifetime" },
             // DNS 侧健康度。**只在出过问题时才打**：rej/to 平时恒为 0，常打就是噪音，
             // 而一旦非零就说明解析在排队或超时——0804 那次「CONNECT 都收下了、上游一条没建、
             // CPU 0%」的卡死，当时心跳里没有任何字段能指认它，只能靠黑盒测量猜外因。
@@ -745,11 +785,10 @@ class ProxyServerRepository @Inject constructor(
             "dnsok" to connector.dnsStats().let { d ->
                 if (d.okCount > 0L) {
                     "n:${d.okCount},avg:${d.okAvgMs},p50:${d.okP50Ms},p90:${d.okP90Ms},max:${d.okMaxMs}" +
-                        (if (d.parallelWins > 0L) ",hedge:${d.parallelWins}" else "") +
-                        // 排队与真实解析分开报：avg/p90 里含排队，单看它分不出「域名慢」还是「池满了」。
-                        (if (d.queueMaxMs > 0L) ",q:${d.queueAvgMs}/${d.queueMaxMs}" else "") +
-                        // DoH 只在用过时才打:n/超预算次数。超预算非 0 ⇒ 那 3000ms 声明是假的。
-                        (if (d.dohCalls > 0L) ",doh:${d.dohCalls}/${d.dohOverBudget}" else "")
+                        (if (d.rescueUses > 0L) ",rescue:${d.rescueUses}" else "") +
+                        // 旧阻塞 DNS 池已移除，不再输出它的 q: 排队指标。
+                        // dohTimeout 表示按预算主动取消，与旧版“超时后还继续等”的超预算计数不同。
+                        (if (d.dohCalls > 0L) ",doh:${d.dohCalls},dohTimeout:${d.dohTimeouts}" else "")
                 } else null
             },
         )
@@ -767,8 +806,10 @@ class ProxyServerRepository @Inject constructor(
         )
     }
 
-    fun stop() {
+    fun stop(preserveStartupFailure: Boolean = false) = synchronized(lifecycleLock) {
+        val failed = preserveStartupFailure && _state.value.startupFailed
         running = false
+        connector.cancelPendingDns()
         stopServers()
         connectivityObserver.stop()
         underlyingNetworkProvider.pause()   // 撤销出口保活但保留监听：停止态出口卡仍显示在线状态
@@ -802,7 +843,7 @@ class ProxyServerRepository @Inject constructor(
         scanEmptyLogged = false
         lastSelfProbe = "-"
         lastSelfProbeLogged = null   // 下个会话第一次自探必落一条基线（"-->ok/ok"）
-        _state.value = ShareState()
+        _state.value = ShareState(startupFailed = failed)
     }
 
     /** 只启动用户开启的协议监听（关掉的不占端口）。 */
@@ -910,7 +951,7 @@ class ProxyServerRepository @Inject constructor(
 
     /** 停止态也扫描接口，便于用户先选接口再启动（运行态由 [refresh] 维护，故此处直接返回）。 */
     suspend fun refreshInterfaces() {
-        if (running) return
+        if (running || _state.value.starting) return
         val s = settingsRepository.settings.first()
         currentSettings = s
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
@@ -937,9 +978,18 @@ class ProxyServerRepository @Inject constructor(
         }
     }
 
+    private data class DnsRouteConfig(
+        val proxy: com.mzstd.hxmyproxy.core.model.EgressNetworkChoice,
+        val direct: com.mzstd.hxmyproxy.core.model.DirectEgressChoice,
+        val doh: com.mzstd.hxmyproxy.core.model.DohEgressChoice,
+        val priority: List<com.mzstd.hxmyproxy.core.model.DirectEgressChoice>,
+        val backup: Boolean,
+    )
+    private var lastDnsRoute: DnsRouteConfig? = null
     private fun applyTunables(s: ProxySettings) {
-        // 诊断日志总开关：关闭后 FileLog/Ev 一律不写盘（已有文件保留，可继续查看/导出）。
-        com.mzstd.hxmyproxy.core.log.FileLog.enabled = s.logEnabled
+        val dnsRoute = DnsRouteConfig(s.egressChoice, s.directEgressChoice, s.dohEgressChoice, s.egressPriority.toList(), s.backupDnsEnabled)
+        if (lastDnsRoute != null && lastDnsRoute != dnsRoute) connector.invalidateDnsPolicy()
+        lastDnsRoute = dnsRoute
         // 按系统 FD 预算反推安全上限：用户拉满 maxGlobal 时,2×FD/连接可能逼近 rlimit → EMFILE。
         val fdCap = fdBudget.safeMaxGlobal()
         val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
@@ -994,11 +1044,10 @@ class ProxyServerRepository @Inject constructor(
     private fun refresh() {
         val s = currentSettings
         val interfaces = interfaceScanner.scan(s.selectedInterfaceIds)
-        val selected = interfaces.filter { it.isSelected }
         // 回退规则:用户**选过**接口(selectedIds 非空)但一个都没匹配上(selected 空)→ 说明选的接口因换网/换热点
         // 消失了,回退到「全部可共享接口」,让新出现的热点自动成为入口 + 准入放行,无需重启共享(换 WiFi→热点这类
         // **换接口类型**场景旧选中 wlan0 对不上新接口 ap0)。若用户压根没选(selectedIds 空),尊重「没选=没入口」不回退。
-        val effective = if (selected.isEmpty() && s.selectedInterfaceIds.isNotEmpty()) interfaces else selected
+        val effective = com.mzstd.hxmyproxy.core.model.effectiveShareInterfaces(interfaces, s.selectedInterfaceIds)
         val admitKey = effective.mapNotNull { it.address.hostAddress }.toSet()
         // 存在通告的目标：各入口子网的定向广播地址。入口即客户端所在的网段——通告发给谁听不重要,
         // 广播帧被泛洪的过程本身就在刷新沿路转发表。
@@ -1075,6 +1124,7 @@ class ProxyServerRepository @Inject constructor(
         }
         val perm = localNetworkPermissionManager.isGranted()
         val sig = signalProvider.current()
+        val actualPorts = servers.associate { it.protocol to it.boundPort.value }
         _state.update { st ->
             st.copy(
                 running = running,
@@ -1089,9 +1139,12 @@ class ProxyServerRepository @Inject constructor(
                 signalDbm = sig.dbm,
                 diagnostics = st.diagnostics.copy(
                     localNetworkPermissionGranted = perm,
-                    httpPortUp = portUp(ProxyProtocol.HTTP),
-                    socksPortUp = portUp(ProxyProtocol.SOCKS5),
-                    pacPortUp = portUp(ProxyProtocol.PAC),
+                    httpPortUp = actualPorts[ProxyProtocol.HTTP] != null,
+                    socksPortUp = actualPorts[ProxyProtocol.SOCKS5] != null,
+                    pacPortUp = actualPorts[ProxyProtocol.PAC] != null,
+                    httpBoundPort = actualPorts[ProxyProtocol.HTTP],
+                    socksBoundPort = actualPorts[ProxyProtocol.SOCKS5],
+                    pacBoundPort = actualPorts[ProxyProtocol.PAC],
                     httpEnabled = s.httpEnabled,
                     socksEnabled = s.socksEnabled,
                     pacEnabled = s.pacEnabled,

@@ -150,10 +150,10 @@ class ProxyAdmissionTest {
     ): ProxyServer {
         val server = Socks5ProxyServer(
             Dispatchers.IO, access, registry,
-            OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
+            testConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
             Dispatchers.IO,
         )
-        if (autoStart) server.start(scope, 0)
+        if (autoStart) server.start(scope, 0, ProxyTestKit.loopback)
         res.onClose { server.stop() }
         return server
     }

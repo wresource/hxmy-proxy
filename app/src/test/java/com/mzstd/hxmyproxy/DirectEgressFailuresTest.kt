@@ -97,4 +97,15 @@ class DirectEgressFailuresTest {
         DirectEgressFailures.reset()
         assertTrue(DirectEgressFailures.snapshot().isEmpty())
     }
+
+    @Test fun missingRouteDoesNotBecomeManyBadDomainsAndResetClearsIt() {
+        repeat(5) { DirectEgressFailures.recordNoEgress(nowMs = 1000L) }
+        assertEquals(1000L to 5, DirectEgressFailures.noEgressState())
+        assertTrue(DirectEgressFailures.snapshot().isEmpty())
+        DirectEgressFailures.clearNoEgress()
+        assertEquals(null, DirectEgressFailures.noEgressState())
+        DirectEgressFailures.recordNoEgress(nowMs = 2000L)
+        DirectEgressFailures.reset()
+        assertEquals(null, DirectEgressFailures.noEgressState())
+    }
 }

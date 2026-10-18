@@ -25,56 +25,37 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 
 /**
  * top domain 便捷设规则弹窗：直连 / 拦截 / 清除——统一**写入 rules 的 block/allow 列表**（免手输域名），
- * 而非 per-host hostOverrides。走代理=不设规则=清除（回默认）。互斥由 ViewModel 保证。
+ * 保留可见名单快捷操作；显式走代理与恢复默认是两个不同动作。互斥由 ViewModel 保证。
  */
 @Composable
 fun TopDomainRuleDialog(
     host: String,
     current: RuleAction?,     // 该域名当前在 block/allow 的动作：DIRECT / REJECT / null
+    source: com.mzstd.hxmyproxy.core.rules.RuleSrc,
+    canClear: Boolean,
     onDirect: () -> Unit,
     onReject: () -> Unit,
+    onProxy: () -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(host, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    stringResource(R.string.top_domain_rule_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                DomainActionRow(stringResource(R.string.top_domain_direct), current == RuleAction.DIRECT, onDirect)
-                DomainActionRow(stringResource(R.string.top_domain_reject), current == RuleAction.REJECT, onReject)
-            }
-        },
-        confirmButton = {
-            if (current != null) TextButton(onClick = onClear) { Text(stringResource(R.string.top_domain_clear)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
-    )
-}
-
-@Composable
-private fun DomainActionRow(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        if (selected) {
-            Icon(
-                painterResource(R.drawable.ic_b_check),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
+    InteractionSheet(host, onDismiss) {
+        Text(stringResource(R.string.top_domain_rule_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val sourceRes = when (source) {
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.OVERRIDE -> R.string.rule_source_override
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.USER_ALLOW -> R.string.rule_source_allow
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.USER_BLOCK -> R.string.rule_source_block
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.BUILTIN_ADS -> R.string.rule_source_ads
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.BUILTIN_APP -> R.string.rule_source_builtin
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.BUILTIN_PROXY -> R.string.rule_source_builtin
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.DEFAULT -> R.string.rule_source_default
+                }
+        Text(stringResource(R.string.rule_source_current, stringResource(sourceRes)), style = MaterialTheme.typography.bodySmall)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SheetChoiceRow(stringResource(R.string.top_domain_proxy), current == RuleAction.PROXY, onProxy)
+            SheetChoiceRow(stringResource(R.string.top_domain_direct), current == RuleAction.DIRECT, onDirect)
+            SheetChoiceRow(stringResource(R.string.top_domain_reject), current == RuleAction.REJECT, onReject)
         }
+        if (canClear) TextButton(onClick = onClear) { Text(stringResource(R.string.top_domain_clear)) }
     }
 }

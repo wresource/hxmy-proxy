@@ -78,8 +78,8 @@ interface ProxyServer {
     val probeCount: Long get() = 0
     val rejectedCount: Long get() = 0
 
-    /** 在 [scope] 内绑定并启动 accept 循环。 */
-    fun start(scope: CoroutineScope, port: Int)
+    /** 在 [scope] 内绑定并启动 accept 循环；默认保留生产的全接口/双栈监听。 */
+    fun start(scope: CoroutineScope, port: Int, bindAddress: InetAddress? = null)
 
     fun stop()
 
@@ -130,7 +130,8 @@ abstract class TcpProxyServerBase(
      */
     private val inFlight = ConcurrentHashMap.newKeySet<SocketChannel>()
 
-    override fun start(scope: CoroutineScope, port: Int) {
+    override fun start(scope: CoroutineScope, port: Int, bindAddress: InetAddress?) {
+        val listenAddress = bindAddress ?: InetAddress.getByName("0.0.0.0")
         _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
             // bind：对端口占用做有限重试——stop→start 快速重启时旧监听 socket 可能尚未释放端口。
@@ -142,7 +143,7 @@ abstract class TcpProxyServerBase(
                 try {
                     s.configureBlocking(true)
                     s.setOption(StandardSocketOptions.SO_REUSEADDR, true)
-                    s.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), ProxyTuning.ACCEPT_BACKLOG)
+                    s.bind(InetSocketAddress(listenAddress, port), ProxyTuning.ACCEPT_BACKLOG)
                     bound = s
                     break
                 } catch (e: Throwable) {
@@ -164,7 +165,7 @@ abstract class TcpProxyServerBase(
             _boundPort.value = (server.localAddress as InetSocketAddress).port
             _bindError.value = null
             // 以前只有 bind **失败**落盘，成功不落——导致「监听到底起没起来」在导出日志里无法判定。
-            Ev.k(LogCat.SVC, "listen.up", "proto" to protocol, "port" to _boundPort.value, "bind" to "0.0.0.0")
+            Ev.k(LogCat.SVC, "listen.up", "proto" to protocol, "port" to _boundPort.value, "bind" to listenAddress.hostAddress)
             try {
                 while (isActive) {
                     val client = try {
@@ -220,7 +221,8 @@ abstract class TcpProxyServerBase(
                         }
                         client.closeQuietly(); continue
                     }
-                    if (!registry.tryAcquire(remote)) {
+                    val lease = registry.tryAcquire(remote)
+                    if (lease == null) {
                         // 全链路**唯一按来源 IP 区分**的闸门——「只拒某一台客户端」的现象只可能出自这里。
                         // 以前只有 Log.i（仅 logcat、导出看不到），是排障黑箱。
                         Ev.throttled(
@@ -235,45 +237,63 @@ abstract class TcpProxyServerBase(
                         )
                         client.closeQuietly(); continue
                     }
-                    runCatching { sock.tcpNoDelay = true }
-                    // 仅探针本身不落 accept 行、不进流量账（避免 30s 一次的自探把日志与 UI 客户端列表
-                    // 噪音化：clients 里出现本机 IP、LinkProbe 反过来探自己）。真实的本机自用连接照常记。
-                    if (!probeConn) {
-                        Ev.throttled(
-                            // dedup key 带上 proto:此前只按客户端 IP,同一台机器的 HTTP accept
-                            // 会把 SOCKS5 accept 整个压掉 —— 0814 排查孤儿请求时正是栽在这上面,
-                            // 「SOCKS5 只在某几小时出现」其实是节流产物,不是事实。
-                            LogCat.CONN, "accept", "accept:$protocol:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
-                            level = "I",
-                            // **端口不能省**：外层若有本机中间层代理（如 proxyshim），它的日志里带的是
-                            // `(127.0.0.1:57725)` 这种源端口，只记 IP 就无法把两侧的同一条连接对起来——
-                            // 而两侧各说各话正是此前连续误判归因的原因。
-                            kv = arrayOf(
-                                "proto" to protocol, "remote" to remote.hostAddress, "sport" to remotePort,
-                                "active" to registry.activeGlobal,
-                            ),
-                        )
-                    }
-                    val tracker = if (probeConn) null else accounting?.openConnection(remote, protocol)
-                    inFlight.add(client)
-                    launch(ioDispatcher) {
+                    var tracker: TrafficAccounting.ConnTracker? = null
+                    var handedOff = false
+                    val cleaned = java.util.concurrent.atomic.AtomicBoolean(false)
+                    fun cleanup() {
+                        if (!cleaned.compareAndSet(false, true)) return
                         try {
-                            handle(client, tracker)
-                        } catch (e: Throwable) {
-                            // 客户端正常断开（连接重置/管道断开/keep-alive 取消）是常态 → 仅 debug，不进错误日志。
-                            if (isPeerClosed(e)) {
-                                Log.d(TAG, "$protocol peer-closed ${remote.hostAddress}: ${e.message}")
-                            } else {
-                                Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
-                                FileLog.w(TAG, "$protocol error ${remote.hostAddress}", e)
-                            }
-                        } finally {
                             inFlight.remove(client)
                             client.closeQuietly()
                             tracker?.close()
-                            registry.release(remote)
+                        } finally {
+                            lease.close()
+                        }
+                    }
+                    try {
+                        runCatching { sock.tcpNoDelay = true }
+                        // 仅探针本身不落 accept 行、不进流量账（避免 30s 一次的自探把日志与 UI 客户端列表
+                        // 噪音化：clients 里出现本机 IP、LinkProbe 反过来探自己）。真实的本机自用连接照常记。
+                        if (!probeConn) {
+                            Ev.throttled(
+                                // dedup key 带上 proto:此前只按客户端 IP,同一台机器的 HTTP accept
+                                // 会把 SOCKS5 accept 整个压掉 —— 0814 排查孤儿请求时正是栽在这上面,
+                                // 「SOCKS5 只在某几小时出现」其实是节流产物,不是事实。
+                                LogCat.CONN, "accept", "accept:$protocol:${remote.hostAddress}", ACCEPT_LOG_INTERVAL_MS,
+                                level = "I",
+                                // **端口不能省**：外层若有本机中间层代理（如 proxyshim），它的日志里带的是
+                                // `(127.0.0.1:57725)` 这种源端口，只记 IP 就无法把两侧的同一条连接对起来——
+                                // 而两侧各说各话正是此前连续误判归因的原因。
+                                kv = arrayOf(
+                                    "proto" to protocol, "remote" to remote.hostAddress, "sport" to remotePort,
+                                    "active" to registry.activeGlobal,
+                                ),
+                            )
+                        }
+                        tracker = if (probeConn) null else accounting?.openConnection(remote, protocol)
+                        inFlight.add(client)
+                        launch(ioDispatcher) {
+                            try {
+                                handle(client, tracker)
+                            } catch (e: Throwable) {
+                                // 客户端正常断开（连接重置/管道断开/keep-alive 取消）是常态 → 仅 debug，不进错误日志。
+                                if (isPeerClosed(e)) {
+                                    Log.d(TAG, "$protocol peer-closed ${remote.hostAddress}: ${e.message}")
+                                } else {
+                                    Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
+                                    FileLog.w(TAG, "$protocol error ${remote.hostAddress}", e)
+                                }
+                            }
+                        }.invokeOnCompletion {
+                            // launch 被取消且尚未执行时，协程体内的 finally 不会运行。
+                            // completion 覆盖该路径，也覆盖正常/异常/取消；资源只回收一次。
+                            cleanup()
                             Log.i(TAG, "$protocol close ${remote.hostAddress} (active=${registry.activeGlobal})")
                         }
+                        handedOff = true
+                    } finally {
+                        // tracker 创建或派发失败时，所有权还在 accept 循环手中。
+                        if (!handedOff) cleanup()
                     }
                 }
             } finally {

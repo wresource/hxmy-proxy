@@ -74,9 +74,82 @@ class MainViewModel @Inject constructor(
             MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
+    /** Recent request evidence is bounded in Core, sampled only while a UI subscribes. */
+    val requestActivity = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(com.mzstd.hxmyproxy.core.proxy.RequestActivity.store.snapshotState())
+            kotlinx.coroutines.delay(1000)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000),
+        com.mzstd.hxmyproxy.core.proxy.RequestActivitySnapshot(0, false, emptyList()))
+
+    private val frozenActivity = MutableStateFlow<com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot?>(null)
+    val logHostFilter = MutableStateFlow("")
+    val activityQuery = MutableStateFlow(com.mzstd.hxmyproxy.ui.monitor.ActivityQuery())
+    val activitySnapshot = combine(uiState, requestActivity, frozenActivity) { ui, evidence, frozen ->
+        if (frozen != null && frozen.session == ui.share.sessionStartedAtMs &&
+            frozen.evidenceGeneration == evidence.generation && ui.settings.logEnabled == evidence.enabled) {
+            frozen.copy(paused = true)
+        } else com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot(
+            session = ui.share.sessionStartedAtMs, evidenceGeneration = evidence.generation,
+            clients = ui.share.clients, domains = ui.share.topDomains,
+            requests = if (ui.share.running && ui.settings.logEnabled) evidence.records else emptyList(),
+            totalBytes = ui.share.totalBytes, downRate = ui.share.downloadRateBps,
+            upRate = ui.share.uploadRateBps, capturedAt = System.currentTimeMillis(),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot())
+
+    fun toggleActivityPaused() {
+        frozenActivity.value = if (activitySnapshot.value.paused) null else activitySnapshot.value.copy(paused = true)
+    }
+
+    private val ruleChangeIds = java.util.concurrent.atomic.AtomicLong()
+    private val _recentRuleChanges = MutableStateFlow<List<com.mzstd.hxmyproxy.ui.rules.RecentRuleChange>>(emptyList())
+    val recentRuleChanges: StateFlow<List<com.mzstd.hxmyproxy.ui.rules.RecentRuleChange>> = _recentRuleChanges
+
+    fun applyDomainRule(input: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction?,
+        scope: com.mzstd.hxmyproxy.core.rules.RuleScope, onDone: (Result<String>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching {
+            val parsed = com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(input, scope) ?: error("Invalid rule")
+            var change: com.mzstd.hxmyproxy.ui.rules.RecentRuleChange? = null
+            settingsRepository.update { before ->
+                val now = System.currentTimeMillis()
+                val after = com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.apply(before, input, action, scope, now)
+                change = com.mzstd.hxmyproxy.ui.rules.RecentRuleChange(ruleChangeIds.incrementAndGet(), parsed.host,
+                    parsed.value, action, com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.capture(before, parsed.host),
+                    com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.capture(after, parsed.host), now)
+                after
+            }
+            change?.let { _recentRuleChanges.value = (_recentRuleChanges.value + it).takeLast(20) }
+            frozenActivity.value = null
+            activityQuery.value = activityQuery.value.copy(text = parsed.host,
+                filter = com.mzstd.hxmyproxy.ui.monitor.ActivityFilter.ALL)
+            parsed.host
+        })
+    }
+
+    fun revertDomainChange(id: Long, onDone: (Result<Boolean>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching {
+            val change = _recentRuleChanges.value.firstOrNull { it.id == id } ?: return@runCatching false
+            var applied = false
+            settingsRepository.update { settings ->
+                com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.revert(settings, change)?.also { applied = true } ?: settings
+            }
+            if (applied) _recentRuleChanges.value = _recentRuleChanges.value.map { if (it.id == id) it.copy(reverted = true) else it }
+            applied
+        })
+    }
+
     /** 某 host 的**实时完整判定**（含内置组，按引擎优先级：你的覆盖/列表 > 内置广告 > 内置直连 > 兜底代理）。
      *  top domain 标据此显示，配合 [ruleVersion] 规则一变即重判——不再用运行时缓存（修「移除规则还显示直连」）。 */
     fun decideHost(host: String): com.mzstd.hxmyproxy.core.rules.RuleAction = ruleEngine.decide(host)
+    fun decideHostDetailed(host: String) = ruleEngine.decideDetailed(host)
+    fun hasDomainRule(host: String, settings: ProxySettings): Boolean {
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
+        return settings.userDirectRules.any { sameHost(it.value, bare) } ||
+            settings.userRejectRules.any { sameHost(it.value, bare) } ||
+            settings.hostOverrides.keys.any { sameHost(it, bare) }
+    }
 
     /** 规则版本信号：规则一变 +1，供 top domain 标订阅刷新（触发重判所有域名）。 */
     val ruleVersion: kotlinx.coroutines.flow.StateFlow<Int> = ruleEngine.version
@@ -230,22 +303,7 @@ class MainViewModel @Inject constructor(
      * 注意与旧版的区别：以前无条件 `removePrefix("*.")` 把通配前缀吃掉、一律当全层级；
      * 现在前缀是语义的一部分，必须原样存进 RuleEntry.value，由 RuleMatcher 解析。
      */
-    private fun normalizeRule(input: String): String? {
-        val t = input.trim().lowercase()
-        val (scope, bare) = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(t)
-        // 必须含 '.'（域名/IPv4/CIDR）或 ':'（IPv6）：拒绝单段(如 "com")整段 TLD，防误杀/误放行。
-        if (bare.isEmpty() || (!bare.contains('.') && !bare.contains(':'))) return null
-        // 内部不得含空白：粘贴或输入法误入的 "by wxs.qq.com" 这类串以前能存进列表，
-        // 却永远匹配不上任何 host——静默的死规则，用户只会觉得「我明明加了却没生效」。
-        if (bare.any { it.isWhitespace() }) return null
-        // 裸域名里不得残留作用域符号。RuleScope.parse 只剥**一层**前缀，于是这几种手滑写法
-        // 会把符号留在 bare 里：`*apple.com`（漏了点，SUFFIX + "*apple.com"）、
-        // `==a.com`（EXACT + "=a.com"）、`=*.a.com`（EXACT + "*.a.com"）。
-        // 它们能通过上面全部校验、存进列表、显示在规则页、装进字典树，却永远匹配不到任何 host
-        // ——与上一条防的是同一类静默死规则，只是形态不同。
-        if (bare.any { it == '*' || it == '=' }) return null
-        return com.mzstd.hxmyproxy.core.rules.RuleScope.format(scope, bare)
-    }
+    private fun normalizeRule(input: String): String? = com.mzstd.hxmyproxy.core.rules.RuleInput.normalize(input)
 
     /** 添加用户直连白名单域名（走出口分流：绕过共享 VPN）。 */
     fun addUserDirectRule(domain: String) = update {
@@ -311,19 +369,23 @@ class MainViewModel @Inject constructor(
      * 「这个域名」而非它底下的整棵子树；单级既覆盖自身、又容忍一层子域，与输入框的默认档位一致。
      */
     private fun scopedHost(host: String): String? {
-        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
-        if (bare.isEmpty()) return null
-        // IP/CIDR 无作用域概念，原样写入。
-        if (com.mzstd.hxmyproxy.core.rules.IpCidrSet.looksLikeIpOrCidr(bare)) return bare
-        return com.mzstd.hxmyproxy.core.rules.RuleScope.format(
-            com.mzstd.hxmyproxy.core.rules.RuleScope.SINGLE, bare,
-        )
+        return com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(
+            host, com.mzstd.hxmyproxy.core.rules.RuleScope.SINGLE,
+        )?.value
     }
 
     /** 互斥比较按**裸域名**：同一域名的不同作用域写法（`a.com` / `*.a.com` / `=a.com`）视为同一条，
      *  否则「设直连」时移不掉 block 里前缀不同的同名规则，两边并存反而要靠具体度裁决。 */
-    private fun sameHost(entryValue: String, bare: String): Boolean =
-        com.mzstd.hxmyproxy.core.rules.RuleScope.parse(entryValue).second == bare
+    private fun sameHost(entryValue: String, bare: String): Boolean {
+        val target = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(bare)?.host ?: return false
+        return com.mzstd.hxmyproxy.core.rules.RuleInput.parse(entryValue)?.host == target
+    }
+
+    /** Preserve a working entry's scope; an old URL-shaped dead entry uses the explicit quick action's scope. */
+    private fun correctedRuleValue(old: String, quickValue: String): String {
+        val parsed = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(old)
+        return if (parsed == null || parsed.fromUrl) quickValue else parsed.value
+    }
 
     /** 直连：进 allow 列表 + 从 block 互斥移除。 */
     fun setDomainDirect(host: String) = update { s ->
@@ -331,8 +393,10 @@ class MainViewModel @Inject constructor(
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
         s.copy(
             userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
-            userDirectRules = if (s.userDirectRules.any { sameHost(it.value, bare) }) s.userDirectRules
-            else s.userDirectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
+            userDirectRules = if (s.userDirectRules.any { sameHost(it.value, bare) }) s.userDirectRules.map {
+                if (sameHost(it.value, bare)) it.copy(value = correctedRuleValue(it.value, v), enabled = true, disabledAt = 0, addedAt = System.currentTimeMillis()) else it
+            }.distinctBy { it.value } else s.userDirectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
+            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -342,8 +406,10 @@ class MainViewModel @Inject constructor(
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
         s.copy(
             userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
-            userRejectRules = if (s.userRejectRules.any { sameHost(it.value, bare) }) s.userRejectRules
-            else s.userRejectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
+            userRejectRules = if (s.userRejectRules.any { sameHost(it.value, bare) }) s.userRejectRules.map {
+                if (sameHost(it.value, bare)) it.copy(value = correctedRuleValue(it.value, v), enabled = true, disabledAt = 0, addedAt = System.currentTimeMillis()) else it
+            }.distinctBy { it.value } else s.userRejectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
+            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -353,6 +419,19 @@ class MainViewModel @Inject constructor(
         s.copy(
             userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
             userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
+            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
+        )
+    }
+
+    /** 显式走所选代理出口；与“恢复默认规则链”分开，防止内置 DIRECT 被误当作已清除。 */
+    fun setDomainProxy(host: String) = update { s ->
+        val value = scopedHost(host) ?: return@update s
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(value).second
+        s.copy(
+            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
+            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
+            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) } +
+                (value to com.mzstd.hxmyproxy.core.rules.RuleAction.PROXY),
         )
     }
 
@@ -391,9 +470,8 @@ class MainViewModel @Inject constructor(
     }
 
     fun addDomainToSet(id: String, domain: String) = update {
-        val d = domain.trim().lowercase().removePrefix("*.")
-        if (!d.contains('.')) it
-        else it.copy(userRuleSets = it.userRuleSets.map { s ->
+        val d = normalizeRule(domain) ?: return@update it
+        it.copy(userRuleSets = it.userRuleSets.map { s ->
             if (s.id == id && d !in s.domains) s.copy(domains = s.domains + d) else s
         })
     }
@@ -406,12 +484,14 @@ class MainViewModel @Inject constructor(
 
     /** 批量设置某用户集的域名（多行文本编辑保存）。 */
     fun setRuleSetDomains(id: String, domains: List<String>) = update {
-        it.copy(userRuleSets = it.userRuleSets.map { s -> if (s.id == id) s.copy(domains = domains) else s })
+        val valid = domains.map { rule -> normalizeRule(rule) ?: return@update it }.distinct()
+        it.copy(userRuleSets = it.userRuleSets.map { s -> if (s.id == id) s.copy(domains = valid) else s })
     }
 
     /** 覆盖某内置集的域名（多行文本编辑保存）。 */
     fun setGroupOverride(groupId: String, domains: List<String>) = update {
-        it.copy(ruleSetOverrides = it.ruleSetOverrides + (groupId to domains))
+        val valid = domains.map { rule -> normalizeRule(rule) ?: return@update it }.distinct()
+        it.copy(ruleSetOverrides = it.ruleSetOverrides + (groupId to valid))
     }
 
     /** 恢复内置集为默认（删除覆盖）。 */
@@ -421,8 +501,9 @@ class MainViewModel @Inject constructor(
 
     /** 设置某 host 的三态覆盖（最高优先级：误拦救济/手动指定）；host 支持泛域名/IP/CIDR。 */
     fun setHostOverride(host: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction) = update {
-        val h = host.trim().lowercase()
-        if (h.isEmpty()) it else it.copy(hostOverrides = it.hostOverrides + (h to action))
+        val h = normalizeRule(host) ?: return@update it
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(h).second
+        it.copy(hostOverrides = it.hostOverrides.filterKeys { key -> !sameHost(key, bare) } + (h to action))
     }
 
     /**
@@ -440,7 +521,8 @@ class MainViewModel @Inject constructor(
 
     /** 移除某 host 的覆盖（回归默认规则链）。 */
     fun clearHostOverride(host: String) = update {
-        it.copy(hostOverrides = it.hostOverrides - host.trim().lowercase())
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
+        it.copy(hostOverrides = it.hostOverrides.filterKeys { key -> !sameHost(key, bare) })
     }
 
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }

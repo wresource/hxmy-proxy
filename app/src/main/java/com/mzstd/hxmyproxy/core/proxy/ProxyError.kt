@@ -11,6 +11,8 @@ sealed class ProxyError(val label: String) {
     data object DnsFailure : ProxyError("DNS resolution failed")
     data object RemoteTimeout : ProxyError("remote connect timeout")
     data object RemoteUnreachable : ProxyError("remote unreachable")
+    /** A selected DIRECT network is offline; the rule allowed the target. */
+    data object DirectEgressUnavailable : ProxyError("selected direct egress unavailable")
 
     /**
      * **我们自己把这条出口摘了**（[com.mzstd.hxmyproxy.core.network.EgressHealth] 判定整张网不通），
@@ -42,6 +44,7 @@ sealed class ProxyError(val label: String) {
             DnsFailure -> "dns"
             ConnectionRefused -> "refused"
             RemoteUnreachable -> "unreachable"
+            DirectEgressUnavailable -> "direct-egress-unavailable"
             EgressSidelined -> "sidelined"
             AccessDenied -> "denied"
             VpnUnavailable -> "vpn"
@@ -61,6 +64,7 @@ sealed class ProxyError(val label: String) {
             // 免得为一个零收益的语义调整改变既有 SOCKS5 客户端的行为。
             EgressSidelined -> 0x04
             AccessDenied -> 0x02                     // not allowed by ruleset
+            DirectEgressUnavailable -> 0x03          // selected network unreachable, not rule denial
             else -> 0x01                             // general SOCKS server failure
         }
 
@@ -72,7 +76,7 @@ sealed class ProxyError(val label: String) {
             // 503：我方此刻主动拒绝，且是暂时的。不用 502(它硬性要求「收到了上游的
             // 无效响应」，而摘网时我们一个响应都没收到)，也不用 504(那已经被
             // 「目标连接超时」占着，混用会让两件事在日志里再也分不开)。
-            EgressSidelined -> 503
+            EgressSidelined, DirectEgressUnavailable -> 503
             else -> 502
         }
 

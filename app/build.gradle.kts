@@ -31,8 +31,8 @@ android {
         // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
         //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
         //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
-        versionCode = 163
-        versionName = "1.48.0"
+        versionCode = 216
+        versionName = "1.48.53"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -84,6 +84,7 @@ android {
             isReturnDefaultValues = true
 
             all {
+                it.useJUnit { excludeCategories("com.mzstd.hxmyproxy.ProxyBenchmark") }
                 // **单测 JVM 必须绕开一切代理**。开发机的 shell 常设 ALL_PROXY/HTTP_PROXY，
                 // Gradle 会把它们转成 JVM 系统属性，于是 java.net.Socket 的**每一条连接**都被
                 // SOCKS 代理接管——本项目用真实 socket 测 Happy Eyeballs，被接管后：
@@ -184,4 +185,23 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+// 长基准独立运行，复用Android单测的编译产物和mockable android.jar；不拖慢常规回归。
+afterEvaluate {
+    val unit = tasks.named<Test>("testDebugUnitTest")
+    tasks.register<Test>("proxyBenchmark") {
+        group = "verification"
+        description = "Runs controlled proxy benchmarks with A/A and negative controls."
+        testClassesDirs = unit.get().testClassesDirs
+        classpath = unit.get().classpath
+        dependsOn(testClassesDirs, classpath)
+        javaLauncher.set(unit.get().javaLauncher)
+        systemProperties(unit.get().systemProperties)
+        maxParallelForks = 1
+        useJUnit { includeCategories("com.mzstd.hxmyproxy.ProxyBenchmark") }
+        filter { includeTestsMatching("com.mzstd.hxmyproxy.ConcurrencyScalingTest") }
+        outputs.upToDateWhen { false }
+        testLogging { events("passed", "failed"); showStandardStreams = true }
+    }
 }

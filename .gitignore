@@ -36,3 +36,4 @@ release-artifacts/
 /.kotlin/
 /scripts/
 /version-md/
+/user_logs/

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -106,6 +108,8 @@ fun RulesScreen(
     onManage: () -> Unit,
     onOpenRejectDetail: () -> Unit = {},
     onOpenDirectDetail: () -> Unit = {},
+    onOpenOverrides: () -> Unit = {},
+    onOpenChanges: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val s = ui.settings
@@ -114,35 +118,21 @@ fun RulesScreen(
     // 正在编辑的条目 + 它属于哪张表（两张表的更新方法不同）。点条目打开，值看全与改写都在弹窗里。
     var editing by remember { mutableStateOf<Pair<RuleEntry, Boolean>?>(null) }
     var seg by rememberSaveable { mutableIntStateOf(0) }
-    Column(
-        // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
-        modifier = Modifier
-            .fillMaxSize()
-            .consumeWindowInsets(contentPadding)
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(contentPadding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // 页头：图标圆盘 + 大标题 + 右侧模式小注。
-        PageHeader(
-            title = stringResource(R.string.nav_rules),
-            icon = painterResource(R.drawable.ic_b_filter),
-            trailing = { StatLabel(stringResource(R.string.rules_mode_line)) },
-        )
-
-        // 工作台重构:三段横切(拦截/放行/规则集)。lockdown 警示三段都显示——它让直连整体失效,不该被藏。
-        SegTabs(
-            labels = listOf(
-                stringResource(R.string.rules_group_reject),
-                stringResource(R.string.rules_group_bypass),
-                stringResource(R.string.seg_rule_sets),
-            ),
-            selected = seg,
-            onSelect = { seg = it },
-        )
-
+    var more by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding()).imePadding()) {
+        com.mzstd.hxmyproxy.ui.components.WorkbenchHeader(stringResource(R.string.nav_rules)) {
+            androidx.compose.foundation.layout.Box {
+                androidx.compose.material3.IconButton(onClick = { more = true }) { Icon(painterResource(R.drawable.ic_ui_more), stringResource(R.string.ui_more_actions)) }
+                com.mzstd.hxmyproxy.ui.components.AppDropdownMenu(more, onDismissRequest = { more = false }) {
+                    androidx.compose.material3.DropdownMenuItem(text = { Text(stringResource(R.string.ui_manual_overrides)) }, onClick = { more = false; onOpenOverrides() })
+                    androidx.compose.material3.DropdownMenuItem(text = { Text(stringResource(R.string.ui_rule_changes)) }, onClick = { more = false; onOpenChanges() })
+                }
+            }
+        }
+        SegTabs(listOf(stringResource(R.string.rules_group_reject), stringResource(R.string.rules_group_bypass), stringResource(R.string.seg_rule_sets)),
+            seg, { seg = it }, Modifier.padding(horizontal = 16.dp))
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+            .padding(top = 12.dp, bottom = contentPadding.calculateBottomPadding() + 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // lockdown 红警示（条件显示）：VPN「无 VPN 时阻断」会掐死直连分流。
         if (ui.share.lockdownSuspected) {
             WarnBanner(
@@ -307,6 +297,8 @@ fun RulesScreen(
                 }
             }
         }
+    }
+
     }
 
     // 编辑/详情弹窗：列表行放不下完整值（一行六个元素），改值与改作用域档位都在这里做。
@@ -476,16 +468,15 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
     // 待确认的全层级规则(非空=弹确认窗)。全层级会连同任意深度子域一起处理，误填代价大，故拦一道。
     var pendingSuffix by remember { mutableStateOf<String?>(null) }
     val dark = LocalDarkTheme.current
+    val parsed = remember(input, scope) { com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(input, scope) }
 
     val submit = { raw: String ->
-        val bare = raw.trim().lowercase().removePrefix("*.").removePrefix("=")
-        if (bare.isNotBlank()) {
-            // IP/CIDR 没有「作用域」概念，直接提交；域名按当前档位加前缀。
-            val isIp = bare.firstOrNull()?.isDigit() == true || bare.contains(':')
+        val value = com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(raw, scope)
+        if (value != null) {
             when {
-                isIp -> { onAdd(bare); input = "" }
-                scope == RuleScope.SUFFIX -> pendingSuffix = bare      // 全层级 → 先确认
-                else -> { onAdd(RuleScope.format(scope, bare)); input = "" }
+                value.isIp -> { onAdd(value.value); input = "" }
+                scope == RuleScope.SUFFIX -> pendingSuffix = value.host
+                else -> { onAdd(value.value); input = "" }
             }
         }
     }
@@ -540,6 +531,11 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
     OutlinedTextField(
         value = input,
         onValueChange = { input = it },
+        isError = input.isNotBlank() && parsed == null,
+        supportingText = if (input.isNotBlank()) {{
+            Text(if (parsed == null) stringResource(R.string.rule_input_invalid)
+                else stringResource(R.string.rule_input_preview, parsed.value))
+        }} else null,
         singleLine = true,
         // 输入/提示文字用 bodyMedium(14sp)：TextField 默认 16sp 在紧凑卡里偏大、与 bento 不协调。
         textStyle = MaterialTheme.typography.bodyMedium,
@@ -563,6 +559,7 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         trailingIcon = {
             Button(
                 onClick = { if (input.isNotBlank()) submit(input) },
+                enabled = parsed != null,
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent.main, contentColor = accent.onMain),
                 contentPadding = PaddingValues(horizontal = 14.dp),
@@ -602,51 +599,29 @@ internal fun RuleEntryRow(
     onRemove: () -> Unit,
     onEdit: (() -> Unit)? = null,
 ) {
-    Row(
-        // 整行可点 → 编辑/详情。开关与删除是各自独立的点击目标，不会与整行冲突（子组件先消费事件）。
-        // 值在这一行里必然被省略（一行要放六个元素），看全与改写都在弹窗里做。
-        Modifier
-            .fillMaxWidth()
+    val needsEdit = remember(entry.value) {
+        val parsed = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(entry.value)
+        parsed == null || parsed.fromUrl
+    }
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.weight(1f)
             .then(if (onEdit != null) Modifier.clip(MaterialTheme.shapes.small).clickable(onClick = onEdit) else Modifier)
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        RuleTypeChip(entry.value, accent)
-        Text(
-            entry.value,
-            modifier = Modifier.weight(1f).alpha(if (entry.enabled) 1f else 0.4f),
-            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        RuleScopeBadge(entry.value, entry.enabled)
-        // 状态标签（只显示，不可点）：生效=语义色实底，停用=灰底。开关才是操作。
-        Text(
-            stringResource(if (entry.enabled) R.string.rule_active else R.string.rule_disabled),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = if (entry.enabled) accent.onContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (entry.enabled) accent.container else MaterialTheme.colorScheme.surfaceContainerHighest)
-                .padding(horizontal = 7.dp, vertical = 3.dp),
-        )
-        // 小开关控制启用/停用（缩到小尺寸）：开关=操作，左侧标签=状态。
-        Switch(
-            checked = entry.enabled,
-            onCheckedChange = { onToggle() },
-            modifier = Modifier.scale(0.72f),
-            colors = stdSwitchColors(),
-        )
-        // 删除用图标按钮：Remove/移除 文字宽度随语言变化导致一列参差（双语检查原则）。
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                painterResource(R.drawable.ic_delete),
-                contentDescription = stringResource(R.string.rules_remove),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+            .padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(entry.value, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                color = if (entry.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                RuleTypeChip(entry.value, accent)
+                RuleScopeBadge(entry.value, entry.enabled)
+                Text(stringResource(if (needsEdit) R.string.rule_needs_edit else if (entry.enabled) R.string.rule_active else R.string.rule_disabled),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (needsEdit) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Switch(checked = entry.enabled, enabled = !needsEdit || entry.enabled, onCheckedChange = { onToggle() }, colors = stdSwitchColors())
+        IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+            Icon(painterResource(R.drawable.ic_delete), stringResource(R.string.rules_remove), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -872,26 +847,18 @@ private fun AddRuleSetCell(modifier: Modifier, onAdd: () -> Unit) {
 /** 「从历史添加」对话框：列出访问过的域名(已在白名单的排除)，点一条加入白名单，可连点多条。 */
 @Composable
 internal fun HistoryAddDialog(history: List<String>, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.setup_close)) } },
-        title = { Text(stringResource(R.string.rules_add_from_history)) },
-        text = {
-            if (history.isEmpty()) {
-                Text(stringResource(R.string.rules_history_empty), style = MaterialTheme.typography.bodyMedium)
-            } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                    items(history) { h ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onAdd(h) }.padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(h, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Text("+", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+    com.mzstd.hxmyproxy.ui.components.InteractionSheet(stringResource(R.string.rules_add_from_history), onDismiss, scrollBody = false) {
+        if (history.isEmpty()) Text(stringResource(R.string.rules_history_empty), style = MaterialTheme.typography.bodyMedium)
+        // History is persisted without a small row cap. Preserve lazy rendering and its
+        // bounded viewport instead of eagerly composing every saved domain in the sheet.
+        else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).testTag("rule_history_list")) {
+            items(history) { host ->
+                Row(Modifier.fillMaxWidth().clickable { onAdd(host) }.heightIn(min = 48.dp).padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(host, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Icon(painterResource(R.drawable.ic_b_plus), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 }
             }
-        },
-    )
+        }
+    }
 }

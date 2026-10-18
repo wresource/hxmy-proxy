@@ -23,11 +23,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * 一个自增 id 串起 accept→关闭的全部阶段，每阶段一行 `evt=req.<phase>`。
  * 全部走既有的 [Ev] 门面与 [LogCat]，不另起日志体系。
  *
- * **刻意不做的事**：不改变任何行为、不引入锁、不持有请求对象。
+ * 不改变转发行为、不持有 socket。新增的有界内存视图仅供界面查询，日志仍逐条落入原通道。
  * 每条记录都是即时写出的独立行，靠 id 关联而不是靠内存里的聚合——
  * 后者会在进程被杀时全部丢失，而那恰恰是最需要日志的时刻。
  */
 class RequestTrace private constructor(val id: Int, val proto: String, val clientPort: Int) {
+
+    private val activity = RequestActivity.store.open(id, proto)
 
     private val startNs = System.nanoTime()
     private val startRealtimeMs = android.os.SystemClock.elapsedRealtime()
@@ -47,11 +49,13 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
     private fun realtimeMs(): Long = android.os.SystemClock.elapsedRealtime() - startRealtimeMs
 
     /** 规则判定结果。**PROXY 也记** —— 此前只记非 PROXY，导致「绝大多数流量走了哪条路」不可见。 */
-    fun rule(host: String, action: Any?, src: Any?) =
+    fun rule(host: String, action: Any?, src: Any?) {
+        RequestActivity.store.rule(activity, host, action?.toString(), src?.toString())
         Ev.i(
             LogCat.RULE, "req.rule",
             "id" to id, "sport" to clientPort, "host" to host, "act" to action, "src" to src,
         )
+    }
 
     /**
      * DNS 结果的**来源溯源**。这是本次补观测的核心。
@@ -61,28 +65,34 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
      * @param detail 缓存年龄 `age=8s` / 真实耗时 `rtt=340ms` / DoH 端点 `ep=223.5.5.5`
      * @param firstIp 首个地址——用来直接对上「这次和上次是不是同一个节点」
      */
-    fun dns(host: String, src: DnsSource, netId: Long?, count: Int, detail: String?, firstIp: String?) =
+    fun dns(host: String, src: DnsSource, netId: Long?, count: Int, detail: String?, firstIp: String?) {
+        RequestActivity.store.dns(activity, src.code)
         Ev.i(
             LogCat.DNS, "req.dns",
             "id" to id, "host" to host, "src" to src.code, "netId" to netId,
             "n" to count, "d" to detail, "ip" to firstIp, "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
+    }
 
     /** 建连成功：**记下真正连上的那个地址**，此前完全不可见。 */
-    fun connected(host: String, ip: String?, port: Int, netId: Long?) =
+    fun connected(host: String, ip: String?, port: Int, netId: Long?) {
+        RequestActivity.store.connected(activity, ip)
         Ev.i(
             LogCat.EGRESS, "req.connected",
             "id" to id, "host" to host, "ip" to ip, "port" to port, "netId" to netId,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
+    }
 
     /** 终局（失败或关闭）。[why] 是阶段名，便于回答「卡在哪一步」。 */
-    fun failed(host: String, why: String, err: Any?) =
+    fun failed(host: String, why: String, err: Any?) {
+        RequestActivity.store.failed(activity, why, err?.toString(), (err as? ProxyError)?.code)
         Ev.w(
             LogCat.EGRESS, "req.failed",
             "id" to id, "host" to host, "at" to why, "err" to err,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
+    }
 
     /**
      * 隧道结束：带上结束原因、存活时长与收发字节。
@@ -94,12 +104,14 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
      * 曾有一个 `flag=` 字段标记「上游静默判死」的终局（silent/revived）。判据已删除，
      * 字段随之移除——它的使命就是证明那条判据在误杀，证完即止。
      */
-    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) =
+    fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) {
+        RequestActivity.store.closed(activity, reason, up, down)
         Ev.i(
             LogCat.RELAY, "req.closed",
             "id" to id, "host" to host, "why" to reason, "up" to up, "down" to down,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
+    }
 
     companion object {
         private val seq = AtomicInteger(0)
@@ -140,6 +152,8 @@ enum class DnsSource(val code: String) {
     RESCUE_DEFAULT("rescue-def"),
     /** 互援：物理网 */
     RESCUE_PHYSICAL("rescue-phy"),
+    /** 多个来源的备用候选；各来源数量和网络写在 detail，不伪装成同一 DNS 网络。 */
+    MIXED_RESCUE("rescue-mixed"),
     /** DoH 兜底（detail 里带具体端点） */
     DOH("doh"),
     /** 目标本身就是 IP 字面量，未经任何解析器 */

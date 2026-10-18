@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +36,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -48,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -58,11 +64,14 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -138,77 +147,130 @@ private fun sunkenColor(): Color =
     if (LocalDarkTheme.current) MaterialTheme.colorScheme.surfaceContainerLow
     else MaterialTheme.colorScheme.surfaceContainer
 
-/**
- * 设置页（Bento 版，规格=images/html/05-settings.html）：
- * 页头 → 协议与端口 hero（四行合一）→ 认证 → 隐私与安全 → 性能预设|通用双列 → 导航栏编辑 → 帮助双联。
- * 所有改动即时生效（无保存按钮），行为与旧版完全一致，只换视觉骨架。
- */
+/** Use the height left above the keyboard; a large keyboard can also crowd a portrait window. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun compactSettingsEditing(): Boolean {
+    val density = LocalDensity.current
+    val keyboardHeight = with(density) { WindowInsets.ime.getBottom(this).toDp() }
+    return WindowInsets.isImeVisible && LocalConfiguration.current.screenHeightDp.dp - keyboardHeight < 400.dp
+}
+
+/** Inbound and ports are frequent controls; only the other sections use a settings index. */
 @Composable
 fun SettingsScreen(
-    ui: MainUiState,
-    viewModel: MainViewModel,
-    onOpenHelp: () -> Unit = {},
-    onReplayOnboarding: () -> Unit = {},
-    contentPadding: PaddingValues = PaddingValues(0.dp),
+    ui: MainUiState, viewModel: MainViewModel,
+    onOpenHelp: () -> Unit = {}, onReplayOnboarding: () -> Unit = {},
+    contentPadding: PaddingValues = PaddingValues(0.dp), onOpenPage: (String) -> Unit = {},
 ) {
-    val s = ui.settings
     var seg by rememberSaveable { mutableIntStateOf(0) }
-    Column(
-        // 沉浸式:inset padding 放 verticalScroll **之后**(属于被滚动内容,可随滚动穿入系统栏后方)。
-        modifier = Modifier
-            .fillMaxSize()
-            .consumeWindowInsets(contentPadding)
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(contentPadding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        // 页头：品牌 mark 圆盘 + 标题 + 「改动即时生效」小注。
-        PageHeader(
-            title = stringResource(R.string.nav_settings),
-            icon = painterResource(R.drawable.ic_b_arrow_right),
-            trailing = { StatLabel(stringResource(R.string.settings_mode_line)) },
-        )
-
-        // 工作台重构:设置按链路分四段——入口(准入+端口+认证)/出口(选择+优先级+直连+DoH 在
-        // 各卡内)/隐私/通用。准入与出口卡从旧 dashboard 迁入(internal 复用,单一实现)。
-        SegTabs(
-            labels = listOf(
-                stringResource(R.string.seg_set_in),
-                stringResource(R.string.seg_set_out),
-                stringResource(R.string.seg_set_privacy),
-                stringResource(R.string.seg_set_general),
-            ),
-            selected = seg,
-            onSelect = { seg = it },
-        )
-        when (seg) {
-            0 -> {
+    val compactEditing = compactSettingsEditing()
+    Column(Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding())) {
+        if (!compactEditing) {
+            com.mzstd.hxmyproxy.ui.components.WorkbenchHeader(stringResource(R.string.nav_settings))
+            SegTabs(listOf(stringResource(R.string.seg_set_in), stringResource(R.string.seg_set_out),
+                stringResource(R.string.seg_set_privacy), stringResource(R.string.seg_set_general)), seg, { seg = it }, Modifier.padding(horizontal = 16.dp))
+        }
+        Column(Modifier.weight(1f).imePadding().testTag("settings_body").verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp).padding(top = 12.dp, bottom = contentPadding.calculateBottomPadding() + 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (seg == 0) {
                 InterfacesCard(ui, viewModel)
-                Ipv6Card(s.showIpv6, viewModel)
                 ProtoPortsCard(ui, viewModel)
-                AuthCard(ui, viewModel)
-            }
-            1 -> {
-                EgressCard(ui, viewModel)
-                DirectEgressCard(ui, viewModel)
-                DohCard(ui, viewModel)
-            }
-            2 -> {
-                PrivacyCard(ui, viewModel)
-                BackupCard(viewModel)
-            }
-            else -> {
-                GeneralCard(s.language, s.themeMode, viewModel, Modifier.fillMaxWidth())
-                PresetCard(s.preset, s.limits, viewModel, Modifier.fillMaxWidth())
-                NavEditCard(hiddenTabs = s.hiddenTabs, onSetHidden = viewModel::setTabHidden)
-                // 帮助 / 重看引导 双联入口卡。
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LinkTile(R.drawable.ic_b_help, stringResource(R.string.help_open), onOpenHelp, Modifier.weight(1f))
-                    LinkTile(R.drawable.ic_b_replay, stringResource(R.string.replay_onboarding), onReplayOnboarding, Modifier.weight(1f))
+                com.mzstd.hxmyproxy.ui.components.WorkbenchRow(
+                    stringResource(R.string.ui_authentication),
+                    stringResource(if (ui.settings.authEnabled) R.string.ui_enabled else R.string.ui_disabled),
+                    R.drawable.ic_b_shield_check, tag = "settings_auth", onClick = { onOpenPage("auth") })
+            } else SettingsIndex(ui, seg, onOpenPage, onOpenHelp, onReplayOnboarding)
+        }
+    }
+}
+
+@Composable
+private fun SettingsIndex(ui: MainUiState, section: Int, open: (String) -> Unit, help: () -> Unit, onboarding: () -> Unit) {
+    val s = ui.settings
+    val context = LocalContext.current
+    @Composable fun entry(page: String, subtitle: String? = null, icon: Int = R.drawable.ic_nav_settings) {
+        com.mzstd.hxmyproxy.ui.components.WorkbenchRow(stringResource(settingsTitle(page)), subtitle, icon,
+            tag = "settings_$page", onClick = { open(page) })
+    }
+    when (section) {
+        0 -> {
+            entry("interfaces", stringResource(R.string.ui_selected_networks, ui.share.interfaces.count { it.id in s.selectedInterfaceIds }), R.drawable.ic_b_wifi)
+            entry("ports", stringResource(R.string.ui_protocol_summary, s.httpPort, s.socksPort, s.pacPort), R.drawable.ic_b_swap)
+            entry("auth", stringResource(if (s.authEnabled) R.string.ui_enabled else R.string.ui_disabled), R.drawable.ic_b_shield_check)
+        }
+        1 -> {
+            entry("proxy-egress", stringResource(egressChoiceLabel(s.egressChoice.name)), R.drawable.ic_b_arrow_right)
+            entry("direct-egress", stringResource(egressChoiceLabel(s.directEgressChoice.name)), R.drawable.ic_b_arrow_right)
+            entry("priority", s.egressPriority.joinToString(" → ") { context.getString(egressChoiceLabel(it.name)) })
+            entry("dns", stringResource(if (s.backupDnsEnabled) R.string.ui_enabled else R.string.ui_disabled))
+        }
+        2 -> { entry("privacy"); entry("backup") }
+        else -> {
+            entry("appearance", stringResource(s.language.labelRes()) + " · " + stringResource(s.themeMode.labelRes()))
+            entry("performance", stringResource(s.preset.labelRes()))
+            entry("navigation")
+            com.mzstd.hxmyproxy.ui.components.WorkbenchRow(stringResource(R.string.help_open), icon = R.drawable.ic_b_help, onClick = help)
+            com.mzstd.hxmyproxy.ui.components.WorkbenchRow(stringResource(R.string.replay_onboarding), icon = R.drawable.ic_b_replay, onClick = onboarding)
+            entry("about", remember(context) { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty() }.getOrDefault("") })
+        }
+    }
+}
+
+internal fun settingsTitle(page: String): Int = when (page) {
+    "interfaces" -> R.string.shareable_interfaces
+    "ports" -> R.string.settings_proto_ports
+    "auth" -> R.string.ui_authentication
+    "proxy-egress" -> R.string.ui_proxy_egress
+    "direct-egress" -> R.string.ui_direct_egress
+    "priority" -> R.string.ui_network_priority
+    "dns" -> R.string.ui_fallback_dns
+    "privacy" -> R.string.ui_privacy_security
+    "backup" -> R.string.ui_settings_backup
+    "appearance" -> R.string.ui_appearance
+    "performance" -> R.string.ui_performance
+    "navigation" -> R.string.ui_navigation
+    "about" -> R.string.ui_about
+    else -> R.string.nav_settings
+}
+private fun egressChoiceLabel(name: String) = when (name) {
+    "VPN" -> R.string.egress_vpn; "WIFI" -> R.string.egress_wifi; "CELLULAR" -> R.string.egress_cellular
+    "ETHERNET" -> R.string.egress_ethernet; else -> R.string.egress_auto
+}
+
+@Composable
+fun SettingsDetailScreen(page: String, ui: MainUiState, viewModel: MainViewModel, onBack: () -> Unit,
+    onOpenPage: (String) -> Unit, onOpenHelp: () -> Unit, onReplayOnboarding: () -> Unit) {
+    val section = when (page) { "interfaces", "ports", "auth" -> 0; "proxy-egress", "direct-egress", "priority", "dns" -> 1; "privacy", "backup" -> 2; else -> 3 }
+    com.mzstd.hxmyproxy.ui.components.DetailScaffold(
+        stringResource(if (page == "ports") R.string.ui_edit_ports else settingsTitle(page)), onBack,
+        actions = { if (page == "ports") InfoDot(stringResource(R.string.settings_proto_ports), stringResource(R.string.ui_ports_help)) },
+        showTopBar = !compactSettingsEditing(),
+    ) { padding ->
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            val wide = maxWidth >= 720.dp
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (wide) Column(Modifier.weight(0.8f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SettingsIndex(ui, section, onOpenPage, onOpenHelp, onReplayOnboarding)
                 }
-                AboutCard()
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (page) {
+                        "interfaces" -> { InterfacesCard(ui, viewModel, showIpv6Hint = false); Ipv6Card(ui.settings.showIpv6, viewModel) }
+                        "ports" -> ProtoPortsCard(ui, viewModel, showHeading = false)
+                        "auth" -> AuthCard(ui, viewModel)
+                        "proxy-egress" -> EgressCard(ui, viewModel)
+                        "direct-egress" -> DirectEgressCard(ui, viewModel, showPriority = false)
+                        "priority" -> com.mzstd.hxmyproxy.ui.dashboard.EgressPriorityList(ui, viewModel)
+                        "dns" -> DohCard(ui, viewModel)
+                        "privacy" -> PrivacyCard(ui, viewModel)
+                        "backup" -> BackupCard(viewModel)
+                        "appearance" -> GeneralCard(ui.settings.language, ui.settings.themeMode, viewModel, Modifier.fillMaxWidth())
+                        "performance" -> PresetCard(ui.settings.preset, ui.settings.limits, viewModel, Modifier.fillMaxWidth())
+                        "navigation" -> NavEditCard(ui.settings.hiddenTabs, viewModel::setTabHidden)
+                        "about" -> AboutCard()
+                    }
+                }
             }
         }
     }
@@ -298,44 +360,27 @@ private fun BackupCard(viewModel: MainViewModel) {
     }
 }
 
-// ---------- 协议与端口（hero 合并卡） ----------
+// ---------- 协议与端口 ----------
 
 /**
- * 协议与端口合一 hero：每行 = 协议徽章 + 名称/副文案 + 端口小输入框 + 开关；DoH 行绿徽章无端口。
+ * 协议、端口与开关就地编辑；独立页面复用相同控件，不重复标题。
  * 端口重复校验包含未启用协议的端口：端口值持久化，启用后仍会撞端口，故配置期就该拦下。
  */
 @Composable
-private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
+private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel, showHeading: Boolean = true) {
     val s = ui.settings
     val bindErrors = ui.share.portBindErrors
-    // meta 小注：当前入口 IP（优先已选接口，其次推荐入口）；没有就不显示。
-    // 用 displayAddress 而非裸 hostAddress：这行是给用户照着填到别的设备上的，
-    // IPv6 不加方括号会被填成非法的 host:port（见 ShareInterface.displayAddress）。
-    val host = ui.visibleInterfaces.firstOrNull { it.isSelected }?.displayAddress
-        ?: ui.share.recommendedEntries.firstOrNull()?.host
-    val (iconBg, iconFg) = avatarColors(0)
-
-    BentoCard(tier = CardTier.Primary, spacing = 0.dp) {
-        CardHeader(
-            title = stringResource(R.string.settings_proto_ports),
-            icon = painterResource(R.drawable.ic_b_swap),
-            iconBg = iconBg,
-            iconTint = iconFg,
-            trailing = {
-                if (host != null) {
-                    Text(
-                        host,
-                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-            },
-        )
-        Spacer(Modifier.height(2.dp))
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
+      Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        if (showHeading) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(painterResource(R.drawable.ic_b_swap), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.settings_proto_ports), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            InfoDot(stringResource(R.string.settings_proto_ports), stringResource(R.string.ui_ports_help))
+        }
         ProtoPortRow(
             badge = { ProtoBadge(ProxyProtocol.HTTP) },
-            name = stringResource(R.string.proto_http),
+            name = "HTTP",
+            tag = "HTTP",
             sub = stringResource(R.string.proto_http_sub),
             checked = s.httpEnabled,
             onToggle = viewModel::setHttpEnabled,
@@ -345,10 +390,10 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
             portLabel = stringResource(R.string.port_http),
             onCommitPort = viewModel::setHttpPort,
         )
-        RowDivider()
         ProtoPortRow(
             badge = { ProtoBadge(ProxyProtocol.SOCKS5) },
             name = stringResource(R.string.proto_socks),
+            tag = "SOCKS5",
             sub = stringResource(R.string.proto_socks_sub),
             checked = s.socksEnabled,
             onToggle = viewModel::setSocksEnabled,
@@ -358,10 +403,10 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
             portLabel = stringResource(R.string.port_socks),
             onCommitPort = viewModel::setSocksPort,
         )
-        RowDivider()
         ProtoPortRow(
             badge = { ProtoBadge(ProxyProtocol.PAC) },
-            name = stringResource(R.string.proto_pac_full),
+            name = "PAC",
+            tag = "PAC",
             sub = stringResource(R.string.proto_pac_sub),
             checked = s.pacEnabled,
             onToggle = viewModel::setPacEnabled,
@@ -371,6 +416,9 @@ private fun ProtoPortsCard(ui: MainUiState, viewModel: MainViewModel) {
             portLabel = stringResource(R.string.port_pac),
             onCommitPort = viewModel::setPacPort,
         )
+        Text(stringResource(R.string.ui_ports_client_hint), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+      }
     }
 }
 
@@ -457,7 +505,7 @@ private fun DohBadge() {
 }
 
 /**
- * 协议行：徽章（56dp 定宽列对齐）+ 名称/副文案 + 端口小输入框（[port]=null 则无）+ 开关。
+ * 协议、端口、开关同行；大字体下改为两行，保持五位端口完整。无端口的 DoH 保留原说明行。
  * 端口仅在「完成/失焦」时提交有效值（避免边打字边热重启监听到中间无效端口）；
  * 校验范围(1024–65535)/跨协议重复，后台 bind 失败（端口被占用）也回显——三种错误红字在行下展开。
  */
@@ -473,6 +521,7 @@ private fun ProtoPortRow(
     bindError: Boolean = false,
     portLabel: String? = null,
     onCommitPort: ((Int) -> Unit)? = null,
+    tag: String = name,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         var text by remember(port) { mutableStateOf(port?.toString().orEmpty()) }
@@ -487,67 +536,56 @@ private fun ProtoPortRow(
             if (valid != null && port != null && valid != port) onCommitPort?.invoke(valid)
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // 定宽徽章列：HTTP/SOCKS5/PAC/DoH 徽章宽度不一，定宽居中让名称列左缘对齐。
+        if (port == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) { badge() }
             Column(Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    sub,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    // 副文案允许换行：中文短(1 行)，英文即便精简仍偏长——被端口框挤窄的列里换 2 行显示全，不损信息。
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (port != null) {
-                var focused by remember { mutableStateOf(false) }
-                val borderColor = when {
-                    invalid || bindError -> MaterialTheme.colorScheme.error
-                    focused -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.outlineVariant
-                }
-                val boxShape = RoundedCornerShape(9.dp)
-                Row(
-                    Modifier
-                        .clip(boxShape)
-                        .background(sunkenColor())
-                        .border(1.dp, borderColor, boxShape)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        ":",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                    BasicTextField(
-                        value = text,
-                        onValueChange = { new -> text = new.filter(Char::isDigit).take(5) },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp,
-                            color = if (invalid || bindError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                        ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { commitIfValid(); focusManager.clearFocus() }),
-                        modifier = Modifier
-                            .width(44.dp)
-                            .semantics { if (portLabel != null) contentDescription = portLabel }
-                            .onFocusChanged { focus ->
-                                focused = focus.isFocused
-                                // 失焦：有效则提交，无效则回退到上次有效端口（避免悬而未决的脏输入）。
-                                if (!focus.isFocused) {
-                                    if (invalid) text = port.toString() else commitIfValid()
-                                }
-                            },
-                    )
-                }
+                Text(name, style = MaterialTheme.typography.titleSmall)
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(checked = checked, onCheckedChange = onToggle, colors = stdSwitchColors())
+        }
+        if (port != null) {
+            var focused by remember { mutableStateOf(false) }
+            @Composable fun portField(modifier: Modifier) { OutlinedTextField(
+                value = text, onValueChange = { text = it.filter(Char::isDigit).take(5) },
+                label = { Text(stringResource(R.string.ui_port)) }, singleLine = true, isError = invalid || bindError,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { commitIfValid(); focusManager.clearFocus() }),
+                modifier = modifier.testTag("port_input_$tag").semantics { if (portLabel != null) contentDescription = portLabel }
+                    .onFocusChanged { focus ->
+                        // Preserve the old Done/blur commit boundary; never rebind on each keystroke.
+                        if (focused && !focus.isFocused) {
+                            if (invalid) text = port.toString() else commitIfValid()
+                        }
+                        focused = focus.isFocused
+                    },
+            ) }
+            @Composable fun toggle() {
+                Switch(checked = checked, onCheckedChange = onToggle, colors = stdSwitchColors(),
+                    modifier = Modifier.testTag("protocol_enabled_$tag").semantics { contentDescription = name })
+            }
+            val density = LocalDensity.current
+            val measure = rememberTextMeasurer()
+            val valueStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
+            val fieldWidth = with(density) { measure.measure("65535", valueStyle).size.width.toDp() } + 40.dp
+            // Keep all three rows in the same layout, including at large font sizes.
+            val nameWidth = with(density) { measure.measure("SOCKS5", MaterialTheme.typography.titleSmall).size.width.toDp() }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth >= nameWidth + fieldWidth + 76.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        portField(Modifier.width(fieldWidth))
+                        toggle()
+                    }
+                } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        toggle()
+                    }
+                    portField(Modifier.fillMaxWidth())
+                }
+            }
         }
         // 三种错误红字（原逻辑迁移）：范围/重复只在编辑中出现（失焦即回退），bind 失败常显。
         val msg = when {

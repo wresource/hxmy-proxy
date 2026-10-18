@@ -11,6 +11,8 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * [FileLog] 的三条硬承诺，错了都表现为「用户导出日志给我们、里面恰恰没有要找的东西」：
@@ -121,7 +123,7 @@ class FileLogTest {
         // 主环滚动很多轮，那条关键事件必然被挤出主环
         repeat(300) { FileLog.i("DNS", "noise-$it padding-padding-padding-padding") }
         val snap = FileLog.snapshot()
-        val head = "===== KEY EVENTS (never rotated away) ====="
+        val head = "===== KEY EVENTS (independent rolling buffer) ====="
         val body = "===== FULL LOG ====="
         assertTrue("应带分节头", snap.contains(head))
         val keySection = snap.substring(snap.indexOf(head), snap.indexOf(body))
@@ -228,5 +230,46 @@ class FileLogTest {
         assertEquals("", FileLog.snapshot())
         assertFalse(File(dir, "key.log").exists())
         assertFalse(File(dir, "key.log.1").exists())
+    }
+
+    @Test fun `实际崩溃入口立即落盘且主环滚动后仍保留完整因果链`() {
+        FileLog.init(dir, maxBytes = 1024)
+        FileLog.crash("main", IllegalArgumentException("duplicate host", IllegalStateException("root cause")))
+        val saved = File(dir, "key.log").readText() // 不通过 snapshot 隐式 flush
+        assertTrue(saved.contains("Uncaught in thread main"))
+        assertTrue(saved.contains("IllegalArgumentException: duplicate host"))
+        assertTrue(saved.contains("Caused by: java.lang.IllegalStateException: root cause"))
+        repeat(300) { FileLog.i("DNS", "noise-$it padding-padding-padding-padding") }
+        val exported = FileLog.snapshot()
+        assertTrue(exported.substringBefore("===== FULL LOG").contains("duplicate host"))
+        assertFalse(exported.substringAfter("===== FULL LOG").contains("duplicate host"))
+    }
+
+    @Test fun `关闭诊断日志时崩溃入口也不写日志`() {
+        FileLog.init(dir)
+        FileLog.enabled = false
+        FileLog.crash("main", IllegalStateException("private crash"))
+        assertEquals("", FileLog.snapshot())
+        assertFalse(File(dir, "key.log").exists())
+    }
+
+    @Test fun `并发日志的时间戳与每条记录保持完整`() {
+        FileLog.init(dir)
+        val pool = Executors.newFixedThreadPool(12)
+        try {
+            val futures = (0 until 12).map { worker ->
+                pool.submit {
+                    repeat(400) { FileLog.i("parallel", "worker=$worker item=$it") }
+                }
+            }
+            futures.forEach { it.get(15, TimeUnit.SECONDS) }
+            val lines = FileLog.snapshot().lines().filter { it.contains("I/parallel:") }
+            assertEquals(4800, lines.size)
+            assertEquals(4800, lines.map { it.substringAfter("I/parallel: ") }.toSet().size)
+            val timestamp = Regex("^\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3} I/parallel: .+$")
+            assertTrue(lines.all { timestamp.matches(it) })
+        } finally {
+            pool.shutdownNow()
+        }
     }
 }

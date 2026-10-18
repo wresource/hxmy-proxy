@@ -630,24 +630,21 @@ private fun DomainPreviewPanel(preview: Pair<Int, List<String>>?, onCollapse: ()
 private fun NewRuleSetDialog(onCreate: (String, RuleAction) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var action by remember { mutableStateOf(RuleAction.DIRECT) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name, action) }) { Text(stringResource(R.string.create)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-        title = { Text(stringResource(R.string.ruleset_new)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text(stringResource(R.string.ruleset_name)) }, shape = MaterialTheme.shapes.large)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val chipColors = stdFilterChipColors()
-                    FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, colors = chipColors, label = { Text(stringResource(R.string.ruleset_action_direct)) })
-                    FilterChip(selected = action == RuleAction.REJECT, onClick = { action = RuleAction.REJECT }, colors = chipColors, label = { Text(stringResource(R.string.ruleset_action_reject)) })
-                }
-            }
-        },
-    )
+    com.mzstd.hxmyproxy.ui.components.InteractionSheet(stringResource(R.string.ruleset_new), onDismiss,
+        footer = {
+            com.mzstd.hxmyproxy.ui.components.SheetActions(stringResource(R.string.create), { onCreate(name, action) },
+                stringResource(R.string.cancel), onDismiss, primaryEnabled = name.isNotBlank())
+        }) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.ruleset_name), style = MaterialTheme.typography.labelLarge)
+            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.ui_rule_action), style = MaterialTheme.typography.labelLarge)
+            com.mzstd.hxmyproxy.ui.components.SheetChoiceRow(stringResource(R.string.ruleset_action_direct), action == RuleAction.DIRECT, { action = RuleAction.DIRECT })
+            com.mzstd.hxmyproxy.ui.components.SheetChoiceRow(stringResource(R.string.ruleset_action_reject), action == RuleAction.REJECT, { action = RuleAction.REJECT })
+        }
+    }
 }
 
 @Composable

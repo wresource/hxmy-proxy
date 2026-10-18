@@ -52,7 +52,7 @@ class PacServerTest {
      */
     @Test(timeout = 20000) fun `PAC应带autoconfig类型与缓存头`() {
         val (head, body) = get(server { "function FindProxyForURL(u,h){return \"DIRECT\";}" }, "/proxy.pac")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
         assertEquals("application/x-ns-proxy-autoconfig", head.value("Content-Type"))
         assertEquals("max-age=300", head.value("Cache-Control"))
         assertEquals("Content-Length 必须与实际字节数一致，否则客户端会截断或挂等", body.size, head.contentLength)
@@ -62,7 +62,7 @@ class PacServerTest {
     /** 带查询串的 PAC 地址（有些客户端会加 ?t=时间戳 防缓存）也必须命中路由。 */
     @Test(timeout = 20000) fun `PAC路径带查询串仍应命中`() {
         val (head, _) = get(server { "pac" }, "/proxy.pac?t=12345")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
         assertEquals("application/x-ns-proxy-autoconfig", head.value("Content-Type"))
     }
 
@@ -84,7 +84,7 @@ class PacServerTest {
         val s = server { "pac" }
         val port = ProxyTestKit.awaitPort(s)
         val (head, body) = get(s, "/")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
         assertTrue(head.value("Content-Type")!!.startsWith("text/html"))
         assertTrue("落地页必须给出本机 PAC 地址", String(body).contains("http://127.0.0.1:$port/proxy.pac"))
     }
@@ -100,7 +100,7 @@ class PacServerTest {
     /** 描述文件要能**被下载**（Content-Disposition + Apple 专用 MIME），否则 Safari 只会把 XML 显示出来。 */
     @Test(timeout = 20000) fun `mobileconfig应带下载头并解码SSID`() {
         val (head, body) = get(server { "pac" }, "/hxmy.mobileconfig?ssid=My%20WiFi")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
         assertEquals("application/x-apple-aspen-config", head.value("Content-Type"))
         assertTrue(head.value("Content-Disposition")!!.contains("attachment"))
         assertTrue(head.value("Content-Disposition")!!.contains("hxmy.mobileconfig"))
@@ -140,7 +140,7 @@ class PacServerTest {
     /** 非法百分号编码（如 `%zz`）不能把请求打挂：解码失败回退空 SSID，仍返回可用的描述文件。 */
     @Test(timeout = 20000) fun `SSID百分号编码非法时应回退空串而非报错`() {
         val (head, body) = get(server { "pac" }, "/hxmy.mobileconfig?ssid=%zz")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
         assertEquals("application/x-apple-aspen-config", head.value("Content-Type"))
         assertTrue(String(body).isNotEmpty())
     }
@@ -148,7 +148,7 @@ class PacServerTest {
     /** 完全没有 ssid 参数（用户手输地址）也要正常出文件，而不是 500/404。 */
     @Test(timeout = 20000) fun `缺少ssid参数时仍应返回描述文件`() {
         val (head, _) = get(server { "pac" }, "/hxmy.mobileconfig?foo=bar")
-        assertEquals(200, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 200, head.status)
     }
 
     // ---- 辅助 ----
@@ -158,7 +158,7 @@ class PacServerTest {
         pac: () -> String,
     ): ProxyServer {
         val s = PacServer(Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(), httpProxyPort, pac)
-        s.start(scope, 0)
+        s.start(scope, 0, ProxyTestKit.loopback)
         res.onClose { s.stop() }
         return s
     }

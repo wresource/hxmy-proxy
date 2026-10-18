@@ -4,5 +4,17 @@
   release 不合并本文件，线上策略不变。
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/network_security_config" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <application android:networkSecurityConfig="@xml/network_security_config">
+        <!-- 仅debug/模拟器测试：受控VPN对端，不进入release，也不接受外部应用启动。 -->
+        <service
+            android:name=".testsupport.ControlledVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Isolated emulator VPN lifecycle verification" />
+        </service>
+    </application>
 </manifest>

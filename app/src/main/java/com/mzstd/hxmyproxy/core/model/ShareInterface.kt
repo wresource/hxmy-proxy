@@ -39,6 +39,13 @@ data class ShareInterface(
     val isIpv6: Boolean get() = address is java.net.Inet6Address
 }
 
+/** Runtime admission and UI share the established network-switch recovery policy. */
+fun effectiveShareInterfaces(interfaces: List<ShareInterface>, selectedIds: Set<String>): List<ShareInterface> {
+    val selected = interfaces.filter { it.id in selectedIds }
+    // Preserve the existing Wi-Fi→hotspot recovery policy, while empty selection remains deny-all.
+    return if (selected.isEmpty() && selectedIds.isNotEmpty()) interfaces else selected
+}
+
 /**
  * 按「显示 IPv6」偏好过滤展示列表。**只影响展示，不影响准入与转发**——
  * 隐藏的 v6 接口照样进 `entrySubnets`，v6 客户端连进来照样放行。

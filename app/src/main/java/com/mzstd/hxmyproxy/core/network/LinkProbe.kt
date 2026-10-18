@@ -33,7 +33,9 @@ object LinkProbe {
     /** 失败状态表上限（客户端数天然个位数，防御性设界）。 */
     private const val MAX_TRACKED = 64
 
-    private val window = ArrayDeque<Long>()
+    internal const val SAMPLE_TTL_MS = 60_000L
+    private data class Sample<T>(val value: T, val atMs: Long)
+    private val window = ArrayDeque<Sample<Long>>()
 
     /**
      * 最近 [WINDOW] 次探测的**成败**（true=通）。
@@ -43,7 +45,7 @@ object LinkProbe {
      * 8-01 真机日志正是这个形状：p50 <20ms 占 34.8%（看着很好），而自愈突发实测每 10 发
      * 只回 3~5 发。丢包率是这条链路真实质量的唯一直接指标。
      */
-    private val okWindow = ArrayDeque<Boolean>()
+    private val okWindow = ArrayDeque<Sample<Boolean>>()
     /** 各客户端连续失败次数 / 最近一次成功时刻（ms）。会话边界随 [reset] 清空。 */
     private val failStreak = HashMap<String, Int>()
     private val lastOkAt = HashMap<String, Long>()
@@ -87,7 +89,7 @@ object LinkProbe {
      * @param ms 成功时的耗时；null = 本次探测失败
      */
     @androidx.annotation.VisibleForTesting
-    internal fun record(key: String?, ms: Long?) {
+    internal fun record(key: String?, ms: Long?, nowMs: Long = android.os.SystemClock.elapsedRealtime()) {
         // **已判定「不在」的客户端，其后续失败不再计入丢包率**（见 [stats] 的口径说明）。
         // 前 [LOST_THRESHOLD] 次失败照常入窗——那是真实的链路信号；之后这台设备被认定为
         // 离线，再把它的失败算成「丢包」只会污染链路质量。
@@ -95,8 +97,8 @@ object LinkProbe {
         // **只跳过失败，不跳过成功**：探测成功本身就证明设备回来了，那一次属于
         // 「在线设备的探测结果」，必须入窗。跳掉它会让丢包率偏高（少一个成功样本）。
         val skipOutcome = ms == null && key != null && isLost(key)
-        if (!skipOutcome) addOutcome(ms != null)
-        if (ms != null) add(ms)
+        if (!skipOutcome) addOutcome(ms != null, nowMs)
+        if (ms != null) add(ms, nowMs)
         key?.let { if (ms != null) onOk(it) else onFail(it) }
     }
 
@@ -130,13 +132,15 @@ object LinkProbe {
         }
     }
 
-    private fun add(ms: Long) = synchronized(lock) {
-        window.addLast(ms)
+    private fun add(ms: Long, nowMs: Long) = synchronized(lock) {
+        prune(nowMs)
+        window.addLast(Sample(ms, nowMs))
         while (window.size > WINDOW) window.removeFirst()
     }
 
-    private fun addOutcome(ok: Boolean) = synchronized(lock) {
-        okWindow.addLast(ok)
+    private fun addOutcome(ok: Boolean, nowMs: Long) = synchronized(lock) {
+        prune(nowMs)
+        okWindow.addLast(Sample(ok, nowMs))
         while (okWindow.size > WINDOW) okWindow.removeFirst()
     }
 
@@ -156,11 +160,12 @@ object LinkProbe {
      * **「还在线的设备，探测丢了多少」**。它不回答「设备在不在」——那是
      * `linkprobe.lost` / `client.unreachable` 的职责。
      */
-    fun stats(): LinkStats? = synchronized(lock) {
+    fun stats(nowMs: Long = android.os.SystemClock.elapsedRealtime()): LinkStats? = synchronized(lock) {
+        prune(nowMs)
         if (window.isEmpty() && okWindow.isEmpty()) return null
-        val loss = if (okWindow.isEmpty()) 0 else 100 * okWindow.count { !it } / okWindow.size
+        val loss = if (okWindow.isEmpty()) 0 else 100 * okWindow.count { !it.value } / okWindow.size
         if (window.isEmpty()) return LinkStats(lossPct = loss, lossSamples = okWindow.size)
-        val sorted = window.sorted()
+        val sorted = window.map { it.value }.sorted()
         LinkStats(
             p50Ms = sorted[sorted.size / 2],
             p95Ms = sorted[(sorted.size - 1) * 95 / 100],
@@ -168,6 +173,12 @@ object LinkProbe {
             lossPct = loss,
             lossSamples = okWindow.size,
         )
+    }
+
+    /** 没有新探测时旧样本也要到期；不能把昨日43%一直当成当前链路质量。 */
+    private fun prune(nowMs: Long) {
+        window.removeAll { nowMs - it.atMs >= SAMPLE_TTL_MS }
+        okWindow.removeAll { nowMs - it.atMs >= SAMPLE_TTL_MS }
     }
 
     /** 会话边界清空（stop/start 时调用），避免上次会话的数字带到这次。 */

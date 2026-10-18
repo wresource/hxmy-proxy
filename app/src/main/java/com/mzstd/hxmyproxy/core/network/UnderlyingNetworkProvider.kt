@@ -6,6 +6,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
 import com.mzstd.hxmyproxy.core.log.LogCat
@@ -21,7 +25,7 @@ import com.mzstd.hxmyproxy.core.model.EgressStatus
  * - 各 transport 各注册一个 `registerNetworkCallback`「只监听不保网」，维护句柄 + 在线状态供 UI。
  * - 用户选了某**物理**出口时额外 `requestNetwork` 把它拉起并保持（如 WiFi 在时点亮蜂窝，
  *   官方 javadoc 背书；需 CHANGE_NETWORK_STATE，已在 Manifest）。VPN 出口只能监听（VpnService 建立，
- *   app 无法 requestNetwork 拉起 VPN），拿不到就回退默认。
+ *   app 无法 requestNetwork 拉起 VPN），拿不到由调用方按 STRICT/DEGRADE 处理，不能当成 AUTO。
  * - [current] = DIRECT 分流的底层物理网络（绕过共享 VPN），优先 WiFi 的任一非 VPN 物理网络（语义不变）。
  * - [egressNetwork] = PROXY 出站按用户选择；AUTO 返回 null（走系统默认，含 VPN）。
  * - ⚠️ always-on VPN + lockdown（「阻止无 VPN 连接」）下内核丢弃非 tun 流量，绑物理网络的 socket
@@ -36,6 +40,18 @@ class UnderlyingNetworkProvider(context: Context) {
     @Volatile private var cellularNet: Network? = null
     @Volatile private var ethernetNet: Network? = null
     @Volatile private var vpnNet: Network? = null
+    private val availabilityChanged = MutableStateFlow(0L)
+    @Volatile private var initialDeadlineNs = 0L
+
+    /** Only the initial callback window is waited; known missing networks fail promptly afterwards. */
+    suspend fun awaitInitialNetwork(bypassVpn: Boolean = false) {
+        fun available() = if (bypassVpn) current() != null
+            else choice == EgressNetworkChoice.AUTO || egressNetwork() != null
+        if (available() || !registered) return
+        val remainingMs = (initialDeadlineNs - System.nanoTime()) / 1_000_000L
+        if (remainingMs <= 0) return
+        withTimeoutOrNull(remainingMs) { availabilityChanged.first { available() } }
+    }
 
     /** WiFi 句柄是否通过系统连通性校验（NET_CAPABILITY_VALIDATED）。仅诊断——纯内网 WiFi 合法地无 VALIDATED。 */
     @Volatile
@@ -63,6 +79,11 @@ class UnderlyingNetworkProvider(context: Context) {
         DirectEgressChoice.WIFI -> wifiNet
         DirectEgressChoice.CELLULAR -> cellularNet
     }
+
+    fun directEgressChoice(): DirectEgressChoice = directChoice
+
+    /** Cached callback state only; error logging must not perform telephony binder calls. */
+    fun availablePhysicalTransports(): List<DirectEgressChoice> = priority.filter { handleOf(it) != null }
 
     /** 某个物理出口当前的句柄;不在线为 null。 */
     private fun handleOf(kind: DirectEgressChoice): Network? = when (kind) {
@@ -110,13 +131,23 @@ class UnderlyingNetworkProvider(context: Context) {
      */
     fun setDohEgressChoice(c: com.mzstd.hxmyproxy.core.model.DohEgressChoice) { dohChoice = c }
 
-    fun egressNetwork(): Network? = when (choice) {
-        EgressNetworkChoice.AUTO -> null
-        EgressNetworkChoice.VPN -> vpnNet
-        EgressNetworkChoice.WIFI -> wifiNet
-        EgressNetworkChoice.CELLULAR -> cellularNet
-        EgressNetworkChoice.ETHERNET -> ethernetNet
+    /** AUTO 与“指定出口已丢失”必须有不同表示，否则 STRICT 会悄悄走默认路由。 */
+    data class EgressSelection(val choice: EgressNetworkChoice, val network: Network?)
+
+    fun egressSelection(): EgressSelection {
+        val selected = choice
+        val network = when (selected) {
+            EgressNetworkChoice.AUTO -> null
+            EgressNetworkChoice.VPN -> vpnNet
+            EgressNetworkChoice.WIFI -> wifiNet
+            EgressNetworkChoice.CELLULAR -> cellularNet
+            EgressNetworkChoice.ETHERNET -> ethernetNet
+        }
+        return EgressSelection(selected, network)
     }
+
+    /** 只供状态展示；建连必须同时读取 choice，不能把缺席句柄当作 AUTO。 */
+    fun egressNetwork(): Network? = egressSelection().network
 
     /** 各出口在线状态快照（UI 置灰不可用项）。*Capable=「有能力」位（见 EgressStatus）。 */
     fun status(): EgressStatus = EgressStatus(
@@ -169,6 +200,7 @@ class UnderlyingNetworkProvider(context: Context) {
         override fun onAvailable(n: Network) {
             val old = wifiNet; wifiNet = n
             if (old != n) { markPhysChange("wifi", old, n); FileLog.w(TAG, "egress[wifi] -> $n (was $old)") }
+            availabilityChanged.update { it + 1 }
         }
         override fun onLost(n: Network) {
             if (wifiNet == n) {
@@ -185,6 +217,7 @@ class UnderlyingNetworkProvider(context: Context) {
         override fun onAvailable(n: Network) {
             if (cellularNet != n) markPhysChange("cellular", cellularNet, n)
             cellularNet = n
+            availabilityChanged.update { it + 1 }
         }
         override fun onLost(n: Network) {
             if (cellularNet == n) { markPhysChange("cellular", n, null); cellularNet = null }
@@ -194,6 +227,7 @@ class UnderlyingNetworkProvider(context: Context) {
         override fun onAvailable(n: Network) {
             val old = ethernetNet; ethernetNet = n
             if (old != n) { markPhysChange("ethernet", old, n); FileLog.w(TAG, "egress[ethernet] -> $n (was $old)") }
+            availabilityChanged.update { it + 1 }
         }
         override fun onLost(n: Network) {
             if (ethernetNet == n) {
@@ -206,6 +240,7 @@ class UnderlyingNetworkProvider(context: Context) {
         override fun onAvailable(n: Network) {
             if (vpnNet != n) markVpnChange(vpnNet, n)
             vpnNet = n
+            availabilityChanged.update { it + 1 }
         }
         override fun onLost(n: Network) {
             if (vpnNet == n) { markVpnChange(n, null); vpnNet = null }
@@ -343,8 +378,10 @@ class UnderlyingNetworkProvider(context: Context) {
         }
     }
 
+    @Synchronized
     fun start() {
         if (registered) return
+        initialDeadlineNs = System.nanoTime() + 1_000_000_000L
         try {
             cm.registerNetworkCallback(wifiReq, wifiCb)
             cm.registerNetworkCallback(cellularReq, cellularCb)
@@ -370,6 +407,7 @@ class UnderlyingNetworkProvider(context: Context) {
         directPendingChoice = null
     }
 
+    @Synchronized
     fun stop() {
         if (!registered) return
         listOf(wifiCb, cellularCb, ethernetCb, vpnCb, pendingReqCb, directPendingReqCb).forEach {

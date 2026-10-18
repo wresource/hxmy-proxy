@@ -80,6 +80,7 @@ fun BentoCard(
 ) {
     val shape = MaterialTheme.shapes.large
     val colors = CardDefaults.elevatedCardColors(containerColor = container ?: tierColor(tier))
+    val elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp, pressedElevation = 0.dp, focusedElevation = 0.dp, hoveredElevation = 0.dp)
     val inner: @Composable () -> Unit = {
         Column(
             Modifier.padding(contentPadding),
@@ -88,9 +89,9 @@ fun BentoCard(
         )
     }
     if (onClick != null) {
-        ElevatedCard(onClick = onClick, modifier = modifier, shape = shape, colors = colors) { inner() }
+        ElevatedCard(onClick = onClick, modifier = modifier, shape = shape, colors = colors, elevation = elevation) { inner() }
     } else {
-        ElevatedCard(modifier = modifier, shape = shape, colors = colors) { inner() }
+        ElevatedCard(modifier = modifier, shape = shape, colors = colors, elevation = elevation) { inner() }
     }
 }
 

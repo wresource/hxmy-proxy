@@ -194,10 +194,10 @@ class Socks5ProtocolTest {
     ): ProxyServer {
         val server = Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(allowAll), RelayEngine(), { auth }, { ConnectionLimits() },
+            testConnector(allowAll), RelayEngine(), { auth }, { ConnectionLimits() },
             Dispatchers.IO, ruleEngine = rules,
         )
-        server.start(scope, 0)
+        server.start(scope, 0, ProxyTestKit.loopback)
         res.onClose { server.stop() }
         return server
     }

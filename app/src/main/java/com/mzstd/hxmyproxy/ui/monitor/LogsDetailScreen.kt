@@ -68,14 +68,20 @@ enum class LogLevelFilter(val labelRes: Int, private val floor: Int) {
 
 /** 错误日志详情页（Bento 轻改）：每条一张卡（等级圆点+等宽字），默认 2 行、可展开看堆栈；顶部显示总条数。 */
 @Composable
-fun LogsDetailScreen(onBack: () -> Unit) {
+fun LogsDetailScreen(onBack: () -> Unit, initialHost: String = "") {
     val context = LocalContext.current
     val vm: LogsViewModel = hiltViewModel()
     val all by vm.entries.collectAsStateWithLifecycle()
     // 级别下限筛选。默认 ALL：不擅自替用户隐藏内容；但 I 级(心跳/规则判定)条数占绝对多数，
     // 排障时一键收到 W 及以上能立刻把噪音压掉。
     var minLevel by rememberSaveable { mutableStateOf(LogLevelFilter.ALL) }
-    val entries = remember(all, minLevel) { all.filter { minLevel.accepts(it.level) } }
+    var search by rememberSaveable(initialHost) { mutableStateOf(initialHost) }
+    var clearConfirm by rememberSaveable { mutableStateOf(false) }
+    val entries = remember(all, minLevel, search) { all.filter { minLevel.accepts(it.level) && (search.isBlank() || it.full.contains(search.trim(), ignoreCase = true)) } }
+    if (clearConfirm) com.mzstd.hxmyproxy.ui.components.AppAlertDialog(onDismissRequest = { clearConfirm = false },
+        title = { Text(stringResource(R.string.clear_logs)) }, text = { Text(stringResource(R.string.ui_clear_logs_confirm)) },
+        confirmButton = { TextButton(onClick = { clearConfirm = false; vm.clear(); Toast.makeText(context, R.string.logs_cleared, Toast.LENGTH_SHORT).show() }) { Text(stringResource(R.string.clear_logs)) } },
+        dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text(stringResource(R.string.cancel)) } })
 
     DetailScaffold(
         title = stringResource(R.string.error_logs),
@@ -95,8 +101,7 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                 }
             }) { Text(stringResource(R.string.export_logs)) }
             TextButton(onClick = {
-                vm.clear()
-                Toast.makeText(context, context.getString(R.string.logs_cleared), Toast.LENGTH_SHORT).show()
+                clearConfirm = true
             }) { Text(stringResource(R.string.clear_logs)) }
         },
     ) { padding ->
@@ -123,6 +128,8 @@ fun LogsDetailScreen(onBack: () -> Unit) {
                     val err = all.count { it.level == "E" }
                     val warn = all.count { it.level == "W" }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                        androidx.compose.material3.OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                            label = { Text(stringResource(R.string.ui_log_search)) })
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             LogLevelFilter.entries.forEach { f ->
                                 val on = minLevel == f

@@ -198,7 +198,7 @@ private fun GridCell(
  * 行为与旧版一致：修复引导弹窗、本地网络版本说明、HostOverrideDialog、展开折叠全保留。
  */
 /** 监控内容分区(工作台分段用):ALL=整页(详情路由) · DEVICES=客户端/域名/历史 · HEALTH=诊断/延迟。 */
-enum class MonitorSection { ALL, DEVICES, HEALTH }
+enum class MonitorSection { ALL, DEVICES, HEALTH, CHECKS, LATENCY, LINK }
 
 @Composable
 fun MonitorScreen(
@@ -229,7 +229,10 @@ fun MonitorScreen(
     editHost?.let { host ->
         TopDomainRuleDialog(
             host = host,
-            current = viewModel.decideHost(host).takeIf { it != RuleAction.PROXY },
+            current = viewModel.decideHost(host),
+            source = viewModel.decideHostDetailed(host).src,
+            canClear = viewModel.hasDomainRule(host, ui.settings),
+            onProxy = { viewModel.setDomainProxy(host); editHost = null },
             onDirect = { viewModel.setDomainDirect(host); editHost = null },
             onReject = { viewModel.setDomainReject(host); editHost = null },
             onClear = { viewModel.clearDomainRule(host); editHost = null },
@@ -239,7 +242,7 @@ fun MonitorScreen(
 
     // 本地网络权限版本说明(16- 设备上点「无需授权」格子)：讲清各版本差异,只有「知道了」。
     if (showLocalNetInfo) {
-        androidx.compose.material3.AlertDialog(
+        com.mzstd.hxmyproxy.ui.components.AppAlertDialog(
             onDismissRequest = { showLocalNetInfo = false },
             title = { Text(stringResource(R.string.guide_localnet_title)) },
             text = { Text(stringResource(R.string.localnet_versions_body)) },
@@ -251,7 +254,7 @@ fun MonitorScreen(
 
     // 诊断补全引导：说明为什么需要 + 一键跳系统对应页面。
     guideShown?.let { g ->
-        androidx.compose.material3.AlertDialog(
+        com.mzstd.hxmyproxy.ui.components.AppAlertDialog(
             onDismissRequest = { guideShown = null },
             title = { Text(stringResource(g.titleRes)) },
             text = { Text(stringResource(g.bodyRes)) },
@@ -356,7 +359,7 @@ fun MonitorScreen(
         }
 
         // —— 诊断：可修复异常置顶横幅（Error 级,点弹引导）+ 其余 2 列小格 ——
-        if (section != MonitorSection.DEVICES) item {
+        if (section in setOf(MonitorSection.ALL, MonitorSection.HEALTH, MonitorSection.CHECKS)) item {
             BentoCard(tier = CardTier.Primary) {
                 val diag = ui.share.diagnostics
                 // 本地网络权限 Android 17(SDK 37) 起才强制;更低版本显示中性「无需授权」而非绿✓,
@@ -445,7 +448,7 @@ fun MonitorScreen(
         }
 
         // —— 服务延迟（头像网格 + 刷新）——
-        if (section != MonitorSection.DEVICES) item {
+        if (section in setOf(MonitorSection.ALL, MonitorSection.HEALTH, MonitorSection.LATENCY)) item {
             BentoCard(tier = CardTier.Default) {
                 CardHeader(
                     title = stringResource(R.string.monitor_latency),
@@ -486,7 +489,7 @@ fun MonitorScreen(
         }
 
         // —— 链路质量四格(诊断段专属;设计稿):丢包/往返 p50/p95/信号。数据=段①客户端→本机探测。 ——
-        if (section == MonitorSection.HEALTH) item {
+        if (section in setOf(MonitorSection.HEALTH, MonitorSection.LINK)) item {
             LinkQualityCard(ui)
         }
 
@@ -496,7 +499,7 @@ fun MonitorScreen(
         }
 
         // —— 客户端 / 目标域名：上下单列（各占满整行宽，域名/客户端行不再被挤窄）——
-        if (section != MonitorSection.HEALTH) item {
+        if (section in setOf(MonitorSection.ALL, MonitorSection.DEVICES)) item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ClientsCard(
                     Modifier.fillMaxWidth(),
@@ -515,7 +518,7 @@ fun MonitorScreen(
         }
 
         // —— 已拦截（广告/拒绝规则命中；绿色计数 + 域名 chip 流）——
-        if (section != MonitorSection.HEALTH) item {
+        if (section in setOf(MonitorSection.ALL, MonitorSection.DEVICES)) item {
             BentoCard(tier = CardTier.Primary) {
                 if (ui.share.blockedTotal <= 0L) {
                     CardHeader(
@@ -565,7 +568,7 @@ fun MonitorScreen(
         // 排在流量统计**之后**：这两个是排障入口，用户找它们时是带着目的来的，
         // 而流量统计是随手一瞥的数字。夹在中间反而让「错误日志在哪」变得难找。
         // 设备段(DEVICES)也渲染:历史 IP 归设备,错误日志顺带可达(二合一卡不拆)。
-        if (section != MonitorSection.HEALTH) item {
+        if (section in setOf(MonitorSection.ALL, MonitorSection.DEVICES)) item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 EntryCard(
                     Modifier.weight(1f),

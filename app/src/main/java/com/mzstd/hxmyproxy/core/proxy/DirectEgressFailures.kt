@@ -91,7 +91,7 @@ object DirectEgressFailures {
     }
 
     /** 会话边界清空（与其它会话级计量一致，见 ProxyServerRepository.resetSessionCounters）。 */
-    fun reset() = map.clear()
+    fun reset() { map.clear(); clearNoEgress() }
 
     /** 当前仍不通的 host，按失败次数降序。少于 [MIN_FAILS_TO_REPORT] 次的不报。 */
     fun snapshot(minFails: Int = MIN_FAILS_TO_REPORT): List<Entry> =

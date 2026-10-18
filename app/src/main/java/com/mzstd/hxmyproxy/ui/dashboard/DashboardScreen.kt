@@ -31,7 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -39,6 +39,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -969,23 +973,24 @@ private fun FlowArrow(labelRes: Int) {
 
 /** 可分享入口卡：逐接口开关直嵌 + 「已选 n/m」徽章；默认 2 行、超出折叠；空态双文案。 */
 @Composable
-internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier,
+    showIpv6Hint: Boolean = true) {
     val share = ui.share
     var interfacesExpanded by remember { mutableStateOf(false) }
     // 受「显示 IPv6」偏好过滤：默认只列 v4，v6 地址太长、抄写困难。
     // 隐藏的 v6 接口仍在准入集里生效（见 MainUiState.visibleInterfaces）。
     val interfaces = ui.visibleInterfaces
-    val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-    BentoCard(modifier, tier = CardTier.Sunken, contentPadding = 13.dp, spacing = 4.dp) {
+    Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
+      Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 painterResource(R.drawable.ic_b_wifi),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(6.dp))
-            StatLabel(stringResource(R.string.shareable_interfaces), Modifier.weight(1f))
+            Text(stringResource(R.string.shareable_interfaces), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(6.dp))
             if (interfaces.isNotEmpty()) {
                 val selected = interfaces.count { it.id in ui.settings.selectedInterfaceIds }
@@ -1034,9 +1039,11 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
             }
         } else {
             val shownIfaces = if (interfacesExpanded) interfaces else interfaces.take(2)
-            shownIfaces.forEachIndexed { i, iface ->
-                if (i > 0)                Row(
-                    Modifier.fillMaxWidth(),
+            shownIfaces.forEach { iface ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("interface_${iface.id}")
+                        .toggleable(value = iface.id in ui.settings.selectedInterfaceIds, role = Role.Switch,
+                            onValueChange = { viewModel.toggleInterface(iface.id, it) }),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -1063,7 +1070,7 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
                     }
                     Switch(
                         checked = iface.id in ui.settings.selectedInterfaceIds,
-                        onCheckedChange = { viewModel.toggleInterface(iface.id, it) },
+                        onCheckedChange = null,
                         colors = stdSwitchColors(),
                     )
                 }
@@ -1076,7 +1083,8 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
         // 第一版藏得一点提示都没有,用户的第一反应是「IPv6 代理被取消了」——
         // 找不到的功能和删掉没有区别。这一行既解释了「为什么少了几个地址」,
         // 又是就地打开的入口(不必翻到设置页去找那个开关)。
-        IPv6HintRow(ui, viewModel)
+        if (showIpv6Hint) IPv6HintRow(ui, viewModel)
+      }
     }
 }
 
@@ -1264,7 +1272,7 @@ internal fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Mod
  * 要么自己处理长按/自动滚动/无障碍,复杂度和收益不成比例。
  */
 @Composable
-private fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
+internal fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
     val order = ui.settings.egressPriority
     val st = ui.share.egressStatus
     fun online(c: DirectEgressChoice) = when (c) {
@@ -1349,7 +1357,7 @@ private fun EgressPriorityList(ui: MainUiState, viewModel: MainViewModel) {
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier) {
+internal fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Modifier = Modifier, showPriority: Boolean = true) {
     val choice = ui.settings.directEgressChoice
     val st = ui.share.egressStatus
     var showCellularConfirm by remember { mutableStateOf(false) }
@@ -1402,7 +1410,7 @@ internal fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifie
         }
         // AUTO 才需要看顺序——手动钉死某张网时优先级不参与决策,列出来只会误导。
         if (choice == DirectEgressChoice.AUTO) {
-            EgressPriorityList(ui, viewModel)
+            if (showPriority) EgressPriorityList(ui, viewModel)
         }
         if (choice == DirectEgressChoice.CELLULAR) {
             Text(
@@ -1485,102 +1493,41 @@ private fun startStopColors(running: Boolean): Pair<Color, Color> {
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-internal fun QrSheet(ui: MainUiState, onDismiss: () -> Unit) {
+internal fun QrSheet(ui: MainUiState, onDismiss: () -> Unit, selectedHost: String? = null, onEnablePac: (() -> Unit)? = null) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val primaryEntry = ui.share.recommendedEntries.firstOrNull { it.protocol == ProxyProtocol.HTTP }
-        ?: ui.share.recommendedEntries.firstOrNull()
-        val setupUrl = primaryEntry?.let { "http://${it.host}:${ui.settings.pacPort}/" }
-        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val conf = androidx.compose.ui.platform.LocalConfiguration.current
-        val landscape = conf.screenWidthDp > conf.screenHeightDp
-        androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { onDismiss() },
-            sheetState = sheetState,
-        ) {
-            if (!ui.settings.pacEnabled || setupUrl == null) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(stringResource(R.string.qr_need_pac), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else if (landscape) {
-                // 横屏：左文右码并排——竖排在横屏高度里放不下,二维码会被底边截断(用户实测「失效」)。
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp)
-                        .padding(bottom = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                ) {
-                    Column(
-                        Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            stringResource(R.string.qr_sheet_hint),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+    val setupUrl = com.mzstd.hxmyproxy.ui.run.connectionSetupUrl(ui, selectedHost)
+    val conf = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscape = conf.screenWidthDp > conf.screenHeightDp
+    com.mzstd.hxmyproxy.ui.components.InteractionSheet(stringResource(R.string.qr_setup), onDismiss) {
+        if (!ui.settings.pacEnabled || setupUrl == null) {
+            Text(stringResource(R.string.qr_need_pac), style = MaterialTheme.typography.bodyMedium)
+            if (!ui.settings.pacEnabled && onEnablePac != null) Button(onClick = onEnablePac) { Text(stringResource(R.string.ui_enable_pac)) }
+        } else {
+            @Composable fun instructions(modifier: Modifier = Modifier) {
+                Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.qr_sheet_hint), style = MaterialTheme.typography.bodyMedium)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
                             Text(setupUrl, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
-                            TextButton(onClick = {
-                                clipboard.setText(AnnotatedString(setupUrl))
-                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                            }) { Text(stringResource(R.string.copy)) }
                         }
-                        Text(
-                            stringResource(R.string.qr_dismiss_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Surface(shape = MaterialTheme.shapes.large, color = Color.White) {
-                        Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = 180) }
-                    }
-                }
-            } else {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        stringResource(R.string.qr_sheet_hint),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            setupUrl,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        TextButton(onClick = {
+                        IconButton(onClick = {
                             clipboard.setText(AnnotatedString(setupUrl))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-                        }) { Text(stringResource(R.string.copy)) }
-                    }
-                    Text(
-                        stringResource(R.string.qr_dismiss_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = Color.White,
-                    ) {
-                        Column(Modifier.padding(18.dp)) { QrImage(setupUrl, sizeDp = 216) }
+                            Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                        }) { Icon(painterResource(R.drawable.ic_b_copy), stringResource(R.string.copy)) }
                     }
                 }
             }
+            @Composable fun code(size: Int) {
+                Surface(shape = MaterialTheme.shapes.medium, color = Color.White) {
+                    Column(Modifier.padding(14.dp)) { QrImage(setupUrl, sizeDp = size) }
+                }
+            }
+            if (landscape) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                instructions(Modifier.weight(1f)); code(160)
+            } else Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                code(216); instructions(Modifier.fillMaxWidth())
+            }
         }
+    }
 }

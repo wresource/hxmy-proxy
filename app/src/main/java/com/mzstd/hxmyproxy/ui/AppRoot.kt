@@ -82,6 +82,11 @@ private fun tabIdx(route: String?) = NavTab.entries.indexOfFirst { it.route == r
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
+    val logHost by viewModel.logHostFilter.collectAsStateWithLifecycle()
+    val openLogs: (String) -> Unit = { host -> viewModel.logHostFilter.value = host; navController.navigate("logs_detail") }
+    val openSettings: (String) -> Unit = { page -> navController.navigate("settings_detail/$page") }
+    val openChanges: () -> Unit = { navController.navigate("rule_changes") }
+
     // 可见 tab 由设置过滤（主页/设置强制保留）；NavHost 仍注册**全部**路由——
     // 隐藏只影响导航栏显示，任何遗留导航都落在已注册 route 上，不存在「未注册 route」崩溃面。
     val destinations = NavTab.visible(ui.settings.hiddenTabs)
@@ -184,10 +189,14 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenConfig = { navController.switchTo(NavTab.SETTINGS) },
                             onOpenProtection = { navController.navigate("protection") },
                             onOpenHistory = { navController.navigate("history_detail") },
-                            onOpenLogs = { navController.navigate("logs_detail") },
+                            onOpenLogs = { openLogs("") },
                             onOpenDomains = { navController.navigate("top_domains") },
                             onOpenTrafficStats = { navController.navigate("traffic_stats") },
                             contentPadding = padding,
+                            onOpenAddresses = { navController.navigate("connection_addresses") },
+                            onOpenClients = { navController.navigate("clients_detail") },
+                            onSettings = openSettings, onRelatedLogs = openLogs, onChanges = openChanges,
+                            onHealthDetail = { navController.navigate("health_detail/$it") },
                         )
                     }
                     // 旧 5-tab 时代的顶层页,工作台重构后降级为详情页(入口与出口设置 / 防护)。
@@ -200,11 +209,11 @@ fun AppRoot(viewModel: MainViewModel) {
                         )
                     }
                     composable("protection") {
-                        ProtectionScreen(
-                            ui, viewModel,
-                            onOpenBlockedDetail = { navController.navigate("blocked_detail") },
-                            contentPadding = padding,
-                        )
+                        com.mzstd.hxmyproxy.ui.components.DetailScaffold(stringResource(R.string.protection_title), { navController.popBackStack() }) { inner ->
+                            ProtectionScreen(ui, viewModel,
+                                onOpenBlockedDetail = { navController.navigate("blocked_detail") },
+                                contentPadding = inner)
+                        }
                     }
                     composable("blocked_detail") {
                         BlockedDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
@@ -216,6 +225,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             onManage = { navController.navigate("ruleset_manager") },
                             onOpenRejectDetail = { navController.navigate("quick_rules_reject") },
                             onOpenDirectDetail = { navController.navigate("quick_rules_direct") },
+                            onOpenOverrides = { navController.navigate("manual_overrides") }, onOpenChanges = openChanges,
                             contentPadding = padding,
                         )
                     }
@@ -230,7 +240,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             ui,
                             viewModel,
                             onOpenHistory = { navController.navigate("history_detail") },
-                            onOpenLogs = { navController.navigate("logs_detail") },
+                            onOpenLogs = { openLogs("") },
                             onOpenDomains = { navController.navigate("top_domains") },
                             onOpenTrafficStats = { navController.navigate("traffic_stats") },
                             contentPadding = padding,
@@ -240,21 +250,49 @@ fun AppRoot(viewModel: MainViewModel) {
                         TrafficStatsScreen(onBack = { navController.popBackStack() })
                     }
                     composable("top_domains") {
-                        TopDomainsDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
+                        TopDomainsDetailScreen(ui, viewModel, onBack = { navController.popBackStack() }, onOpenLogs = openLogs, onSettings = openSettings, onChanges = openChanges)
                     }
                     composable("history_detail") {
                         HistoryDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
                     }
                     composable("logs_detail") {
-                        LogsDetailScreen(onBack = { navController.popBackStack() })
+                        LogsDetailScreen(onBack = { navController.popBackStack() }, initialHost = logHost)
                     }
                     composable(NavTab.SETTINGS.route) {
                         SettingsScreen(
                             ui, viewModel,
                             onOpenHelp = { navController.navigate("help") },
                             onReplayOnboarding = viewModel::replayOnboarding,
+                            onOpenPage = openSettings,
                             contentPadding = padding,
                         )
+                    }
+                    composable("connection_addresses") {
+                        com.mzstd.hxmyproxy.ui.run.ConnectionAddressesScreen(ui, { navController.popBackStack() }, openSettings, { viewModel.setShowIpv6(true) })
+                    }
+                    composable("clients_detail") {
+                        com.mzstd.hxmyproxy.ui.monitor.ClientsDetailScreen(viewModel) { navController.popBackStack() }
+                    }
+                    composable("settings_detail/{page}") { entry ->
+                        com.mzstd.hxmyproxy.ui.settings.SettingsDetailScreen(entry.arguments?.getString("page") ?: "interfaces", ui, viewModel,
+                            { navController.popBackStack() }, openSettings, { navController.navigate("help") }, viewModel::replayOnboarding)
+                    }
+                    composable("rule_changes") {
+                        com.mzstd.hxmyproxy.ui.rules.RecentRuleChangesScreen(viewModel, { navController.popBackStack() },
+                            { host -> viewModel.activityQuery.value = com.mzstd.hxmyproxy.ui.monitor.ActivityQuery(text = host); navController.navigate("top_domains") },
+                            { navController.navigate("manual_overrides") })
+                    }
+                    composable("manual_overrides") {
+                        com.mzstd.hxmyproxy.ui.rules.ManualOverridesScreen(ui, viewModel, { navController.popBackStack() }, openChanges)
+                    }
+                    composable("health_detail/{page}") { entry ->
+                        val page = entry.arguments?.getString("page")
+                        val section = when (page) { "latency" -> com.mzstd.hxmyproxy.ui.monitor.MonitorSection.LATENCY; "link" -> com.mzstd.hxmyproxy.ui.monitor.MonitorSection.LINK; else -> com.mzstd.hxmyproxy.ui.monitor.MonitorSection.CHECKS }
+                        val title = when (page) { "latency" -> R.string.monitor_latency; "link" -> R.string.ui_link_quality; else -> R.string.ui_connection_checks }
+                        com.mzstd.hxmyproxy.ui.components.DetailScaffold(stringResource(title), { navController.popBackStack() }) { inner ->
+                            MonitorScreen(ui, viewModel, { navController.navigate("history_detail") }, { openLogs("") },
+                                { navController.navigate("top_domains") }, { navController.navigate("traffic_stats") }, inner, section)
+                        }
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
                     composable("ruleset_manager") {
@@ -348,9 +386,9 @@ private fun SideNavRail(navController: NavController, destinations: List<NavTab>
     NavigationRail {
         val current = navController.currentRoute()
         // 均匀分散：两端 + 项间都用弹性空隙（近似 SpaceEvenly），横屏/展开态不再挤成一坨。
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(16.dp))
         destinations.forEachIndexed { i, dest ->
-            if (i > 0) Spacer(Modifier.weight(0.6f))
+            if (i > 0) Spacer(Modifier.height(8.dp))
             NavigationRailItem(
                 modifier = Modifier.testTag("nav_${dest.route}"),
                 selected = current == dest.route,

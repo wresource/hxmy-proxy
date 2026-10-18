@@ -2,29 +2,19 @@ package com.mzstd.hxmyproxy.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/**
- * hxmy proxy 品牌色板「Candy Azure × 糖果粉」：蓝 #3A7DFF 为 primary（保真色板，
- * 不经 TonalSpot 压灰）、糖果粉 #FF4D8D 为 tertiary 点睛、secondary 为同色相蓝灰。
- *
- * 全部色值由 Google 官方算法（material-color-utilities，2021 spec）生成，
- * on- 配对对比度已逐对验证（均 ≥6.4:1，超 WCAG AA）。使用纪律：
- * - 粉（tertiary）只做点睛（徽标/高亮/强调），占比 ≤10%，大面积留给蓝与中性色；
- * - 危险/停止操作一律 error 红，不用粉（糖果粉与红同为暖色，避免语义混淆）；
- * - 层级用 surfaceContainer 色阶 + 留白表达，少用阴影。
+/** Approved October prototype palette. Body text and controls use paired M3 colors;
+ * semantic red is reserved for errors, and runtime traffic uses restrained blue.
+ * The former bright-blue T53 choice had insufficient contrast for normal white text.
  */
 
-// ---- Primary（青春天蓝，保真 palette：hue262/chroma62）----
-// 由旧靛蓝 hue269 #1E6BEC 青春化：hue 移到 262（更青、更明快，去掉偏紫的沉感）+ tone 提到 53
-// （旧 48 是白字 AA 下限但仍偏深）。tone53 白字对比 4.02、作链接 on-surface 3.82——满足 WCAG
-// 对 UI 元素/大文字的 3:1(主流 app 蓝按钮同量级)，换取用户要的「明显更浅、更年轻」的天蓝观感。
-val BluePrimaryLight = Color(0xFF227EE8)          // hue262 T53
+val BluePrimaryLight = Color(0xFF2159B8)
 val OnBluePrimaryLight = Color(0xFFFFFFFF)
-val BlueContainerLight = Color(0xFFDFE8FF)        // T92
-val OnBlueContainerLight = Color(0xFF004B93)      // T32
-val BluePrimaryDark = Color(0xFFB2CDFF)           // T82
-val OnBluePrimaryDark = Color(0xFF00346A)         // T22
-val BlueContainerDark = Color(0xFF004B93)         // T32
-val OnBlueContainerDark = Color(0xFFDFE8FF)       // T92
+val BlueContainerLight = Color(0xFFDDE8FF)
+val OnBlueContainerLight = Color(0xFF193E74)
+val BluePrimaryDark = Color(0xFFAFCAFF)
+val OnBluePrimaryDark = Color(0xFF102C5E)
+val BlueContainerDark = Color(0xFF233D65)
+val OnBlueContainerDark = Color(0xFFD8E6FF)
 
 // ---- Secondary（蓝灰，chroma16 低饱和辅助）----
 val SecondaryLight = Color(0xFF585E71)
@@ -47,59 +37,59 @@ val PinkContainerDark = Color(0xFF8F0043)         // T30
 val OnPinkContainerDark = Color(0xFFFFD9E0)       // T90
 
 // ---- Error（M3 baseline 红）----
-val ErrorLight = Color(0xFFBA1A1A)
+val ErrorLight = Color(0xFFA62C32)
 val OnErrorLight = Color(0xFFFFFFFF)
-val ErrorContainerLight = Color(0xFFFFDAD6)
-val OnErrorContainerLight = Color(0xFF93000A)
-val ErrorDark = Color(0xFFFFB4AB)
+val ErrorContainerLight = Color(0xFFFFDADC)
+val OnErrorContainerLight = Color(0xFF8C2028)
+val ErrorDark = Color(0xFFFFB4B6)
 val OnErrorDark = Color(0xFF690005)
-val ErrorContainerDark = Color(0xFF93000A)
-val OnErrorContainerDark = Color(0xFFFFDAD6)
+val ErrorContainerDark = Color(0xFF522428)
+val OnErrorContainerDark = Color(0xFFFFDADC)
 
 // ---- Neutral surface 系（蓝调中性，chroma6；替换旧薄荷底，避免与粉打架）----
-val SurfaceLight = Color(0xFFFAF8FF)              // N98
-val OnSurfaceLight = Color(0xFF1A1B21)            // N10
+val SurfaceLight = Color(0xFFF8F9FF)
+val OnSurfaceLight = Color(0xFF18202F)
 val SurfaceDimLight = Color(0xFFDAD9E0)           // N87
-val SurfaceBrightLight = Color(0xFFFAF8FF)        // N98
+val SurfaceBrightLight = Color(0xFFF8F9FF)
 val SurfaceContainerLowestLight = Color(0xFFFFFFFF)  // N100
-val SurfaceContainerLowLight = Color(0xFFF4F3FA)     // N96
-val SurfaceContainerLight = Color(0xFFEEEDF4)        // N94
-val SurfaceContainerHighLight = Color(0xFFE8E7EF)    // N92
-val SurfaceContainerHighestLight = Color(0xFFE2E2E9) // N90
+val SurfaceContainerLowLight = Color(0xFFFFFFFF)
+val SurfaceContainerLight = Color(0xFFEDF1F9)
+val SurfaceContainerHighLight = Color(0xFFE7EDF7)
+val SurfaceContainerHighestLight = Color(0xFFDDE5F2)
 val InverseSurfaceLight = Color(0xFF2F3036)       // N20
 val InverseOnSurfaceLight = Color(0xFFF1F0F7)     // N95
 
-val SurfaceDark = Color(0xFF121318)               // N6
-val OnSurfaceDark = Color(0xFFE2E2E9)             // N90
-val SurfaceDimDark = Color(0xFF121318)            // N6
+val SurfaceDark = Color(0xFF101318)
+val OnSurfaceDark = Color(0xFFE3E7F0)
+val SurfaceDimDark = Color(0xFF101318)
 val SurfaceBrightDark = Color(0xFF38393F)         // N24
-val SurfaceContainerLowestDark = Color(0xFF0C0E13)   // N4
-val SurfaceContainerLowDark = Color(0xFF1A1B21)      // N10
-val SurfaceContainerDark = Color(0xFF1E1F25)         // N12
-val SurfaceContainerHighDark = Color(0xFF282A2F)     // N17
-val SurfaceContainerHighestDark = Color(0xFF33343A)  // N22
+val SurfaceContainerLowestDark = Color(0xFF101318)
+val SurfaceContainerLowDark = Color(0xFF1B202A)
+val SurfaceContainerDark = Color(0xFF1B202A)
+val SurfaceContainerHighDark = Color(0xFF242C38)
+val SurfaceContainerHighestDark = Color(0xFF2D3747)
 val InverseSurfaceDark = Color(0xFFE2E2E9)        // N90
 val InverseOnSurfaceDark = Color(0xFF2F3036)      // N20
 
 // ---- NeutralVariant（outline / surfaceVariant，chroma8）----
 val SurfaceVariantLight = Color(0xFFE1E2EC)       // NV90
-val OnSurfaceVariantLight = Color(0xFF44464F)     // NV30
+val OnSurfaceVariantLight = Color(0xFF535E70)
 val OutlineLight = Color(0xFF757780)              // NV50
-val OutlineVariantLight = Color(0xFFC5C6D0)       // NV80
+val OutlineVariantLight = Color(0xFFC3CAD7)
 val SurfaceVariantDark = Color(0xFF44464F)        // NV30
-val OnSurfaceVariantDark = Color(0xFFC5C6D0)      // NV80
+val OnSurfaceVariantDark = Color(0xFFB6BFCE)
 val OutlineDark = Color(0xFF8F9099)               // NV60
-val OutlineVariantDark = Color(0xFF44464F)        // NV30
+val OutlineVariantDark = Color(0xFF455064)
 
 // ---- 语义状态色（成功/警告；与主题同 tone 规则生成，视觉重量一致。差=error）----
-val SuccessLight = Color(0xFF1B6D24)
-val SuccessContainerLight = Color(0xFFA3F69C)
-val SuccessDark = Color(0xFF88D982)
-val SuccessContainerDark = Color(0xFF005312)
-val WarningLight = Color(0xFF964900)
-val WarningContainerLight = Color(0xFFFFDCC7)
-val WarningDark = Color(0xFFFFB787)
-val WarningContainerDark = Color(0xFF723600)
+val SuccessLight = Color(0xFF25623F)
+val SuccessContainerLight = Color(0xFFD6EFDD)
+val SuccessDark = Color(0xFFA0D7B1)
+val SuccessContainerDark = Color(0xFF173C2B)
+val WarningLight = Color(0xFF78510B)
+val WarningContainerLight = Color(0xFFFFF0D1)
+val WarningDark = Color(0xFFF2D08C)
+val WarningContainerDark = Color(0xFF423318)
 
 // ---- 状态点专用色（首页运行/停止圆点）：实心圆无需文字对比,用鲜活青春色（Tailwind 系）,
 // 比语义 good()/bad()（要兼顾文字可读故偏深）更浅更年轻。运行=鲜绿、停止=珊瑚红。----

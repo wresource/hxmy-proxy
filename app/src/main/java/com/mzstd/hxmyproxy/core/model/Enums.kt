@@ -87,7 +87,7 @@ enum class DohEgressChoice { FOLLOW_DIRECT, DEFAULT, ETHERNET, WIFI, CELLULAR }
  * 不涉及出口身份，救回来反而是纯收益。
  */
 enum class EgressFallback {
-    /** 指定出口连不通 → 降级默认路由重试（旧行为，保可用） */
+    /** 指定出口连不通 → 按物理出口优先级选另一张明确的网络重试。 */
     DEGRADE,
     /** 指定出口连不通 → 直接断开，绝不换路（保出口身份） */
     STRICT,

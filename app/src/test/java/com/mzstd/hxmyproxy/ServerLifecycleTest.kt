@@ -27,7 +27,7 @@ class ServerLifecycleTest {
 
     private fun newServer() = Socks5ProxyServer(
         Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-        OutboundConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
+        testConnector(allowAll), RelayEngine(), { NoAuthAuthenticator }, { ConnectionLimits() },
         Dispatchers.IO,
     )
 
@@ -50,7 +50,7 @@ class ServerLifecycleTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = newServer()
 
-        server.start(scope, 0)
+        server.start(scope, 0, ProxyTestKit.loopback)
         assertTrue(awaitPort(server) > 0)
 
         server.stop()
@@ -58,7 +58,7 @@ class ServerLifecycleTest {
         assertNull("停止后 boundPort 应为 null", server.boundPort.value)
 
         // 重启（新临时端口）—— 依赖 SO_REUSEADDR
-        server.start(scope, 0)
+        server.start(scope, 0, ProxyTestKit.loopback)
         assertTrue(awaitPort(server) > 0)
 
         server.stop()
@@ -69,14 +69,14 @@ class ServerLifecycleTest {
     fun fixedPortReboundAfterStop() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = newServer()
-        server.start(scope, 0)
+        server.start(scope, 0, ProxyTestKit.loopback)
         val port = awaitPort(server)
         server.stop()
         awaitCleared(server)
         assertNull(server.boundPort.value)
 
         val server2 = newServer()
-        server2.start(scope, port)   // 同端口重启验证可重绑
+        server2.start(scope, port, ProxyTestKit.loopback)   // 同端口重启验证可重绑
         assertTrue(awaitPort(server2) == port)
         server2.stop()
         scope.cancel()
@@ -87,12 +87,12 @@ class ServerLifecycleTest {
     fun bindFailureSurfacesErrorWithoutCrashing() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val first = newServer()
-        first.start(scope, 0)
+        first.start(scope, 0, ProxyTestKit.loopback)
         val port = awaitPort(first)
 
         // 第二台抢同一正在监听的端口 → bind 必失败。
         val second = newServer()
-        second.start(scope, port)
+        second.start(scope, port, ProxyTestKit.loopback)
 
         assertEquals(ProxyError.PortInUse, awaitBindError(second))
         assertNull("bind 失败不应绑定端口", second.boundPort.value)

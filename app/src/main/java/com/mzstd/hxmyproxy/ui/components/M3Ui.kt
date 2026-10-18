@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,6 +19,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,56 +44,31 @@ import com.mzstd.hxmyproxy.R
  * 列表**不用行间 divider**；提示文字收进 ⓘ 弹层。
  */
 
-/**
- * M3 outlined segmented button（tab 内分段横切的唯一控件）。
- * 官方形态：整体 full 胶囊 + 1dp outlineVariant 外框 + 段间竖分隔线，
- * 选中段 primaryContainer 填充（品牌蓝语汇，替代默认 secondaryContainer——与底栏指示一致）。
- */
+/** Native primary tabs with explicit selection semantics and a 48dp touch target. */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun SegTabs(
     labels: List<String>,
     selected: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(40.dp)
-            .clip(CircleShape)
-            .border(1.dp, cs.outlineVariant, CircleShape)
-            .background(cs.surfaceContainerLowest),
+    PrimaryTabRow(
+        selectedTabIndex = selected.coerceIn(labels.indices),
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.primary,
+        divider = {},
     ) {
         labels.forEachIndexed { i, label ->
-            if (i > 0) {
-                Box(
-                    Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(cs.outlineVariant),
-                )
-            }
-            val on = i == selected
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(if (on) cs.primaryContainer else cs.surfaceContainerLowest)
-                    .clickable { onSelect(i) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (on) cs.onPrimaryContainer else cs.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
+            Tab(
+                selected = selected == i,
+                onClick = { onSelect(i) },
+                modifier = Modifier.heightIn(min = 48.dp),
+                text = { Text(label, style = MaterialTheme.typography.labelLarge,
+                    maxLines = 2, textAlign = TextAlign.Center) },
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -101,7 +80,7 @@ fun SegTabs(
 @Composable
 fun InfoDot(title: String, body: String, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
-    IconButton(onClick = { open = true }, modifier = modifier.size(36.dp)) {
+    IconButton(onClick = { open = true }, modifier = modifier.size(48.dp)) {
         Icon(
             painterResource(R.drawable.ic_b_info),
             contentDescription = title,
@@ -110,13 +89,8 @@ fun InfoDot(title: String, body: String, modifier: Modifier = Modifier) {
         )
     }
     if (open) {
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text(title) },
-            text = { Text(body) },
-            confirmButton = {
-                TextButton(onClick = { open = false }) { Text(stringResource(R.string.done)) }
-            },
-        )
+        InteractionSheet(title, { open = false }) {
+            Text(body, style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }

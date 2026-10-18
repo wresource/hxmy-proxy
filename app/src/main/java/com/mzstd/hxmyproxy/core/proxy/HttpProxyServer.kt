@@ -122,7 +122,7 @@ class HttpProxyServer(
                 // 建连阶段的硬上限（不含之后的 relay，隧道本身必须能长期存在）。
                 // 超时折成 RemoteTimeout 抛出，复用下面既有的错误路径回 504——
                 // 代理**先于客户端放弃**并给出状态码，好过让客户端干等到自己超时（见 CONNECT_PHASE_TIMEOUT_MS）。
-                withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                     connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
             } catch (e: ProxyException) {
@@ -141,14 +141,17 @@ class HttpProxyServer(
                 null
             }
             if (upstreamCh != null) {
-                output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
-                output.flush()
-                channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
-                upstreamCh.configureBlocking(false)
-                nioReactor.relay(
-                    channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
-                    host = hp.first, trace = trace, onTraffic = onBytes,
-                )
+                // relay 挂起至隧道结束；调用前的回复、模式切换及取消也归这个所有权范围。
+                upstreamCh.use {
+                    output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+                    output.flush()
+                    channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
+                    upstreamCh.configureBlocking(false)
+                    nioReactor.relay(
+                        channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
+                        host = hp.first, trace = trace, onTraffic = onBytes,
+                    )
+                }
                 return
             }
         }
@@ -156,7 +159,7 @@ class HttpProxyServer(
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         var timedOutBlocking = false
         val upstream = try {
-            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+            acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
             } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
         } catch (e: ProxyException) {
@@ -188,11 +191,13 @@ class HttpProxyServer(
             )
             return
         }
-        output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
-        output.flush()
-        val client = channel.socket()
-        client.soTimeout = 0
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+        upstream.use {
+            output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+            output.flush()
+            val client = channel.socket()
+            client.soTimeout = 0
+            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+        }
     }
 
     /**
@@ -239,7 +244,7 @@ class HttpProxyServer(
         Log.i("hxmyproxy", "HTTP $method -> $host:$port")
         var plainTimedOut = false
         val upstream = try {
-            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+            acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 connector.connect(
                     host, port,
                     bypassVpn = action == RuleAction.DIRECT,
@@ -255,6 +260,11 @@ class HttpProxyServer(
                 *retryAfterHeader(e),
                 body = if (wantsBody) failureBody(host, port, e.error) else null,
             )
+            return false
+        } catch (e: IOException) {
+            trace.failed(host, "connect-io", e.javaClass.simpleName)
+            writeStatus(output, 502, "Bad Gateway",
+                body = if (wantsBody) failureBody(host, port, ProxyError.RemoteUnreachable) else null)
             return false
         }
         // 本次转发的收发字节:这条路径不经过 reactor，没有 Tunnel 帮忙记账。

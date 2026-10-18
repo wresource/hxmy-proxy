@@ -18,6 +18,7 @@ import com.mzstd.hxmyproxy.core.model.DirectEgressChoice
 import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.RuleInput
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,9 @@ class SettingsRepository @Inject constructor(
         .map { it.toSettings() }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default)
+
+    /** 进程级日志策略只读取一个布尔值，不在Application初始化时解析所有规则JSON。 */
+    val loggingEnabled: Flow<Boolean> = ds.data.map { it[LOG_ENABLED] ?: true }.distinctUntilChanged()
 
     suspend fun update(transform: (ProxySettings) -> ProxySettings) {
         ds.edit { prefs -> transform(prefs.toSettings()).writeTo(prefs) }
@@ -121,6 +125,34 @@ class SettingsRepository @Inject constructor(
                 }
                 n++
             }
+            // edit is one DataStore transaction: a malformed backup must leave the
+            // previous settings intact, not restore a mixture containing dead rules.
+            fun rule(value: String) = requireNotNull(RuleInput.normalize(value)) {
+                "Invalid rule in settings backup: $value"
+            }
+            val imported = prefs.toSettings()
+            fun entries(values: List<RuleEntry>): List<RuleEntry> {
+                val normalized = values.map { it.copy(value = rule(it.value)) }
+                require(normalized.map { it.value }.distinct().size == normalized.size) {
+                    "Duplicate normalized rules in settings backup"
+                }
+                return normalized
+            }
+            val overrides = linkedMapOf<String, RuleAction>()
+            imported.hostOverrides.forEach { (value, action) ->
+                val normalized = rule(value)
+                require(overrides[normalized] == null || overrides[normalized] == action) {
+                    "Conflicting normalized host overrides in settings backup"
+                }
+                overrides[normalized] = action
+            }
+            imported.copy(
+                userDirectRules = entries(imported.userDirectRules),
+                userRejectRules = entries(imported.userRejectRules),
+                userRuleSets = imported.userRuleSets.map { set -> set.copy(domains = set.domains.map(::rule).distinct()) },
+                ruleSetOverrides = imported.ruleSetOverrides.mapValues { (_, rules) -> rules.map(::rule).distinct() },
+                hostOverrides = overrides,
+            ).writeTo(prefs)
             prefs[ONBOARDING_DONE] = true
         }
         return n

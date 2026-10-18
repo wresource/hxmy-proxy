@@ -80,7 +80,10 @@ class DomainSuffixSet {
     companion object {
         /** 小写、去首尾空白与尾点，按 '.' 切分；空或含空标签返回 null。 */
         fun normalize(host: String): List<String>? {
-            val h = host.trim().lowercase().trimEnd('.')
+            val raw = host.trim().lowercase(java.util.Locale.ROOT).trimEnd('.')
+            // Keep the established ASCII asset path fast and unchanged. International
+            // request hosts and stored IDN rules must use the same ASCII labels.
+            val h = if (raw.any { it.code > 127 }) RuleInput.canonicalDomain(raw) ?: return null else raw
             if (h.isEmpty()) return null
             val labels = h.split('.')
             if (labels.any { it.isEmpty() }) return null

@@ -1,12 +1,14 @@
 package com.mzstd.hxmyproxy
 
 import android.net.Network
+import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
 import com.mzstd.hxmyproxy.core.proxy.ProxyError
 import com.mzstd.hxmyproxy.core.proxy.ProxyException
 import com.mzstd.hxmyproxy.core.security.EgressGuard
 import com.mzstd.hxmyproxy.core.stats.EgressKind
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -16,6 +18,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
+import com.mzstd.hxmyproxy.core.network.SystemDnsLookup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -38,8 +45,19 @@ class OutboundConnectorTest {
 
     private val allowAll = object : EgressGuard { override fun isAllowed(addr: InetAddress) = true }
 
+    // Use ordinary names with explicit DNS fixtures. localhost/invalid now have real special-name behavior.
+    private fun controlledDns(dispatcher: CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO, defaultSucceeds: Boolean = false) =
+        SystemDnsLookup { network, host -> runInterruptible(dispatcher) {
+            when {
+                network != null -> network.getAllByName(host).toList()
+                defaultSucceeds -> listOf(InetAddress.getByName("127.0.0.1"))
+                else -> throw UnknownHostException("controlled default NXDOMAIN")
+            }
+        } }
+
+
     @Test(timeout = 10000) fun ordersIpv4First() {
-        val c = OutboundConnector(allowAll)
+        val c = testConnector(allowAll)
         val v6a = InetAddress.getByName("::1")
         val v4 = InetAddress.getByName("127.0.0.1")
         val v6b = InetAddress.getByName("2001:db8::1")
@@ -52,7 +70,7 @@ class OutboundConnectorTest {
         val echo = startEcho()
         // 阻断 10.1.2.3，放行 loopback —— 被护栏拦的地址不参与连接
         val guard = object : EgressGuard { override fun isAllowed(addr: InetAddress) = addr.hostAddress != "10.1.2.3" }
-        val c = OutboundConnector(guard)
+        val c = testConnector(guard)
         val s = c.connectAny(
             listOf(InetAddress.getByName("10.1.2.3"), InetAddress.getByName("127.0.0.1")),
             echo.localPort,
@@ -70,7 +88,7 @@ class OutboundConnectorTest {
      */
     @Test(timeout = 4500) fun racesPastUnreachableFirstToReachableSecond() = runBlocking {
         val echo = startEcho()
-        val c = OutboundConnector(allowAll)
+        val c = testConnector(allowAll)
         val s = c.connectAny(
             listOf(InetAddress.getByName("192.0.2.1"), InetAddress.getByName("127.0.0.1")),
             echo.localPort,
@@ -86,13 +104,13 @@ class OutboundConnectorTest {
     }
 
     @Test(timeout = 10000) fun emptyAddressesThrows() = runBlocking {
-        try { OutboundConnector(allowAll).connectAny(emptyList(), 80); fail("应抛 ProxyException") }
+        try { testConnector(allowAll).connectAny(emptyList(), 80); fail("应抛 ProxyException") }
         catch (e: ProxyException) { /* ok */ }
     }
 
     @Test(timeout = 10000) fun allBlockedThrows() = runBlocking {
         val guard = object : EgressGuard { override fun isAllowed(addr: InetAddress) = false }
-        try { OutboundConnector(guard).connectAny(listOf(InetAddress.getByName("127.0.0.1")), 9); fail("应抛 ProxyException") }
+        try { testConnector(guard).connectAny(listOf(InetAddress.getByName("127.0.0.1")), 9); fail("应抛 ProxyException") }
         catch (e: ProxyException) { /* ok */ }
     }
 
@@ -114,7 +132,7 @@ class OutboundConnectorTest {
      * 挤出扇出窗口——表现成「偶发地某些站点首屏特别慢」，且完全无从复现。
      */
     @Test fun `IPv4 优先且同族内保持传入顺序`() {
-        val c = OutboundConnector(allowAll)
+        val c = testConnector(allowAll)
         val v4a = InetAddress.getByName("203.0.113.1")
         val v4b = InetAddress.getByName("203.0.113.2")
         val v6a = InetAddress.getByName("2001:db8::1")
@@ -131,13 +149,13 @@ class OutboundConnectorTest {
      * 0x02 变成 0x04 —— 用户照着「DNS 失败」去换 DNS、关备用 DNS 折腾半天，而真凶是禁私网开关。
      */
     @Test(timeout = 10000) fun `候选为空时区分「解析不出」与「被护栏全拦」两种错因`() = runBlocking {
-        val e1 = runCatching { OutboundConnector(allowAll).connectAny(emptyList(), 80) }.exceptionOrNull()
+        val e1 = runCatching { testConnector(allowAll).connectAny(emptyList(), 80) }.exceptionOrNull()
         assertTrue("空地址应抛 ProxyException，实际：$e1", e1 is ProxyException)
         assertSame("空地址的错因应是 DNS 失败", ProxyError.DnsFailure, (e1 as ProxyException).error)
 
         val denyAll = object : EgressGuard { override fun isAllowed(addr: InetAddress) = false }
         val e2 = runCatching {
-            OutboundConnector(denyAll).connectAny(listOf(InetAddress.getByName("127.0.0.1")), 80)
+            testConnector(denyAll).connectAny(listOf(InetAddress.getByName("127.0.0.1")), 80)
         }.exceptionOrNull()
         assertTrue("全被拦应抛 ProxyException，实际：$e2", e2 is ProxyException)
         assertSame("被护栏拦下的错因应是 AccessDenied", ProxyError.AccessDenied, (e2 as ProxyException).error)
@@ -152,7 +170,7 @@ class OutboundConnectorTest {
         // 先占一个端口再立刻释放：拿到一个几乎必然无人监听的端口号。
         val deadPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         val e = runCatching {
-            OutboundConnector(allowAll).connectAny(listOf(InetAddress.getByName("127.0.0.1")), deadPort)
+            testConnector(allowAll).connectAny(listOf(InetAddress.getByName("127.0.0.1")), deadPort)
         }.exceptionOrNull()
         assertTrue("应抛 ProxyException，实际：$e", e is ProxyException)
         assertSame(ProxyError.ConnectionRefused, (e as ProxyException).error)
@@ -170,7 +188,7 @@ class OutboundConnectorTest {
         try {
             val blackholes = (1..6).map { InetAddress.getByName("192.0.2.$it") }
             val r = runCatching {
-                OutboundConnector(allowAll).connectAny(blackholes + InetAddress.getByName("127.0.0.1"), echo.port)
+                testConnector(allowAll).connectAny(blackholes + InetAddress.getByName("127.0.0.1"), echo.port)
             }
             r.getOrNull()?.close()
             delay(300)   // 给 accept 线程留出把「本不该发生的连接」记上一笔的时间
@@ -202,7 +220,7 @@ class OutboundConnectorTest {
             val blackholes = (1..6).map { InetAddress.getByName("192.0.2.$it") }
             val v6 = InetAddress.getByName("::1")
             val r = runCatching {
-                OutboundConnector(allowAll).connectAny(blackholes + v6, echo.port)
+                testConnector(allowAll).connectAny(blackholes + v6, echo.port)
             }
             r.getOrNull()?.close()
             delay(300)
@@ -215,7 +233,7 @@ class OutboundConnectorTest {
 
     /** 按族配额截断的边界：单族不受影响、族内与族间顺序不变、次要族不得挤光主要族。 */
     @Test fun `按族配额截断的边界行为`() {
-        val c = OutboundConnector(allowAll)
+        val c = testConnector(allowAll)
         val v4 = (1..8).map { InetAddress.getByName("203.0.113.$it") }
         val v6 = (1..3).map { InetAddress.getByName("2001:db8::$it") }
 
@@ -255,13 +273,14 @@ class OutboundConnectorTest {
             every { net.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             every { net.socketFactory } returns SocketFactory.getDefault()
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns net
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, net)
             every { provider.current() } returns null
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
 
-            val c = OutboundConnector(allowAll, dnsDispatcher = dns, underlyingNetworkProvider = provider)
+            val c = testConnector(allowAll, dnsDispatcher = dns, underlyingNetworkProvider = provider)
             c.connect("cached.example", echo.port).close()
             val n1 = dns.dispatches.get()
             assertTrue("首次必须真的解析一次", n1 >= 1)
@@ -279,9 +298,9 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         val dns = CountingDispatcher()
         try {
-            val c = OutboundConnector(allowAll, dnsDispatcher = dns)
+            val c = testConnector(allowAll, dnsDispatcher = dns, systemDns = controlledDns(dns, defaultSucceeds = true))
             coroutineScope {
-                repeat(6) { launch { runCatching { c.connect("localhost", echo.port).close() } } }
+                repeat(6) { launch { runCatching { c.connect("cache.example.test", echo.port).close() } } }
             }
             assertEquals("6 条并发对同一域名应只触发 1 次真实解析", 1, dns.dispatches.get())
         } finally { echo.close() }
@@ -296,11 +315,11 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         val dns = CountingDispatcher()
         try {
-            val c = OutboundConnector(allowAll, dnsDispatcher = dns)
-            c.connect("localhost", echo.port).close()
+            val c = testConnector(allowAll, dnsDispatcher = dns, systemDns = controlledDns(dns, defaultSucceeds = true))
+            c.connect("cache.example.test", echo.port).close()
             val n1 = dns.dispatches.get()
             assertTrue("首次连接应真的做过一次解析", n1 >= 1)
-            c.connect("localhost", echo.port).close()
+            c.connect("cache.example.test", echo.port).close()
             assertEquals("TTL 内第二次连接又去解析了一遍 —— DNS 缓存没生效", n1, dns.dispatches.get())
         } finally { echo.close() }
     }
@@ -314,11 +333,11 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         val dns = CountingDispatcher()
         try {
-            val c = OutboundConnector(allowAll, dnsDispatcher = dns)
-            c.connect("localhost", echo.port).close()
+            val c = testConnector(allowAll, dnsDispatcher = dns, systemDns = controlledDns(dns, defaultSucceeds = true))
+            c.connect("cache.example.test", echo.port).close()
             val n1 = dns.dispatches.get()
             c.clearDnsCache()
-            c.connect("localhost", echo.port).close()
+            c.connect("cache.example.test", echo.port).close()
             assertTrue("清缓存后没有重新解析 —— 换网后仍会用旧网络的 IP", dns.dispatches.get() > n1)
         } finally { echo.close() }
     }
@@ -330,9 +349,9 @@ class OutboundConnectorTest {
      */
     @Test(timeout = 20000) fun `解析失败不进缓存`() = runBlocking {
         val dns = CountingDispatcher()
-        val c = OutboundConnector(allowAll, dnsDispatcher = dns)
+        val c = testConnector(allowAll, dnsDispatcher = dns, systemDns = controlledDns(dns))
         c.backupDnsEnabled = false
-        val bad = "hxmy-no-such-host.invalid"   // RFC2606 保留 TLD，永不解析
+        val bad = "missing.example.test"   // controlled negative result; invalid would short-circuit before DNS
         runCatching { c.connect(bad, 80) }
         val n1 = dns.dispatches.get()
         assertTrue("首次失败也应真的尝试过解析", n1 >= 1)
@@ -346,7 +365,7 @@ class OutboundConnectorTest {
      * 全部归进「未知错误」，用户看到的诊断信息与真实原因（域名解析不出来）对不上。
      */
     @Test(timeout = 20000) fun `解析全败时抛 DnsFailure 而不是让 UnknownHostException 冒泡`() = runBlocking {
-        val c = OutboundConnector(allowAll)
+        val c = testConnector(allowAll)
         c.backupDnsEnabled = false   // 不打真实 DoH：单测不依赖外网
         val e = runCatching { c.connect("hxmy-no-such-host.invalid", 80) }.exceptionOrNull()
         assertTrue("应抛 ProxyException，实际：$e", e is ProxyException)
@@ -365,12 +384,15 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         try {
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.current() } returns null   // 仅 VPN 在线
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.current() } returns null   // selected Wi-Fi is absent, cellular still exists
+            every { provider.availablePhysicalTransports() } returns listOf(com.mzstd.hxmyproxy.core.model.DirectEgressChoice.CELLULAR)
+            every { provider.directEgressChoice() } returns com.mzstd.hxmyproxy.core.model.DirectEgressChoice.WIFI
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
             // egressNetwork() 故意不打桩：走错槽会立刻炸出 MockKException，与「正确 fail-closed」清晰可辨。
-            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
+            val c = testConnector(allowAll, underlyingNetworkProvider = provider)
             val loopback = InetAddress.getByName("127.0.0.1")
             // 连上了就顺手关掉并记 null——「没抛异常」本身就是失败信号（等于 DIRECT 流量被放了出去）。
             val errors = linkedMapOf<String, Throwable?>()
@@ -384,12 +406,12 @@ class OutboundConnectorTest {
             for ((name, e) in errors) {
                 assertTrue("$name 没有 fail-closed，而是把 DIRECT 流量放了出去", e != null)
                 assertTrue("$name 抛的不是 ProxyException：$e", e is ProxyException)
-                assertSame("$name 的错因应是 AccessDenied", ProxyError.AccessDenied, (e as ProxyException).error)
+                assertSame("$name should identify the missing selected direct egress", ProxyError.DirectEgressUnavailable, (e as ProxyException).error)
             }
             delay(300)
             assertEquals("fail-closed 时不该有任何连接真的发出去", 0, echo.accepted.get())
-            verify(exactly = 4) { provider.current() }
-            verify(exactly = 0) { provider.egressNetwork() }
+            verify(exactly = 8) { provider.current() } // each entry checks before and after initial callback waiting
+            verify(exactly = 0) { provider.egressSelection() }
         } finally { echo.close() }
     }
 
@@ -399,13 +421,14 @@ class OutboundConnectorTest {
      * 错了（把 fail-closed 也套到 PROXY 上）会表现成：用户出口选 AUTO 就整体连不上网。
      * 同时验证 PROXY 路径**不**去读 DIRECT 槽 current()。
      */
-    @Test(timeout = 15000) fun `PROXY 路径拿不到指定出口时走系统默认而不是断开`() = runBlocking {
+    @Test(timeout = 15000) fun `PROXY 选择 AUTO 时使用系统默认路由`() = runBlocking {
         val echo = CountingEcho()
         try {
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns null   // AUTO
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.AUTO, null)   // AUTO
             // current() 不打桩：PROXY 路径一旦误读 DIRECT 槽就会炸。
-            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
+            val c = testConnector(allowAll, underlyingNetworkProvider = provider)
             val s = c.connect(InetAddress.getByName("127.0.0.1"), echo.port)
             assertTrue(s.isConnected)
             assertEquals("hi", echoRoundTrip(s))
@@ -423,7 +446,7 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         try {
             var reported = 0
-            val c = OutboundConnector(allowAll)   // egressClassifier = null
+            val c = testConnector(allowAll)   // egressClassifier = null
             c.connect(InetAddress.getByName("127.0.0.1"), echo.port, onEgress = { reported++ }).close()
             assertEquals("归类器缺席时不该上报任何出口", 0, reported)
         } finally { echo.close() }
@@ -439,7 +462,7 @@ class OutboundConnectorTest {
         val echo = CountingEcho()
         try {
             val kinds = mutableListOf<EgressKind>()
-            val c = OutboundConnector(
+            val c = testConnector(
                 allowAll,
                 egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
             )
@@ -464,14 +487,15 @@ class OutboundConnectorTest {
             every { net.getAllByName(any()) } throws UnknownHostException("模拟出口网络 DNS 失败")
             every { net.socketFactory } returns SocketFactory.getDefault()
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns net
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, net)
             every { provider.current() } returns null   // 本例只验「默认网络」这一路，物理网缺席
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
 
             val kinds = mutableListOf<EgressKind>()
-            val c = OutboundConnector(
+            val c = testConnector(
                 allowAll,
                 underlyingNetworkProvider = provider,
                 egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
@@ -500,7 +524,7 @@ class OutboundConnectorTest {
     @Test(timeout = 15000) fun `出口网与默认网络同源失效时物理网必须能救回解析`() = runBlocking {
         val echo = CountingEcho()
         try {
-            val host = "nonexistent-hxmy-probe.invalid"
+            val host = "nonexistent-hxmy-probe.example.test"
             val egress = mockk<Network>()
             every { egress.networkHandle } returns 102L   // 缓存键按 netId 分桶，mock 必须给
             every { egress.getAllByName(any()) } throws UnknownHostException("模拟出口网(VPN) DNS 失败")
@@ -509,16 +533,17 @@ class OutboundConnectorTest {
             every { phy.networkHandle } returns 103L   // 缓存键按 netId 分桶，mock 必须给
             every { phy.getAllByName(host) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns egress
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, egress)
             every { provider.current() } returns phy
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
 
             val kinds = mutableListOf<EgressKind>()
-            val c = OutboundConnector(
+            val c = testConnector(
                 allowAll,
-                underlyingNetworkProvider = provider,
+                underlyingNetworkProvider = provider, systemDns = controlledDns(),
                 egressClassifier = { n -> if (n == null) EgressKind.VPN else EgressKind.WIFI },
             ).apply { backupDnsEnabled = false }   // 单测不打真实 DoH
             val s = c.connect(host, echo.port, onEgress = { kinds.add(it) })
@@ -540,21 +565,22 @@ class OutboundConnectorTest {
         every { net.networkHandle } returns 104L   // 缓存键按 netId 分桶，mock 必须给
         every { net.getAllByName(any()) } throws UnknownHostException("模拟出口网络 DNS 失败")
         val provider = mockk<UnderlyingNetworkProvider>()
-        every { provider.egressNetwork() } returns net
+        coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+        every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, net)
         every { provider.current() } returns null   // 降级重试时的互援也拿不到底层网络
         // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
         every { provider.sincePhysChangeSec() } returns -1
         every { provider.vpnAgeSec() } returns -1
 
         var reported = 0
-        val c = OutboundConnector(
+        val c = testConnector(
             allowAll,
-            underlyingNetworkProvider = provider,
+            underlyingNetworkProvider = provider, systemDns = controlledDns(),
             egressClassifier = { EgressKind.OTHER },
         )
         c.backupDnsEnabled = false
         val e = runCatching {
-            c.connect("hxmy-no-such-host.invalid", 80, onEgress = { reported++ })
+            c.connect("hxmy-no-such-host.example.test", 80, onEgress = { reported++ })
         }.exceptionOrNull()
         assertTrue("应抛 ProxyException，实际：$e", e is ProxyException)
         assertSame(ProxyError.DnsFailure, (e as ProxyException).error)
@@ -586,11 +612,12 @@ class OutboundConnectorTest {
             every { alt.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             every { alt.socketFactory } returns javax.net.SocketFactory.getDefault()
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns net
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, net)
             every { provider.fallbackEgress(any()) } returns alt
 
             val kinds = mutableListOf<EgressKind>()
-            val c = OutboundConnector(
+            val c = testConnector(
                 allowAll,
                 underlyingNetworkProvider = provider,
                 // 替代网络归 WIFI 档,最初的出口归 VPN 档——两者必须能区分,
@@ -607,7 +634,7 @@ class OutboundConnectorTest {
             assertEquals("上报的仍是降级前的出口 —— 流量会被记到错误的那一档", listOf(EgressKind.WIFI), kinds)
             // 出口槽被读到（返回非空 net），而最终上报的是替代网络的档位 ——
             // 二者合起来才说明「先试出口、失败后换一张」这条路真的走完了，而不是一开始就没绑出口。
-            verify(exactly = 1) { provider.egressNetwork() }
+            verify(exactly = 1) { provider.egressSelection() }
             // **降级时必须把刚失败的那条传进去排除**，否则可能又挑回同一张网。
             verify(exactly = 1) { provider.fallbackEgress(net) }
         } finally { echo.close() }
@@ -621,7 +648,7 @@ class OutboundConnectorTest {
     @Test(timeout = 15000) fun `connectChannel 交出的是已连接且仍处于阻塞模式的通道`() = runBlocking {
         val echo = CountingEcho()
         try {
-            val ch = OutboundConnector(allowAll).connectChannel("localhost", echo.port)
+            val ch = testConnector(allowAll).connectChannel("localhost", echo.port)
             assertTrue("通道未连接", ch.isConnected)
             assertTrue("通道被提前切成了非阻塞，调用方的首次读写会读到 0 字节", ch.isBlocking)
             ch.write(ByteBuffer.wrap("hi".toByteArray()))
@@ -651,6 +678,56 @@ class OutboundConnectorTest {
      * 与 [startEcho] 一样只绑 127.0.0.1（不绑通配，免得触发 macOS 防火墙的入站询问）——
      * 以域名 "localhost" 发起的用例靠 orderAddresses 的 IPv4 优先落到这里。
      */
+
+    @Test(timeout = 15000) fun `所有指定出口丢失时STRICT四个入口均不走默认路由`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            for (choice in EgressNetworkChoice.entries.filter { it != EgressNetworkChoice.AUTO }) {
+                val provider = mockk<UnderlyingNetworkProvider>()
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+                every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(choice, null)
+                val c = testConnector(allowAll, underlyingNetworkProvider = provider)
+                val address = InetAddress.getByName("127.0.0.1")
+                val attempts: List<suspend () -> Closeable> = listOf(
+                    { c.connect("127.0.0.1", echo.port) }, { c.connect(address, echo.port) },
+                    { c.connectChannel("127.0.0.1", echo.port) }, { c.connectChannel(address, echo.port) },
+                )
+                for (attempt in attempts) {
+                    val failure = runCatching { attempt().close() }.exceptionOrNull()
+                    assertTrue("$choice 应拒绝：$failure", failure is ProxyException)
+                    assertEquals("egress-unavailable", (failure as ProxyException).stage)
+                }
+                verify(exactly = 0) { provider.fallbackEgress(any()) }
+                verify(exactly = 0) { provider.current() }
+            }
+            assertEquals("可达的本机目标也不该收到连接", 0, echo.accepted.get())
+        } finally { echo.close() }
+    }
+
+    @Test(timeout = 15000) fun `缺失和被隔离出口的DEGRADE都显式绑定物理替代网络`() = runBlocking {
+        val echo = CountingEcho()
+        try {
+            for (missing in listOf(true, false)) {
+                val chosen = mockk<Network>()
+                every { chosen.networkHandle } returns 501L
+                val physical = mockk<Network>()
+                every { physical.networkHandle } returns 502L
+                every { physical.socketFactory } returns SocketFactory.getDefault()
+                val provider = mockk<UnderlyingNetworkProvider>()
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+                every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, if (missing) null else chosen)
+                every { provider.fallbackEgress(if (missing) null else chosen) } returns physical
+                val health = com.mzstd.hxmyproxy.core.network.EgressHealth(probe = { false })
+                if (!missing) health.confirmOrSideline(chosen)
+                val c = testConnector(allowAll, underlyingNetworkProvider = provider, egressHealth = health).apply {
+                    egressFallback = com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE
+                }
+                c.connect("127.0.0.1", echo.port).use { assertEquals("hi", echoRoundTrip(it)) }
+                verify(atLeast = 1) { physical.socketFactory }
+                verify(exactly = 1) { provider.fallbackEgress(if (missing) null else chosen) }
+            }
+        } finally { echo.close() }
+    }
 
     private class CountingEcho(bindAddr: String = "127.0.0.1") {
         val server: ServerSocket = ServerSocket(0, 50, InetAddress.getByName(bindAddr))
@@ -710,49 +787,34 @@ class OutboundConnectorTest {
         return s
     }
 
-    /**
-     * **0806 日志实证的浪费的回归**：出口网解析慢时，必须靠对冲抢答提前拿到结果，
-     * 而不是干等满 DNS_STEP_TIMEOUT_MS(1500ms) 再去救。
-     *
-     * 现场数据（1.25.0，32.4 小时）：出口网解析失败 239 次，其中 **102 次是整整等满 1500ms**；
-     * 而失败后走互援救回来的耗时中位只有 **510ms**。也就是每次都先白等 1.5 秒。
-     * 失败域名高度集中（captive.apple.com 18 次、docs.qq.com 13 次、腾讯遥测、keplr 的一堆 RPC），
-     * 是「特定域名在出口网上稳定解析不出来」，不是随机抖动。
-     *
-     * 这里让出口网 sleep 到超过单步超时才返回，物理网立刻可用：
-     * 改动前必然要等满 1500ms（对冲不存在），改动后应在对冲延迟 400ms 后不久拿到结果。
-     * 判据取 1200ms —— 明显低于 1500ms 的旧下界，又给 CI 上的调度抖动留足余量。
-     */
-    @Test(timeout = 20000) fun `出口网解析慢时对冲抢答必须提前拿到结果`() = runBlocking {
+    /** 400ms 预取保留；原来 cost<1200 的断言会要求物理答案抢走仍有效的主路，已由复现推翻。 */
+    @Test(timeout = 10000) fun `慢主路期间提前预取但确认失败后才使用救援`() = runBlocking {
         val echo = CountingEcho()
+        val primaryFailed = CompletableDeferred<Unit>()
+        val rescueStarted = CompletableDeferred<Unit>()
         try {
-            val host = "hedge-probe.invalid"
             val egress = mockk<Network>()
             every { egress.networkHandle } returns 120L
-            every { egress.getAllByName(any()) } answers {
-                Thread.sleep(3000)                       // 比单步超时还久：这一路注定赢不了
-                arrayOf(InetAddress.getByName("127.0.0.1"))
-            }
             every { egress.socketFactory } returns SocketFactory.getDefault()
             val phy = mockk<Network>()
             every { phy.networkHandle } returns 121L
-            every { phy.getAllByName(host) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns egress
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, egress)
             every { provider.current() } returns phy
-            // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
-            every { provider.sincePhysChangeSec() } returns -1
-            every { provider.vpnAgeSec() } returns -1
-
-            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
-                .apply { backupDnsEnabled = false }
-            val t0 = System.currentTimeMillis()
-            val s = c.connect(host, echo.port)
-            val cost = System.currentTimeMillis() - t0
-            assertEquals("hi", echoRoundTrip(s))
-            s.close()
-            assertTrue("对冲应在等满单步超时之前拿到结果，实测 ${cost}ms", cost < 1200)
-        } finally { echo.close() }
+            val lookup = SystemDnsLookup { net, _ ->
+                when(net) {
+                    egress -> { primaryFailed.await(); throw UnknownHostException("confirmed primary failure") }
+                    phy -> { rescueStarted.complete(Unit); listOf(InetAddress.getByName("127.0.0.1")) }
+                    else -> throw UnknownHostException("controlled default failure")
+                }
+            }
+            val c = testConnector(allowAll, underlyingNetworkProvider=provider, systemDns=lookup).apply { backupDnsEnabled=false }
+            val connection = async { c.connect("prefetch.example.test",echo.port) }
+            withTimeout(1200) { rescueStarted.await() }
+            org.junit.Assert.assertFalse("ready rescue cannot cancel a still-viable primary", connection.isCompleted)
+            primaryFailed.complete(Unit)
+            withTimeout(1000) { connection.await() }.use { assertEquals("hi",echoRoundTrip(it)) }
+        } finally { primaryFailed.complete(Unit); echo.close() }
     }
 
     /**
@@ -765,7 +827,7 @@ class OutboundConnectorTest {
     @Test(timeout = 15000) fun `出口网正常时不得触发对冲的额外解析`() = runBlocking {
         val echo = CountingEcho()
         try {
-            val host = "fast-egress-probe.invalid"
+            val host = "fast-egress-probe.example.test"
             val egress = mockk<Network>()
             every { egress.networkHandle } returns 122L
             every { egress.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
@@ -774,13 +836,14 @@ class OutboundConnectorTest {
             every { phy.networkHandle } returns 123L
             every { phy.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns egress
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, egress)
             every { provider.current() } returns phy
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
 
-            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider)
+            val c = testConnector(allowAll, underlyingNetworkProvider = provider, systemDns = controlledDns())
                 .apply { backupDnsEnabled = false }
             val s = c.connect(host, echo.port)
             assertEquals("hi", echoRoundTrip(s))
@@ -811,14 +874,15 @@ class OutboundConnectorTest {
         every { egress.socketFactory } returns SocketFactory.getDefault()
         every { egress.bindSocket(any<java.net.Socket>()) } returns Unit
         val provider = mockk<UnderlyingNetworkProvider>()
-        every { provider.egressNetwork() } returns egress
+        coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+        every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, egress)
         every { provider.current() } returns null
         // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
         every { provider.sincePhysChangeSec() } returns -1
         every { provider.vpnAgeSec() } returns -1
 
         var reported = 0
-        val c = OutboundConnector(
+        val c = testConnector(
             allowAll,
             underlyingNetworkProvider = provider,
             egressClassifier = { EgressKind.WIFI },
@@ -850,13 +914,14 @@ class OutboundConnectorTest {
             every { egress.socketFactory } returns SocketFactory.getDefault()
             every { egress.bindSocket(any<java.net.Socket>()) } returns Unit
             val provider = mockk<UnderlyingNetworkProvider>()
-            every { provider.egressNetwork() } returns egress
+            coEvery { provider.awaitInitialNetwork(any()) } returns Unit // already initialized fixture
+            every { provider.egressSelection() } returns UnderlyingNetworkProvider.EgressSelection(EgressNetworkChoice.VPN, egress)
             every { provider.current() } returns null
             // 诊断字段:纯计算方法，生产上不会抛;mock 未配置会抛 MockKException 而污染被测路径。
             every { provider.sincePhysChangeSec() } returns -1
             every { provider.vpnAgeSec() } returns -1
 
-            val c = OutboundConnector(allowAll, underlyingNetworkProvider = provider).apply {
+            val c = testConnector(allowAll, underlyingNetworkProvider = provider).apply {
                 backupDnsEnabled = false
                 egressFallback = com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE
             }

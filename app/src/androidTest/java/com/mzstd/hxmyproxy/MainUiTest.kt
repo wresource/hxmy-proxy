@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -68,17 +69,23 @@ class MainUiTest {
 
     @Test
     fun navigationSwitchesScreens() {
-        // 进设置 → 出现语言选项 "中文"（仅设置页，且两种语言下文案都是 "中文"）
-        rule.onNodeWithTag("nav_settings").performClick()
+        // 原型把低频语言修改放到“通用 → 外观”独立详情；验证实际导航再返回。
+        openAppearance()
         rule.onNodeWithText("中文").assertIsDisplayed()
-        // 回主页 → "中文" 不再存在
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.onNodeWithTag("nav_run").performClick()
         rule.onNodeWithText("中文").assertDoesNotExist()
     }
 
+    private fun openAppearance() {
+        rule.onNodeWithTag("nav_settings").performClick()
+        rule.onNode(hasText("General") or hasText("通用")).performClick()
+        rule.onNodeWithTag("settings_appearance").performClick()
+    }
+
     @Test
     fun languageSwitchEnZhBothWays() {
-        rule.onNodeWithTag("nav_settings").performClick()
+        openAppearance()
         rule.waitForIdle()
         // 切中文 → 标题变中文 "语言"（"语言" 仅中文 UI 存在）
         rule.onNodeWithText("中文").performClick()

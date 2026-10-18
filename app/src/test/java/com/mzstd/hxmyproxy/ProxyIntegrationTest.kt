@@ -97,9 +97,9 @@ class ProxyIntegrationTest {
         // DefaultEgressGuard blocks loopback targets -> REP 0x02 (not allowed by ruleset)
         val server = Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(DefaultEgressGuard()), RelayEngine(),
+            testConnector(DefaultEgressGuard()), RelayEngine(),
             { NoAuthAuthenticator }, { ConnectionLimits() }, Dispatchers.IO,
-        ).also { it.start(scope, 0) }
+        ).also { it.start(scope, 0, ProxyTestKit.loopback) }
         client(awaitPort(server)).use { sock ->
             val out = sock.getOutputStream(); val inp = sock.getInputStream()
             out.write(byteArrayOf(0x05, 0x01, 0x00)); out.flush(); readN(inp, 2)
@@ -183,7 +183,7 @@ class ProxyIntegrationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val server = PacServer(Dispatchers.IO, AllowAllAccessController, ConnectionRegistry()) {
             "function FindProxyForURL(url, host) { return \"DIRECT\"; }"
-        }.also { it.start(scope, 0) }
+        }.also { it.start(scope, 0, ProxyTestKit.loopback) }
         client(awaitPort(server)).use { sock ->
             sock.getOutputStream().write("GET /proxy.pac HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray())
             sock.getOutputStream().flush()
@@ -199,14 +199,14 @@ class ProxyIntegrationTest {
     private fun socks(scope: CoroutineScope, egress: EgressGuard, auth: com.mzstd.hxmyproxy.core.security.Authenticator): ProxyServer =
         Socks5ProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
-        ).also { it.start(scope, 0) }
+            testConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
+        ).also { it.start(scope, 0, ProxyTestKit.loopback) }
 
     private fun http(scope: CoroutineScope, egress: EgressGuard, auth: com.mzstd.hxmyproxy.core.security.Authenticator): ProxyServer =
         HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
-            OutboundConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
-        ).also { it.start(scope, 0) }
+            testConnector(egress), RelayEngine(), { auth }, { ConnectionLimits() }, Dispatchers.IO,
+        ).also { it.start(scope, 0, ProxyTestKit.loopback) }
 
     private fun connectSocks(out: java.io.OutputStream, port: Int) {
         out.write(byteArrayOf(0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, (port shr 8).toByte(), (port and 0xFF).toByte()))

@@ -4,6 +4,7 @@ import com.mzstd.hxmyproxy.core.model.LinkStats
 import com.mzstd.hxmyproxy.core.network.LinkProbe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -92,5 +93,19 @@ class LinkLossStatsTest {
         assertEquals("恢复的那次要入窗", 4, LinkProbe.stats()!!.lossSamples)
         LinkProbe.record(k, null)                         // 恢复后再失败,是真实信号
         assertEquals("恢复后的失败必须重新计入", 5, LinkProbe.stats()!!.lossSamples)
+    }
+
+    @Test fun `没有新样本时旧丢包率和时延一起过期`() {
+        LinkProbe.reset()
+        LinkProbe.record("client", 10L, nowMs = 1000)
+        LinkProbe.record("client", null, nowMs = 1000)
+        assertEquals(50, LinkProbe.stats(nowMs = 1001)!!.lossPct)
+        assertNull("无新探测不等于旧指标仍有效", LinkProbe.stats(nowMs = 1000 + LinkProbe.SAMPLE_TTL_MS))
+        LinkProbe.record("client", 20L, nowMs = 70_000)
+        val fresh = LinkProbe.stats(nowMs = 70_001)!!
+        assertEquals(1, fresh.lossSamples)
+        assertEquals(0, fresh.lossPct)
+        assertEquals(20L, fresh.p50Ms)
+        LinkProbe.reset()
     }
 }

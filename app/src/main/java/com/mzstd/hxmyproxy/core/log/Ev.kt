@@ -44,6 +44,10 @@ object Ev {
     fun k(cat: LogCat, evt: String, vararg kv: Pair<String, Any?>) =
         FileLog.append("I", cat.name, line(evt, kv), null, key = true)
 
+    /** 需写后确认的低频事件；false 时调用者保留游标，允许下次重放。 */
+    fun kConfirmed(cat: LogCat, evt: String, vararg kv: Pair<String, Any?>): Boolean =
+        FileLog.appendConfirmed("I", cat.name, line(evt, kv), null, key = true)
+
     /** 关键事件（W 级）：降级类事件，同样进 key.log。 */
     fun kw(cat: LogCat, evt: String, vararg kv: Pair<String, Any?>) =
         FileLog.append("W", cat.name, line(evt, kv), null, key = true)

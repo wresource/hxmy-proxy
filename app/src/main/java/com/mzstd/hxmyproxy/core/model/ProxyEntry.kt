@@ -25,7 +25,13 @@ data class ProxyEntry(
      * 所以在这一处修好，下游都不用各自处理。
      * 判据用「含冒号」而不是类型判断：这里的 host 已经是字符串，且只有 v6 字面量会含冒号。
      */
-    val ipEndpoint: String get() = if (host.contains(':') && !host.startsWith("[")) "[$host]:$port" else "$host:$port"
+    val ipEndpoint: String get() {
+        // A server-side zone (e.g. %wlan0) has no meaning on the receiving client.
+        // InterfaceScanner excludes link-local addresses; exported IPv6 endpoints
+        // use the address alone, consistent with ShareInterface.displayAddress.
+        val ip = host.removePrefix("[").removeSuffix("]")
+        return if (ip.contains(':')) "[${ip.substringBefore('%')}]:$port" else "$ip:$port"
+    }
 
     /** 是否 IPv6 入口（判据同 [ipEndpoint]：host 已是字符串，只有 v6 字面量含冒号）。 */
     val isIpv6: Boolean get() = host.contains(':')

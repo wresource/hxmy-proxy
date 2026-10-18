@@ -8,8 +8,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import java.net.InetSocketAddress
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "hxmyproxy"
 
@@ -48,96 +46,97 @@ private const val TAG = "hxmyproxy"
 class EgressHealth(
     /** 探测某张网是否真的可用；可注入便于测试。默认实现见 [defaultProbe]。 */
     private val probe: suspend (Network) -> Boolean = ::defaultProbe,
-    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val nowMs: () -> Long = android.os.SystemClock::elapsedRealtime,
 ) {
-    /** netId → (host → 最近一次失败时刻)。按 host 去重是这个设计的核心。 */
-    private val failures = ConcurrentHashMap<Long, ConcurrentHashMap<String, Long>>()
+    private val lock = Any()
+    private val failures = HashMap<Long, MutableMap<String, Long>>()
+    /** netId → 下一次允许复检时刻。到期仍隔离，只有探测成功才能恢复。 */
+    private val sidelined = HashMap<Long, Long>()
+    private val lastProbeAt = HashMap<Long, Long>()
+    /** 每个网络独立的探测票据；reset 后旧探测结果不能污染新一代状态。 */
+    private val probing = HashMap<Long, Any>()
 
-    /** netId → 被摘掉的时刻。存在即表示「探测确认过不通，暂时不用」。 */
-    private val sidelined = ConcurrentHashMap<Long, Long>()
-
-    /** netId → 上次探测时刻，避免阈值持续命中时反复探测。 */
-    private val lastProbeAt = ConcurrentHashMap<Long, Long>()
-
-    /** 同一时刻只允许一个探测在跑（探测本身要建连，不该被放大）。 */
-    private val probing = AtomicBoolean(false)
-
-    /**
-     * 记录一次「在 [net] 上连 [host] 失败」。
-     * @return true 表示已达阈值、值得探测（调用方决定是否 await [confirmOrSideline]）
-     */
     fun recordFailure(net: Network?, host: String): Boolean {
         val id = net?.networkHandle ?: return false
-        val now = nowMs()
-        val m = failures.computeIfAbsent(id) { ConcurrentHashMap() }
-        m[host] = now
-        // 清掉窗口外的旧记录，顺便控制 map 大小
-        m.entries.removeIf { now - it.value > WINDOW_MS }
-        if (m.size < DISTINCT_HOSTS) return false
-        val last = lastProbeAt[id] ?: 0L
-        return now - last >= PROBE_COOLDOWN_MS
-    }
-
-    /** 这张网当前是否已被摘掉（且还没到重检时刻）。 */
-    fun isSidelined(net: Network?): Boolean {
-        val id = net?.networkHandle ?: return false
-        val at = sidelined[id] ?: return false
-        if (nowMs() - at > RECHECK_MS) return false   // 到点了：由 [confirmOrSideline] 复检
-        return true
-    }
-
-    /**
-     * 距离这张网下次复检还有几秒，供 `Retry-After` 用。**下限 1 秒**。
-     *
-     * 下限不是保守，是必须的：0818 实测 OkHttp 是唯一会读 `Retry-After` 的 HTTP 栈，
-     * 而它的判据恰恰是 `== 0` —— 收到 0 就**立即无退避重试**。在「整张网不通」的
-     * 当口发 0，等于把我们自己的故障放大成一轮重试风暴。
-     *
-     * 没被摘的网返回 null（调用方不该为它发 `Retry-After`）。
-     */
-    fun retryAfterSeconds(net: Network?): Int? {
-        val id = net?.networkHandle ?: return null
-        val at = sidelined[id] ?: return null
-        val remainMs = RECHECK_MS - (nowMs() - at)
-        return ((remainMs + 999) / 1000).coerceAtLeast(1).toInt()
-    }
-
-    /** 到了重检时刻的网络（调用方应对它们再探一次，通了就放回）。 */
-    fun needsRecheck(net: Network?): Boolean {
-        val id = net?.networkHandle ?: return false
-        val at = sidelined[id] ?: return false
-        return nowMs() - at > RECHECK_MS
-    }
-
-    /**
-     * 探测确认：通了就清账放回，不通就摘掉。
-     * 并发保护——同一时刻只跑一个探测，其余直接返回当前状态。
-     */
-    suspend fun confirmOrSideline(net: Network) {
-        val id = net.networkHandle
-        if (!probing.compareAndSet(false, true)) return
-        try {
-            lastProbeAt[id] = nowMs()
-            val ok = runCatching { probe(net) }.getOrDefault(false)
-            if (ok) {
-                val was = sidelined.remove(id)
-                failures[id]?.clear()
-                if (was != null) FileLog.w(TAG, "egress $id probe ok, restored")
-            } else if (sidelined.putIfAbsent(id, nowMs()) == null) {
-                FileLog.w(
-                    TAG,
-                    "egress $id probe failed: $DISTINCT_HOSTS distinct hosts unreachable in ${WINDOW_MS / 1000}s " +
-                        "and probe targets down too - dropped, recheck in ${RECHECK_MS / 1000}s",
-                )
-            }
-        } finally {
-            probing.set(false)
+        return synchronized(lock) {
+            if (id in sidelined || id in probing) return@synchronized false
+            val now = nowMs()
+            val recent = failures.getOrPut(id) { HashMap() }
+            recent[host] = now
+            recent.entries.removeIf { now - it.value > WINDOW_MS }
+            recent.size >= DISTINCT_HOSTS && (lastProbeAt[id]?.let { now - it >= PROBE_COOLDOWN_MS } ?: true)
         }
     }
 
-    /** 网络变化时清账：旧结论不该带到新网络上。 */
-    fun reset() {
-        failures.clear(); sidelined.clear(); lastProbeAt.clear()
+    fun isSidelined(net: Network?): Boolean {
+        val id = net?.networkHandle ?: return false
+        return synchronized(lock) { id in sidelined }
+    }
+
+    fun retryAfterSeconds(net: Network?): Int? {
+        val id = net?.networkHandle ?: return null
+        return synchronized(lock) {
+            val next = sidelined[id] ?: return@synchronized null
+            ((next - nowMs() + 999) / 1000).coerceAtLeast(1).toInt()
+        }
+    }
+
+    fun needsRecheck(net: Network?): Boolean {
+        val id = net?.networkHandle ?: return false
+        return synchronized(lock) {
+            sidelined[id]?.let { nowMs() >= it && id !in probing } ?: false
+        }
+    }
+
+    /** 同一网络单飞；失败后重新等待完整复检周期，取消不等于探测失败。 */
+    suspend fun confirmOrSideline(net: Network) {
+        val id = net.networkHandle
+        val ticket = Any()
+        synchronized(lock) {
+            if (id in probing) return
+            val now = nowMs()
+            val next = sidelined[id]
+            if (next != null && now < next) return
+            if (next == null && lastProbeAt[id]?.let { now - it < PROBE_COOLDOWN_MS } == true) return
+            probing[id] = ticket
+            lastProbeAt[id] = now
+        }
+        try {
+            val ok = try {
+                probe(net)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            val transition = synchronized(lock) {
+                if (probing[id] !== ticket) return@synchronized null // reset 或后来的探测已接管
+                if (ok) {
+                    val restored = sidelined.remove(id) != null
+                    failures.remove(id)
+                    if (restored) "restored" else null
+                } else {
+                    val first = id !in sidelined
+                    sidelined[id] = nowMs() + RECHECK_MS
+                    if (first) "sidelined" else null
+                }
+            }
+            when (transition) {
+                "restored" -> FileLog.w(TAG, "egress $id probe ok, restored")
+                "sidelined" -> FileLog.w(TAG, "egress $id probe failed - dropped, recheck in ${RECHECK_MS / 1000}s")
+            }
+        } finally {
+            synchronized(lock) {
+                if (probing[id] === ticket) probing.remove(id)
+            }
+        }
+    }
+
+    fun reset() = synchronized(lock) {
+        failures.clear()
+        sidelined.clear()
+        lastProbeAt.clear()
+        probing.clear()
     }
 
     companion object {

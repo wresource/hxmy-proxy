@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -70,7 +70,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
         }
     }
 
-    var pendingImport by remember { mutableStateOf<List<String>?>(null) }
+    var pendingImport by remember { mutableStateOf<String?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         uri?.let { context.contentResolver.openOutputStream(it)?.use { os -> os.write((text ?: "").toByteArray()) } }
@@ -78,7 +78,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             val content = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() } ?: ""
-            pendingImport = parseDomains(content)
+            pendingImport = content
         }
     }
 
@@ -109,6 +109,12 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
             if (t == null) {
                 CircularProgressIndicator()
             } else {
+                val parsed = com.mzstd.hxmyproxy.core.rules.RuleInput.parseLines(t)
+                // 非法行保留在编辑器中，不能静默丢掉后保存一份残缺规则集。
+                if (parsed.invalidLines.isNotEmpty()) Text(
+                    stringResource(R.string.ruleset_invalid_lines, parsed.invalidLines.joinToString(", ")),
+                    color = MaterialTheme.colorScheme.error,
+                )
                 // 域名清单卡:实时计数头 + 等宽多行编辑框
                 BentoCard(tier = CardTier.Primary, contentPadding = 12.dp) {
                     CardHeader(
@@ -125,6 +131,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 // 保存/导入/导出:等宽三按钮(中英文文案都不挤不断行)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
+                        enabled = parsed.invalidLines.isEmpty(),
                         onClick = {
                             val domains = parseDomains(t)
                             if (isBuiltin) viewModel.setGroupOverride(id, domains) else viewModel.setRuleSetDomains(id, domains)
@@ -158,15 +165,15 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
         AlertDialog(
             onDismissRequest = { pendingImport = null },
             title = { Text(stringResource(R.string.ruleset_import)) },
-            text = { Text(stringResource(R.string.ruleset_import_how, pending.size)) },
+            text = { Text(stringResource(R.string.ruleset_import_how, parseDomains(pending).size)) },
             confirmButton = {
                 TextButton(onClick = {
-                    text = (parseDomains(text ?: "") + pending).distinct().joinToString("\n")
+                    text = text.orEmpty().trimEnd() + "\n" + pending
                     pendingImport = null
                 }) { Text(stringResource(R.string.ruleset_import_append)) }
             },
             dismissButton = {
-                TextButton(onClick = { text = pending.joinToString("\n"); pendingImport = null }) {
+                TextButton(onClick = { text = pending; pendingImport = null }) {
                     Text(stringResource(R.string.ruleset_import_replace))
                 }
             },
@@ -174,11 +181,9 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
     }
 }
 
-/** 解析多行文本为域名后缀列表：去空/注释、小写、去 `*.` 前缀、要求含点、去重。 */
+/** 与快速列表共用校验；保留 *. / = 和 IPv6/CIDR。非法行由界面显示并阻止保存。 */
 private fun parseDomains(text: String): List<String> =
-    text.split("\n").map { it.trim().lowercase().removePrefix("*.") }
-        .filter { it.isNotEmpty() && it[0] != '#' && it.contains('.') }
-        .distinct()
+    com.mzstd.hxmyproxy.core.rules.RuleInput.parseLines(text).rules
 
 /** 读内置集 assets 全部域名（仅对小集调用）。 */
 private suspend fun loadFullAsset(context: Context, assetPath: String): List<String> = withContext(Dispatchers.IO) {

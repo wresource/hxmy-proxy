@@ -38,40 +38,21 @@ fun HostOverrideDialog(
     vpnActive: Boolean = false,
 ) {
     var action by remember { mutableStateOf(current ?: RuleAction.PROXY) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onSet(action) }) { Text(stringResource(R.string.save)) } },
-        dismissButton = {
-            Row {
-                if (current != null) TextButton(onClick = onClear) { Text(stringResource(R.string.override_clear)) }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+    InteractionSheet(host, onDismiss,
+        footer = { SheetActions(stringResource(R.string.save), { onSet(action) }, stringResource(R.string.cancel), onDismiss) }) {
+        Text(stringResource(R.string.override_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(RuleAction.PROXY to R.string.override_proxy, RuleAction.DIRECT to R.string.override_direct,
+                RuleAction.REJECT to R.string.override_reject).forEach { (value, label) ->
+                SheetChoiceRow(stringResource(label), action == value, { action = value })
             }
-        },
-        title = { Text(host, maxLines = 1) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.override_desc), style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = action == RuleAction.PROXY, onClick = { action = RuleAction.PROXY }, label = { Text(stringResource(R.string.override_proxy)) })
-                    FilterChip(selected = action == RuleAction.DIRECT, onClick = { action = RuleAction.DIRECT }, label = { Text(stringResource(R.string.override_direct)) })
-                    FilterChip(selected = action == RuleAction.REJECT, onClick = { action = RuleAction.REJECT }, label = { Text(stringResource(R.string.override_reject)) })
-                }
-                // 选中项的**后果**说明。三个 chip 的字面（走代理/直连/拦截）只说了「做什么」，
-                // 没说「会怎样」——而「直连」在 VPN 在位时是绕过 VPN，跟用户想要的「别拦它」
-                // 常常相反。把后果直接写在选择旁边，比事后在帮助页解释有效。
-                val warn = action == RuleAction.DIRECT && vpnActive
-                Text(
-                    text = when (action) {
-                        RuleAction.PROXY -> stringResource(R.string.override_hint_proxy)
-                        RuleAction.DIRECT ->
-                            if (vpnActive) stringResource(R.string.override_hint_direct_vpn)
-                            else stringResource(R.string.override_hint_direct)
-                        RuleAction.REJECT -> stringResource(R.string.override_hint_reject)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (warn) StatusColors.warn() else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-    )
+        }
+        val warn = action == RuleAction.DIRECT && vpnActive
+        Text(when (action) {
+            RuleAction.PROXY -> stringResource(R.string.override_hint_proxy)
+            RuleAction.DIRECT -> stringResource(if (vpnActive) R.string.override_hint_direct_vpn else R.string.override_hint_direct)
+            RuleAction.REJECT -> stringResource(R.string.override_hint_reject)
+        }, style = MaterialTheme.typography.bodySmall, color = if (warn) StatusColors.warn() else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (current != null) TextButton(onClick = onClear) { Text(stringResource(R.string.override_clear)) }
+    }
 }

@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
+import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -26,6 +27,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.rules.IpCidrSet
 import com.mzstd.hxmyproxy.core.rules.RuleScope
+import com.mzstd.hxmyproxy.core.rules.RuleInput
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,17 +58,19 @@ fun RuleEditDialog(
     onDismiss: () -> Unit,
 ) {
     val (origScope, origBare) = remember(entry.value) { RuleScope.parse(entry.value) }
-    val isIp = remember(entry.value) { IpCidrSet.looksLikeIpOrCidr(entry.value) }
+    val origIsIp = remember(entry.value) { RuleInput.parse(entry.value)?.isIp == true }
     var bare by remember(entry.value) { mutableStateOf(origBare) }
     var scope by remember(entry.value) { mutableStateOf(origScope) }
     // 待确认的「升级为全层级」；非空时先弹确认。
     var confirmSuffix by remember { mutableStateOf(false) }
 
-    val result = if (isIp) bare.trim() else RuleScope.format(scope, bare.trim())
-    val changed = result != entry.value && bare.isNotBlank()
+    val parsed = remember(bare, scope) { RuleInput.forScope(bare, scope) }
+    val isIp = parsed?.isIp == true
+    val result = parsed?.value
+    val changed = result != null && result != entry.value
 
     if (confirmSuffix) {
-        val b = bare.trim()
+        val b = parsed?.host ?: return
         // 复用添加路径那套文案与选项（同一道防线、同一种措辞，用户不必学两遍）:
         // 确认=保持全层级并保存；另一个按钮=退回单级,回到编辑继续调,不直接保存。
         AlertDialog(
@@ -87,88 +91,32 @@ fun RuleEditDialog(
         return
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.rules_edit_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // 完整原值：等宽 + 不限行数,长 IPv6 / 长域名在这里一定看得全（列表里看不全正是痛点）。
-                Text(
-                    stringResource(R.string.rules_edit_current),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    entry.value,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                )
-                OutlinedTextField(
-                    value = bare,
-                    onValueChange = { bare = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    // placeholder 不用 label：label 上浮后会与上一行挤在一起（见 Compose UI 设计规范）。
-                    placeholder = { Text(stringResource(R.string.rules_add_domain)) },
-                )
-                if (!isIp) {
-                    Text(
-                        stringResource(R.string.rules_edit_scope),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        RuleScope.entries.forEach { s ->
-                            FilterChip(
-                                selected = s == scope,
-                                onClick = { scope = s },
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            when (s) {
-                                                RuleScope.EXACT -> R.string.rules_scope_exact
-                                                RuleScope.SINGLE -> R.string.rules_scope_single
-                                                RuleScope.SUFFIX -> R.string.rules_scope_suffix
-                                            },
-                                        ),
-                                    )
-                                },
-                                colors = stdFilterChipColors(),
-                            )
-                        }
-                    }
-                    // 改完档位后，用最终值预览「这条规则将变成什么」——作用域是前缀，光看 chip 不直观。
-                    Text(
-                        stringResource(R.string.rules_edit_result, result),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                if (entry.addedAt > 0L) {
-                    Text(
-                        stringResource(R.string.rules_edit_added, addedFmt.format(Date(entry.addedAt))),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+    InteractionSheet(stringResource(R.string.rules_edit_title), onDismiss,
+        footer = {
+            SheetActions(stringResource(R.string.ruleset_save), {
+                if (!isIp && scope == RuleScope.SUFFIX && (origScope != RuleScope.SUFFIX || origIsIp)) confirmSuffix = true
+                else result?.let(onSave)
+            }, stringResource(R.string.cancel), onDismiss, primaryEnabled = changed)
+        }) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.ui_domain_input), style = MaterialTheme.typography.labelLarge)
+            OutlinedTextField(bare, { bare = it }, isError = result == null,
+                supportingText = if (result == null) ({ Text(stringResource(R.string.rule_input_invalid)) }) else null,
+                modifier = Modifier.fillMaxWidth().testTag("rule_edit_input"), placeholder = { Text(stringResource(R.string.rules_add_domain)) })
+        }
+        if (!isIp) {
+            RuleScopePicker(scope) { scope = it }
+            if (result != null) Text(stringResource(R.string.rules_edit_result, result),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.primary)
+        }
+        WorkbenchFold(stringResource(R.string.ui_original_rule), "original-${entry.value}") {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(entry.value, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = changed,
-                onClick = {
-                    // 只有「升级到全层级」才拦一道；已经是全层级或往更窄改，直接保存。
-                    if (!isIp && scope == RuleScope.SUFFIX && origScope != RuleScope.SUFFIX) confirmSuffix = true
-                    else onSave(result)
-                },
-            ) { Text(stringResource(R.string.ruleset_save)) }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onDelete) {
-                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
-                }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-            }
-        },
-    )
+            if (entry.addedAt > 0L) Text(stringResource(R.string.rules_edit_added, addedFmt.format(Date(entry.addedAt))), style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = onDelete, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+            Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+        }
+    }
 }

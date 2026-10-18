@@ -77,7 +77,14 @@ class ProxyForegroundService : Service() {
             // 记「共享中」：开机 / app 更新后由 RestartReceiver 据此自动恢复。**同步写独立 SharedPreferences**，
             // 绝不走 settings flow —— 那会触发 applyTunables/规则重建/serverKey 热重启/refresh，与引擎启动并发。
             ServiceState.setWasSharing(this, true)
-            scope.launch { repository.start(scope) }
+            scope.launch {
+                repository.start(scope)
+                if (repository.state.value.startupFailed) {
+                    ServiceState.setWasSharing(this@ProxyForegroundService, false)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                }
+            }
         }
         return START_STICKY
     }
@@ -100,7 +107,7 @@ class ProxyForegroundService : Service() {
         started = false   // 防御：系统直接销毁（未走 shutdown）时同样复位
         Ev.k(LogCat.SVC, "fgs.destroy")
         FileLog.flush()   // 常驻 BufferedWriter：服务销毁前把缓冲落盘，否则末尾几行会丢
-        repository.stop()
+        repository.stop(preserveStartupFailure = true)
         scope.cancel()
         super.onDestroy()
     }
@@ -121,6 +128,8 @@ class ProxyForegroundService : Service() {
             .firstNotNullOfOrNull { p -> state.recommendedEntries.firstOrNull { it.protocol == p } }
             ?: state.recommendedEntries.firstOrNull()
         return when {
+            state.starting -> loc.getString(R.string.notif_starting)
+            state.startupFailed -> loc.getString(R.string.startup_failed)
             !state.running -> loc.getString(R.string.notif_stopped)
             // 失联告警借用常驻通知（不新弹）：客户端曾在、现探测不可达且无真实入站——
             // 用户不用等自己发现断网,瞥一眼通知即知,点开 app 可手动刷新/看指引。

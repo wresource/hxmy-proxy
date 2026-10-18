@@ -61,7 +61,18 @@ import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 @Composable
 internal fun WarnBanners(ui: MainUiState) {
     val share = ui.share
+    if (share.startupFailed) WarnBanner(stringResource(R.string.startup_failed))
     if (!share.running) return
+    if (share.directEgressUnavailable) {
+        val label = when (ui.settings.directEgressChoice) {
+            com.mzstd.hxmyproxy.core.model.DirectEgressChoice.WIFI -> R.string.egress_wifi
+            com.mzstd.hxmyproxy.core.model.DirectEgressChoice.CELLULAR -> R.string.egress_cellular
+            com.mzstd.hxmyproxy.core.model.DirectEgressChoice.ETHERNET -> R.string.egress_ethernet
+            com.mzstd.hxmyproxy.core.model.DirectEgressChoice.AUTO -> R.string.egress_auto
+        }
+        WarnBanner(stringResource(R.string.direct_egress_missing, stringResource(label)))
+    }
+    if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) WarnBanner(stringResource(R.string.ui_pac_only))
     val noProto = !ui.settings.httpEnabled && !ui.settings.socksEnabled && !ui.settings.pacEnabled
     val d = share.diagnostics
     val anyPortUp = d.httpPortUp || d.socksPortUp || d.pacPortUp
@@ -86,120 +97,6 @@ internal fun WarnBanners(ui: MainUiState) {
  * 代理地址卡：多入口切换 chips（勾了多个网段才出现）→ 大号 IP → 协议 chips（点即复制，
  * PAC 复制完整 URL）→ IPv6 痕迹。这是整个 app 唯一不可替代的产出，永远排第一。
  */
-@Composable
-internal fun AddressCard(ui: MainUiState, viewModel: MainViewModel) {
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val share = ui.share
-    val entries = share.recommendedEntries
-    val hosts = remember(entries) { entries.map { it.host }.distinct() }
-    var pickedHost by rememberSaveable(hosts) { mutableStateOf(hosts.firstOrNull() ?: "") }
-    val copy: (String) -> Unit = {
-        clipboard.setText(AnnotatedString(it))
-        Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
-    }
-
-    var showQr by remember { mutableStateOf(false) }
-    if (showQr) QrSheet(ui, onDismiss = { showQr = false })
-    BentoCard(tier = CardTier.Primary, contentPadding = 16.dp, spacing = 8.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatLabel(stringResource(R.string.entry_config))
-            InfoDot(
-                title = stringResource(R.string.entry_config),
-                body = stringResource(R.string.overview_addr_info),
-            )
-            Spacer(Modifier.weight(1f))
-            if (share.running && entries.isNotEmpty()) {
-                AssistChip(
-                    onClick = { showQr = true },
-                    label = { Text(stringResource(R.string.qr_setup), style = MaterialTheme.typography.labelMedium) },
-                )
-            }
-        }
-        when {
-            !share.running -> Text(
-                stringResource(R.string.start_to_show_entries),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            entries.isEmpty() -> Text(
-                stringResource(R.string.entry_none_running),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            else -> {
-                if (hosts.size > 1) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        hosts.forEach { h ->
-                            val on = h == pickedHost
-                            AssistChip(
-                                onClick = { pickedHost = h },
-                                label = {
-                                    Text(
-                                        h,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                colors = androidx.compose.material3.AssistChipDefaults.assistChipColors(
-                                    containerColor = if (on) {
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceContainerLowest
-                                    },
-                                ),
-                            )
-                        }
-                    }
-                }
-                val host = pickedHost.ifEmpty { hosts.first() }
-                Text(
-                    host,
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-0.5).sp,
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable { copy(host) },
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    entries.filter { it.host == host }.forEach { e ->
-                        AssistChip(
-                            onClick = { copy(e.copyValue) },
-                            label = {
-                                Text(
-                                    "${protoLabel(e.protocol)} ${e.port}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontFamily = FontFamily.Monospace,
-                                )
-                            },
-                            trailingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_b_copy),
-                                    contentDescription = stringResource(R.string.copied),
-                                    modifier = Modifier.size(13.dp),
-                                )
-                            },
-                        )
-                    }
-                }
-                if (ui.hiddenIpv6Count > 0) {
-                    Text(
-                        stringResource(R.string.ipv6_hidden_hint, ui.hiddenIpv6Count),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { viewModel.setShowIpv6(true) },
-                    )
-                }
-            }
-        }
-    }
-}
-
 private fun protoLabel(p: ProxyProtocol): String = when (p) {
     ProxyProtocol.HTTP -> "HTTP"
     ProxyProtocol.SOCKS5 -> "SOCKS5"

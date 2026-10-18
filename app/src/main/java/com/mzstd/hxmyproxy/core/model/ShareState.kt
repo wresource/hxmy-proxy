@@ -15,6 +15,10 @@ data class DiagnosticsSummary(
     val pacEnabled: Boolean = true,
     val vpnDetected: Boolean = false,
     val batteryOptimizationIgnored: Boolean = false,
+    /** Actual listener ports, independent of the desired configuration while it is being reapplied. */
+    val httpBoundPort: Int? = null,
+    val socksBoundPort: Int? = null,
+    val pacBoundPort: Int? = null,
 )
 
 /** 各出口 transport 当前在线状态（Dashboard 出口选择卡据此置灰不可用项）。 */
@@ -66,6 +70,8 @@ data class LinkStats(
  */
 data class ShareState(
     val running: Boolean = false,
+    val starting: Boolean = false,
+    val startupFailed: Boolean = false,
     /** 本次共享会话开始时刻(epoch ms);0=未在运行。UI 据此显示「已运行」。 */
     val sessionStartedAtMs: Long = 0,
     val vpn: VpnState = VpnState(),
@@ -111,6 +117,8 @@ data class ShareState(
      * 非空时防护页给出提示与「改回走代理」的一键操作。
      */
     val directFailures: List<DirectFailure> = emptyList(),
+    /** At least one DIRECT request failed because its selected network is still absent. */
+    val directEgressUnavailable: Boolean = false,
 )
 
 /** 某个域名的直连连续失败情况（见 [ShareState.directFailures]）。 */

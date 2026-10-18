@@ -65,10 +65,17 @@ class RuleEngine {
      */
     fun decideDetailed(host: String): RuleDecision {
         val s = snapshot
-        // per-host 三态覆盖：最高优先级（误拦救济/手动指定），三态各一张表
-        if (s.ovrDirect.matches(host)) return RuleDecision(RuleAction.DIRECT, RuleSrc.OVERRIDE)
-        if (s.ovrReject.matches(host)) return RuleDecision(RuleAction.REJECT, RuleSrc.OVERRIDE)
-        if (s.ovrProxy.matches(host)) return RuleDecision(RuleAction.PROXY, RuleSrc.OVERRIDE)
+        // 保留覆盖高于列表的历史层级；覆盖层内部按锚定深度裁决。
+        // 同锚定保留原动作平手顺序，作用域档位不参与优先级（dd16c59）。
+        val directOverride = s.ovrDirect.matchSpecificity(host)
+        val rejectOverride = s.ovrReject.matchSpecificity(host)
+        val proxyOverride = s.ovrProxy.matchSpecificity(host)
+        val best = maxOf(directOverride, rejectOverride, proxyOverride)
+        if (best >= 0) return RuleDecision(when (best) {
+            directOverride -> RuleAction.DIRECT
+            rejectOverride -> RuleAction.REJECT
+            else -> RuleAction.PROXY
+        }, RuleSrc.OVERRIDE)
         // 用户的放行 / 拦截两表**同级**，命中多条时按 most-specific-wins 裁决，而不是让某张表整体压过另一张：
         // 先加 `*.apple.com` 放行、后加 `xxx.apple.com` 拦截时，对 xxx.apple.com 应当拦截（后者锚定更深）；
         // 反过来先加具体的 `secret.apple.com` 拦截、后加宽泛的 `*.apple.com` 放行时，具体那条不会被无声抹掉。

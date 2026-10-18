@@ -2,28 +2,25 @@ package com.mzstd.hxmyproxy.ui.protection
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -55,22 +46,17 @@ import com.mzstd.hxmyproxy.ui.components.BannerLevel
 import com.mzstd.hxmyproxy.ui.components.BentoCard
 import com.mzstd.hxmyproxy.ui.components.CardTier
 import com.mzstd.hxmyproxy.ui.components.HostOverrideDialog
-import com.mzstd.hxmyproxy.ui.components.IconDisc
 import com.mzstd.hxmyproxy.ui.components.OverrideBadge
-import com.mzstd.hxmyproxy.ui.components.PageHeader
 import com.mzstd.hxmyproxy.ui.components.RatioBar
 import com.mzstd.hxmyproxy.ui.components.StatLabel
 import com.mzstd.hxmyproxy.ui.components.WarnBanner
-import com.mzstd.hxmyproxy.ui.components.StatusDot
+import com.mzstd.hxmyproxy.ui.components.WorkbenchFold
 import com.mzstd.hxmyproxy.ui.components.stdSwitchColors
-import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
-import com.mzstd.hxmyproxy.ui.theme.StatusColors
 import java.text.NumberFormat
 
 /**
- * 防护 tab（Bento 重设计，规格=images/html/03-protection.html）：把"拦截"这条线做成完整体验——
- * 盾环 hero 大数字 + 拦得最多排行（比例条+三态救济入口）+ OISD 总开关 + "防护如何工作"微网格。
- * 让用户明确看到"它真的在拦、没 VPN 也能用"。粉（tertiary）在此页做点睛主角。
+ * 防护详情：会话计数、拦截排行、直连失败救济及 OISD 开关。
+ * 沿用原数据与规则操作；低频说明折叠，详情返回由宿主提供。
  */
 @Composable
 fun ProtectionScreen(
@@ -87,56 +73,17 @@ fun ProtectionScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(contentPadding).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 页头：粉盾圆盘 + 标题 + 「本次会话 · 实时」小注。
-        PageHeader(
-            title = stringResource(R.string.protection_title),
-            icon = painterResource(R.drawable.ic_b_shield),
-            iconBg = MaterialTheme.colorScheme.tertiary,
-            iconTint = MaterialTheme.colorScheme.onTertiary,
-            trailing = { StatLabel(stringResource(R.string.protection_mode_line)) },
-        )
-
-        // Hero：盾环 + 56sp 粉大数字。开关态保留——关掉后圆点/数字/盾环整体退灰。
-        BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Primary, contentPadding = 18.dp, spacing = 10.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GlowDot(if (adBlockOn) StatusColors.runningDot() else StatusColors.stoppedDot())
-                StatLabel(stringResource(if (adBlockOn) R.string.protection_hero_label else R.string.protection_hero_label_off))
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterHorizontally),
-            ) {
-                ShieldRing(active = adBlockOn, modifier = Modifier.size(128.dp))
-                Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(
-                            NumberFormat.getIntegerInstance().format(blocked),
-                            modifier = Modifier.weight(1f, fill = false),
-                            style = MaterialTheme.typography.displayLarge.copy(
-                                fontSize = 56.sp,
-                                lineHeight = 58.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = (-1).sp,
-                            ),
-                            color = if (adBlockOn && blocked > 0) MaterialTheme.colorScheme.tertiary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            stringResource(R.string.protection_unit_times),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 9.dp),
-                        )
-                    }
-                    Text(
-                        stringResource(R.string.protection_hero_sub),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Primary, spacing = 8.dp) {
+            StatLabel(stringResource(R.string.protection_hero_sub))
+            Text(NumberFormat.getIntegerInstance().format(blocked) + " " + stringResource(R.string.protection_unit_times),
+                style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.rule_ads_oisd), style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.protection_adblock_sub), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Switch(checked = adBlockOn, onCheckedChange = { viewModel.toggleRuleGroup(adGroup.id, it) }, colors = stdSwitchColors())
             }
         }
 
@@ -249,53 +196,11 @@ fun ProtectionScreen(
             }
         }
 
-        // OISD 规则组总开关：粉图标圆盘 + 标准 Switch 配色。
-        BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Default, contentPadding = 14.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                IconDisc(
-                    painterResource(R.drawable.ic_b_shield_plus),
-                    size = 34.dp,
-                    bg = MaterialTheme.colorScheme.tertiaryContainer,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                    iconSize = 18.dp,
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(stringResource(R.string.rule_ads_oisd), style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        stringResource(R.string.protection_adblock_sub),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Switch(
-                    checked = adBlockOn,
-                    onCheckedChange = { viewModel.toggleRuleGroup(adGroup.id, it) },
-                    colors = stdSwitchColors(),
-                )
-            }
-        }
-
-        // 防护如何工作：沉底卡 + 2×2 微网格（图标+短句），替代旧长段落。
-        BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Sunken, contentPadding = 14.dp, spacing = 9.dp) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(
-                    painterResource(R.drawable.ic_b_help),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp),
-                )
-                StatLabel(stringResource(R.string.protection_how_title))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HowItem(R.drawable.ic_b_filter, R.string.protection_how_1, Modifier.weight(1f))
-                HowItem(R.drawable.ic_b_devices, R.string.protection_how_2, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HowItem(R.drawable.ic_b_wifi, R.string.protection_how_3, Modifier.weight(1f))
-                HowItem(R.drawable.ic_b_undo, R.string.protection_how_4, Modifier.weight(1f))
-            }
+        WorkbenchFold(stringResource(R.string.protection_how_title), "protection_help") {
+            HowItem(R.drawable.ic_b_filter, R.string.protection_how_1)
+            HowItem(R.drawable.ic_b_devices, R.string.protection_how_2)
+            HowItem(R.drawable.ic_b_wifi, R.string.protection_how_3)
+            HowItem(R.drawable.ic_b_undo, R.string.protection_how_4)
         }
     }
     // 三态救济弹窗（与拦截明细页同款）：点排行行/tune 触发。
@@ -311,76 +216,10 @@ fun ProtectionScreen(
     }
 }
 
-/**
- * 盾环（页面私有形态，规格=03 稿 hero）：浅粉轨道 + 渐变粉弧（起点 132°、扫 276°，
- * 固定装饰弧长、不表示比例）+ 环心盾徽。关闭防护时整环与盾退灰。
- */
-@Composable
-private fun ShieldRing(active: Boolean, modifier: Modifier = Modifier) {
-    val dark = LocalDarkTheme.current
-    val pink = MaterialTheme.colorScheme.tertiary
-    // 渐变亮端：比 tertiary 更亮的糖果粉（HTML --ring-a，明暗各一，仅此形态使用）。
-    val pinkBright = if (dark) Color(0xFFFF8FAD) else Color(0xFFE8447F)
-    val inactive = MaterialTheme.colorScheme.outlineVariant
-    val track = if (active) pink.copy(alpha = if (dark) 0.16f else 0.10f) else inactive.copy(alpha = 0.45f)
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val stroke = 10.dp.toPx()
-            drawCircle(track, radius = (size.minDimension - stroke) / 2f, style = Stroke(stroke))
-            if (active) {
-                val inset = stroke / 2f
-                drawArc(
-                    brush = Brush.linearGradient(listOf(pinkBright, pink)),
-                    startAngle = 132f,
-                    sweepAngle = 276f,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = Size(size.width - stroke, size.height - stroke),
-                    style = Stroke(stroke, cap = StrokeCap.Round),
-                )
-            }
-        }
-        Icon(
-            painterResource(R.drawable.ic_b_shield_check),
-            contentDescription = null,
-            tint = if (active) pink else inactive,
-            modifier = Modifier.size(40.dp),
-        )
-    }
-}
-
-/** 运行圆点 + 外圈光晕（HTML .dot 的 box-shadow 光环）。 */
-@Composable
-private fun GlowDot(color: Color) {
-    Box(Modifier.size(16.dp).clip(CircleShape).background(color.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
-        StatusDot(color, size = 8.dp)
-    }
-}
-
-/** 卡头「查看拦截明细」chip 入口（替代旧全宽按钮）：primaryContainer 小胶囊 + 右尖角。 */
+/** Standard touch target for details and direct-failure recovery. */
 @Composable
 private fun DetailChip(text: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        Icon(
-            painterResource(R.drawable.ic_b_chevron_right),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-            modifier = Modifier.size(12.dp),
-        )
-    }
+    TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) { Text(text) }
 }
 
 /**
@@ -398,7 +237,7 @@ private fun TopBlockedRow(
     onClick: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable(onClick = onClick).padding(vertical = 2.dp),
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable(onClick = onClick).heightIn(min = 56.dp).padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -426,7 +265,7 @@ private fun TopBlockedRow(
                     fontWeight = FontWeight.Bold,
                     fontFeatureSettings = "tnum",
                 ),
-                color = if (highlight) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Icon(
                 painterResource(R.drawable.ic_tune),
@@ -438,7 +277,7 @@ private fun TopBlockedRow(
         // 比例条与域名列左对齐（缩进=排名宽 16 + 间距 8）。
         RatioBar(
             fraction = fraction,
-            color = MaterialTheme.colorScheme.tertiary,
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 24.dp),
             height = 6.dp,
         )
@@ -459,8 +298,6 @@ private fun HowItem(@DrawableRes icon: Int, @StringRes text: Int, modifier: Modi
             stringResource(text),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }

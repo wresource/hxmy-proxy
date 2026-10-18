@@ -60,6 +60,7 @@ private fun Section(titleRes: Int, startOpen: Boolean = false, content: @Composa
     ElevatedCard(
         Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = cardContainerColor()),
     ) {
         Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp)) {

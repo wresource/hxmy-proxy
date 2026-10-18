@@ -18,10 +18,12 @@ import com.mzstd.hxmyproxy.core.security.NoAuthAuthenticator
 import com.mzstd.hxmyproxy.core.security.SingleCredentialAuthenticator
 import kotlinx.coroutines.CoroutineScope
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,6 +53,43 @@ class HttpProxyProtocolTest {
     }
 
     // ---- CONNECT / 请求行边界 ----
+
+    @Test(timeout = 20000) fun appleDirectMissingWifiIs503AndRemovingRuleAllowsProxyRoute() = runBlocking {
+        val net = mockk<android.net.Network>(relaxed = true)
+        every { net.networkHandle } returns 535981641741L
+        every { net.getAllByName(any()) } returns arrayOf(InetAddress.getByName("127.0.0.1"))
+        every { net.socketFactory } returns javax.net.SocketFactory.getDefault()
+        val provider = mockk<com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider>()
+        every { provider.current() } returns null
+        coEvery { provider.awaitInitialNetwork(any()) } returns Unit
+        every { provider.directEgressChoice() } returns com.mzstd.hxmyproxy.core.model.DirectEgressChoice.WIFI
+        every { provider.availablePhysicalTransports() } returns listOf(com.mzstd.hxmyproxy.core.model.DirectEgressChoice.CELLULAR)
+        every { provider.egressSelection() } returns com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider.EgressSelection(
+            com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.VPN, net)
+        val engine = RuleEngine().apply { update(RuleEngine.Snapshot(userDirect = RuleMatcher().apply { add("apple.com") })) }
+        val connector = testConnector(allowAll, underlyingNetworkProvider = provider)
+        val upstream = res.keep(ProxyTestKit.startEcho())
+        val server = proxy(rules = engine, connector = connector)
+        val target = "www.apple.com:${upstream.localPort}"
+        assertEquals(com.mzstd.hxmyproxy.core.rules.RuleAction.DIRECT, engine.decide("www.apple.com"))
+        val denied = exchange(server, "CONNECT $target HTTP/1.1\r\nHost: $target\r\n\r\n")
+        assertEquals(503, denied.status)
+        assertEquals(null, denied.value("Retry-After")) // no invented recovery deadline
+        io.mockk.verify(exactly = 0) { provider.egressSelection() }
+        engine.update(RuleEngine.Snapshot())
+        assertEquals(com.mzstd.hxmyproxy.core.rules.RuleAction.PROXY, engine.decide("www.apple.com"))
+        Socket("127.0.0.1", ProxyTestKit.awaitPort(server)).use { socket ->
+            socket.soTimeout = 5000
+            socket.getOutputStream().write("CONNECT $target HTTP/1.1\r\nHost: $target\r\n\r\n".toByteArray())
+            socket.getOutputStream().flush()
+            assertEquals(200, ProxyTestKit.readHead(socket.getInputStream()).status)
+            socket.getOutputStream().write("apple-test".toByteArray()); socket.getOutputStream().flush()
+            assertEquals("apple-test", String(socket.getInputStream().readNBytes(10)))
+        }
+        io.mockk.verify(atLeast = 1) { provider.egressSelection() }
+        assertEquals(0x03, ProxyError.DirectEgressUnavailable.socksReply)
+        assertEquals(0x02, ProxyError.AccessDenied.socksReply)
+    }
 
     /** 请求行不足三段（如只有 "GET /"）：必须回 400，而不是数组越界崩掉整条连接。 */
     @Test(timeout = 20000) fun `请求行少于三段应回400`() {
@@ -96,7 +135,7 @@ class HttpProxyProtocolTest {
             proxy(auth = SingleCredentialAuthenticator("u", "p", enabled = true)),
             "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n",
         )
-        assertEquals(407, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 407, head.status)
         assertTrue("407 必须带挑战头，否则客户端不会弹出/重发凭据", head.value("Proxy-Authenticate")!!.startsWith("Basic"))
     }
 
@@ -106,7 +145,7 @@ class HttpProxyProtocolTest {
             proxy(auth = SingleCredentialAuthenticator("u", "p", enabled = true)),
             "CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: Bearer tok\r\n\r\n",
         )
-        assertEquals(407, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 407, head.status)
     }
 
     /** base64 损坏会让解码抛异常：必须转成 407，而不是把异常抛穿导致连接被重置。 */
@@ -115,7 +154,7 @@ class HttpProxyProtocolTest {
             proxy(auth = SingleCredentialAuthenticator("u", "p", enabled = true)),
             "CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: Basic !!!not-base64!!!\r\n\r\n",
         )
-        assertEquals(407, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 407, head.status)
     }
 
     /** 解出来没有冒号 → 无法切分用户名/密码，必须拒（否则可能把整串当用户名、空密码放行）。 */
@@ -125,7 +164,7 @@ class HttpProxyProtocolTest {
             proxy(auth = SingleCredentialAuthenticator("u", "p", enabled = true)),
             "CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: Basic $raw\r\n\r\n",
         )
-        assertEquals(407, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 407, head.status)
     }
 
     /** 密码错误 → 407（不是 403/200）：客户端据此重新提示输入密码。 */
@@ -134,7 +173,7 @@ class HttpProxyProtocolTest {
             proxy(auth = SingleCredentialAuthenticator("u", "p", enabled = true)),
             "CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: ${basic("u", "WRONG")}\r\n\r\n",
         )
-        assertEquals(407, head.status)
+        assertEquals("response=" + head.statusLine + " headers=" + head.headers, 407, head.status)
     }
 
     /** 凭据正确 → 隧道真的能通（守护 Basic 解码这一段：解错了会表现成「密码明明对却一直 407」）。 */
@@ -314,6 +353,32 @@ class HttpProxyProtocolTest {
         assertEquals(503, head.status)
         assertTrue("状态行要配对的 reason: ${head.statusLine}", head.statusLine.contains("Service Unavailable"))
         assertEquals("30", head.value("Retry-After"))
+    }
+
+    @Test(timeout = 20000) fun `真实连接器的两条STRICT路径保留503和RetryAfter`() = runBlocking {
+        for (nio in listOf(false, true)) {
+            val net = mockk<android.net.Network>()
+            every { net.networkHandle } returns 801L
+            val provider = mockk<com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider>()
+            every { provider.egressSelection() } returns com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider.EgressSelection(
+                com.mzstd.hxmyproxy.core.model.EgressNetworkChoice.VPN, net,
+            )
+            every { provider.sincePhysChangeSec() } returns 0
+            every { provider.vpnAgeSec() } returns 0
+            var now = 1_000_000L
+            var probes = 0
+            val health = com.mzstd.hxmyproxy.core.network.EgressHealth(probe = { probes++; false }, nowMs = { now })
+            health.confirmOrSideline(net)
+            now += 15_000
+            val connector = testConnector(allowAll, underlyingNetworkProvider = provider, egressHealth = health)
+            val server = proxy(connector = connector, useNio = nio)
+            repeat(4) { i ->
+                val head = exchange(server, "CONNECT target$i.invalid:443 HTTP/1.1\r\nHost: target$i.invalid\r\n\r\n")
+                assertEquals(503, head.status)
+                assertEquals("30", head.value("Retry-After"))
+            }
+            assertEquals("主动短路不能又触发一次探测", 1, probes)
+        }
     }
 
     /**
@@ -528,14 +593,20 @@ class HttpProxyProtocolTest {
     private fun proxy(
         auth: Authenticator = NoAuthAuthenticator,
         rules: RuleEngine? = null,
-        connector: OutboundConnector = OutboundConnector(allowAll),
+        connector: OutboundConnector = testConnector(allowAll),
+        useNio: Boolean = false,
     ): ProxyServer {
+        val reactor = if (useNio) com.mzstd.hxmyproxy.core.proxy.NioRelayReactor(workerCount = 1).also {
+            it.start()
+            res.onClose { it.stop() }
+        } else null
         val server = HttpProxyServer(
             Dispatchers.IO, AllowAllAccessController, ConnectionRegistry(),
             connector, RelayEngine(), { auth }, { ConnectionLimits() },
             Dispatchers.IO, ruleEngine = rules,
+            nioReactor = reactor, useNioRelay = useNio,
         )
-        server.start(scope, 0)
+        server.start(scope, 0, ProxyTestKit.loopback)
         res.onClose { server.stop() }
         return server
     }

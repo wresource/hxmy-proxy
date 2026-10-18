@@ -117,7 +117,7 @@ class Socks5ProxyServer(
             val upstreamCh = try {
                 // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
                 // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
-                withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                     if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                     else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
@@ -129,13 +129,15 @@ class Socks5ProxyServer(
                 null
             }
             if (upstreamCh != null) {
-                reply(output, 0x00)
-                channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
-                upstreamCh.configureBlocking(false)
-                nioReactor.relay(
-                    channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
-                    host = host ?: addr?.hostAddress, trace = trace, onTraffic = onBytes,
-                )
+                upstreamCh.use {
+                    reply(output, 0x00)
+                    channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
+                    upstreamCh.configureBlocking(false)
+                    nioReactor.relay(
+                        channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
+                        host = host ?: addr?.hostAddress, trace = trace, onTraffic = onBytes,
+                    )
+                }
                 return
             }
         }
@@ -143,7 +145,7 @@ class Socks5ProxyServer(
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
         var timedOutBlocking = false
         val upstream = try {
-            withTimeoutOrNull(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+            acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
                 if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
             } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
@@ -154,10 +156,15 @@ class Socks5ProxyServer(
                 e.error,
             )
             reply(output, e.error.socksReply); return
+        } catch (e: IOException) {
+            trace.failed(ruleHost ?: "?", "connect-io", e.javaClass.simpleName)
+            reply(output, ProxyError.RemoteUnreachable.socksReply); return
         }
-        reply(output, 0x00)
-        client.soTimeout = 0
-        relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+        upstream.use {
+            reply(output, 0x00)
+            client.soTimeout = 0
+            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+        }
     }
 
     /** RFC1929：VER(0x01) ULEN UNAME PLEN PASSWD → VER(0x01) STATUS。 */
