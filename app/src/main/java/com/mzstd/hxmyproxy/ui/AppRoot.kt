@@ -110,13 +110,15 @@ fun AppRoot(viewModel: MainViewModel) {
 
     Scaffold(
         bottomBar = { if (!wide && topLevel) BottomNavBar(navController, destinations) },
-        // 沉浸式（官方 edge-to-edge 完整形态）：inset **不在这里变成硬 padding**——
-        // padding 原样传给各 tab 页作滚动容器的 contentPadding：首屏不被状态栏/底栏遮挡,
-        // 滚动时内容穿入状态栏/手势条**后方**（内容与系统栏融合,而非被切断）。
-        // IME 仍排除,交给页内 imePadding。详情页不接收 padding——DetailScaffold 自带
-        // TopAppBar insets,外层不再消费后其背景自动延伸进状态栏（顶栏融合）。
+        // 背景继续 edge-to-edge；顶层内容的可操作视口必须止于导航栏上方。
+        // 仅把底栏高度加在滚动内容末尾，会使 BringIntoView/无障碍把控件滚到导航栏后面。
+        // 顶部仍交给页面，IME 交给页内 imePadding；详情保留自身的 TopAppBar insets。
         contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
     ) { padding ->
+      val bottomViewportInset = if (topLevel) padding.calculateBottomPadding() else 0.dp
+      val pagePadding = if (topLevel) androidx.compose.foundation.layout.PaddingValues(
+          top = padding.calculateTopPadding()
+      ) else padding
       Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
             if (wide && topLevel) SideNavRail(navController, destinations)
@@ -130,7 +132,9 @@ fun AppRoot(viewModel: MainViewModel) {
                     startDestination = NavTab.RUN.route,
                     // 单列内容上限 840dp（M3 布局指南 pane 上限）：Fold 展开/横屏(~800dp)内容全宽,
                     // 消除「视觉边界与滑动边界差很多」的两侧空带;真正的大平板才触发限宽。
-                    modifier = Modifier.widthIn(max = 840.dp).fillMaxSize(),
+                    modifier = Modifier.widthIn(max = 840.dp).fillMaxSize()
+                        .padding(bottom = bottomViewportInset)
+                        .consumeWindowInsets(androidx.compose.foundation.layout.PaddingValues(bottom = bottomViewportInset)),
                     // 双轨转场——**只用 fade/scale,不用 slideIntoContainer**：
                     //   实测(1.5.6 诊断版)证明:此前的容器相对 slideIntoContainer/slideOutOfContainer 会**杀掉预测性
                     //   返回的跟手预览**(详情页返回只走 slide 分支,去掉全部转场后预览恢复 → slide 即元凶)。官方
@@ -192,7 +196,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenLogs = { openLogs("") },
                             onOpenDomains = { navController.navigate("top_domains") },
                             onOpenTrafficStats = { navController.navigate("traffic_stats") },
-                            contentPadding = padding,
+                            contentPadding = pagePadding,
                             onOpenAddresses = { navController.navigate("connection_addresses") },
                             onOpenClients = { navController.navigate("clients_detail") },
                             onSettings = openSettings, onRelatedLogs = openLogs, onChanges = openChanges,
@@ -205,7 +209,7 @@ fun AppRoot(viewModel: MainViewModel) {
                         DashboardScreen(
                             ui, viewModel,
                             onOpenProtection = { navController.navigate("protection") },
-                            contentPadding = padding,
+                            contentPadding = pagePadding,
                         )
                     }
                     composable("protection") {
@@ -226,7 +230,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenRejectDetail = { navController.navigate("quick_rules_reject") },
                             onOpenDirectDetail = { navController.navigate("quick_rules_direct") },
                             onOpenOverrides = { navController.navigate("manual_overrides") }, onOpenChanges = openChanges,
-                            contentPadding = padding,
+                            contentPadding = pagePadding,
                         )
                     }
                     composable("quick_rules_reject") {
@@ -243,7 +247,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenLogs = { openLogs("") },
                             onOpenDomains = { navController.navigate("top_domains") },
                             onOpenTrafficStats = { navController.navigate("traffic_stats") },
-                            contentPadding = padding,
+                            contentPadding = pagePadding,
                         )
                     }
                     composable("traffic_stats") {
@@ -264,7 +268,7 @@ fun AppRoot(viewModel: MainViewModel) {
                             onOpenHelp = { navController.navigate("help") },
                             onReplayOnboarding = viewModel::replayOnboarding,
                             onOpenPage = openSettings,
-                            contentPadding = padding,
+                            contentPadding = pagePadding,
                         )
                     }
                     composable("connection_addresses") {

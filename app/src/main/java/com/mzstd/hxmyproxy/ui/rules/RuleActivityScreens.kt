@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,11 +25,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -41,6 +45,7 @@ import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
 import com.mzstd.hxmyproxy.ui.components.DomainRuleEditor
+import com.mzstd.hxmyproxy.ui.components.AdaptiveActionPair
 import com.mzstd.hxmyproxy.ui.components.WorkbenchRow
 import com.mzstd.hxmyproxy.ui.monitor.actionLabel
 import com.mzstd.hxmyproxy.ui.monitor.activityTime
@@ -48,19 +53,32 @@ import com.mzstd.hxmyproxy.ui.monitor.activityTime
 @Composable
 fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActivity: (String) -> Unit, onOverrides: () -> Unit) {
     val changes by viewModel.recentRuleChanges.collectAsStateWithLifecycle()
+    val unreadable by viewModel.ruleChangeHistoryUnreadable.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    DetailScaffold(stringResource(R.string.ui_rule_changes), onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val locale = LocalConfiguration.current.locales[0]
+    val timeFormat = remember(locale) { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT, locale) }
+    var clearing by rememberSaveable { mutableStateOf(false) }
+    DetailScaffold(stringResource(R.string.ui_rule_changes), onBack, actions = {
+        IconButton(onClick = { clearing = true }, enabled = changes.isNotEmpty() || unreadable,
+            modifier = Modifier.testTag("clear_rule_history")) {
+            Icon(painterResource(R.drawable.ic_delete), stringResource(R.string.ui_clear_rule_history))
+        }
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("rule_change_history"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(stringResource(R.string.ui_rule_changes_hint), style = MaterialTheme.typography.bodySmall) }
-            if (changes.isEmpty()) item { Text(stringResource(R.string.ui_no_rule_changes)) }
+            if (unreadable) item { Text(stringResource(R.string.ui_rule_history_unreadable), color = MaterialTheme.colorScheme.error) }
+            else if (changes.isEmpty()) item { Text(stringResource(R.string.ui_no_rule_changes)) }
             items(changes.reversed(), key = { it.id }) { change ->
                 Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(change.rule, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
-                        Text("${activityTime(change.at)} · ${stringResource(if (change.reverted) R.string.ui_reverted else change.action?.let(::actionLabel) ?: R.string.top_domain_clear)}")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { onActivity(change.host) }) { Text(stringResource(R.string.ui_view_traffic)) }
-                        if (!change.reverted) TextButton(modifier = Modifier.testTag("revert_rule_${change.id}"), onClick = {
+                        Text("${timeFormat.format(java.util.Date(change.at))} · ${stringResource(change.action?.let(::actionLabel) ?: R.string.top_domain_clear)}",
+                            style = MaterialTheme.typography.bodyMedium)
+                        if (change.reverted || change.superseded) Text(stringResource(if (change.reverted) R.string.ui_reverted else R.string.ui_rule_changed_later),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        AdaptiveActionPair(stringResource(R.string.ui_view_traffic), stringResource(R.string.ui_revert_rule), extraWidth = 24.dp) { button ->
+                        TextButton(modifier = button, onClick = { onActivity(change.host) }) { Text(stringResource(R.string.ui_view_traffic)) }
+                        TextButton(modifier = button.testTag("revert_rule_${change.id}"), enabled = !change.reverted && !change.superseded, onClick = {
                             viewModel.revertDomainChange(change.id) { result ->
                                 Toast.makeText(context, if (result.getOrNull() == true) R.string.ui_reverted else R.string.ui_revert_conflict, Toast.LENGTH_LONG).show()
                             }
@@ -72,6 +90,16 @@ fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActi
             item { WorkbenchRow(stringResource(R.string.ui_manual_overrides), onClick = onOverrides) }
         }
     }
+    if (clearing) AlertDialog(onDismissRequest = { clearing = false },
+        title = { Text(stringResource(R.string.ui_clear_rule_history)) },
+        text = { Text(stringResource(R.string.ui_clear_rule_history_confirm)) },
+        confirmButton = { TextButton(modifier = Modifier.testTag("confirm_clear_rule_history"), onClick = {
+            viewModel.clearRuleChangeHistory { result ->
+                if (result.isSuccess) clearing = false
+                else Toast.makeText(context, R.string.ui_rule_history_clear_failed, Toast.LENGTH_LONG).show()
+            }
+        }) { Text(stringResource(R.string.ui_clear_rule_history)) } },
+        dismissButton = { TextButton(onClick = { clearing = false }) { Text(stringResource(R.string.cancel)) } })
 }
 
 @Composable
@@ -89,7 +117,7 @@ fun ManualOverridesScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () 
             items(ui.settings.hostOverrides.entries.toList(), key = { it.key }) { (rule, action) ->
                 Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Row(Modifier.fillMaxWidth().clickable { editing = rule }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { editing = rule }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(rule, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
                                 Text(stringResource(actionLabel(action)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

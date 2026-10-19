@@ -19,9 +19,13 @@ import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.model.EgressNetworkChoice
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleInput
+import com.mzstd.hxmyproxy.core.rules.RuleScope
+import com.mzstd.hxmyproxy.core.rules.HostRuleEdits
+import com.mzstd.hxmyproxy.core.rules.RuleChangeJournal
 import com.mzstd.hxmyproxy.core.rules.UserRuleSet
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -61,9 +65,51 @@ class SettingsRepository @Inject constructor(
     /** 进程级日志策略只读取一个布尔值，不在Application初始化时解析所有规则JSON。 */
     val loggingEnabled: Flow<Boolean> = ds.data.map { it[LOG_ENABLED] ?: true }.distinctUntilChanged()
 
-    suspend fun update(transform: (ProxySettings) -> ProxySettings) {
-        ds.edit { prefs -> transform(prefs.toSettings()).writeTo(prefs) }
+    suspend fun update(transform: (ProxySettings) -> ProxySettings): Unit = withContext(Dispatchers.Default) {
+        ds.edit { prefs ->
+            val before = prefs.toSettings()
+            val after = transform(before)
+            val journal = RuleChangeJournalCodec.readLocal(prefs[RULE_CHANGES])
+            val observed = journal.observeOtherEdit(before, after)
+            after.writeTo(prefs)
+            if (observed != journal) prefs[RULE_CHANGES] = RuleChangeJournalCodec.encode(observed)
+        }
     }
+
+    val ruleChangeHistory: Flow<RuleChangeJournal> = ds.data
+        .map { RuleChangeJournalCodec.readLocal(it[RULE_CHANGES]) }.distinctUntilChanged().flowOn(Dispatchers.Default)
+
+    /** Commit the rule and its undo snapshot together, before reporting success to the UI. */
+    suspend fun applyDomainRule(input: String, action: RuleAction?, scope: RuleScope): String = withContext(Dispatchers.Default) {
+        val parsed = requireNotNull(RuleInput.forScope(input, scope)) { "Invalid rule" }
+        ds.edit { prefs ->
+            val before = prefs.toSettings()
+            val now = System.currentTimeMillis()
+            val after = HostRuleEdits.apply(before, input, action, scope, now)
+            val journal = RuleChangeJournalCodec.readLocal(prefs[RULE_CHANGES])
+                .record(before, after, parsed.host, parsed.value, action, now)
+            val encoded = RuleChangeJournalCodec.encode(journal)
+            after.writeTo(prefs)
+            prefs[RULE_CHANGES] = encoded
+        }
+        parsed.host
+    }
+
+    suspend fun revertDomainChange(id: String): Boolean = withContext(Dispatchers.Default) {
+        var applied = false
+        ds.edit { prefs ->
+            val journal = RuleChangeJournalCodec.readLocal(prefs[RULE_CHANGES])
+            journal.revert(prefs.toSettings(), id)?.let { (settings, history) ->
+                val encoded = RuleChangeJournalCodec.encode(history)
+                settings.writeTo(prefs)
+                prefs[RULE_CHANGES] = encoded
+                applied = true
+            }
+        }
+        applied
+    }
+
+    suspend fun clearRuleChangeHistory() { ds.edit { it.remove(RULE_CHANGES) } }
 
     /**
      * 导出全部设置为 JSON（换机/重装迁移用）。**不含代理凭据**——那是单独加密存储的，
@@ -153,6 +199,8 @@ class SettingsRepository @Inject constructor(
                 ruleSetOverrides = imported.ruleSetOverrides.mapValues { (_, rules) -> rules.map(::rule).distinct() },
                 hostOverrides = overrides,
             ).writeTo(prefs)
+            // A malformed undo snapshot must roll back the whole import, just like an invalid active rule.
+            RuleChangeJournalCodec.decode(prefs[RULE_CHANGES])
             prefs[ONBOARDING_DONE] = true
         }
         return n
@@ -223,6 +271,7 @@ class SettingsRepository @Inject constructor(
         val USER_DIRECT_ENABLED = booleanPreferencesKey("user_direct_enabled")
         val USER_REJECT_ENABLED = booleanPreferencesKey("user_reject_enabled")
         val DOMAIN_HISTORY = stringSetPreferencesKey("domain_history")
+        val RULE_CHANGES = stringPreferencesKey("recent_rule_changes_v1")
     }
 
     private fun Preferences.toSettings(): ProxySettings {

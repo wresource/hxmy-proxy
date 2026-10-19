@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -48,6 +49,8 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
+import com.mzstd.hxmyproxy.ui.components.AdaptiveActionPair
+import androidx.compose.ui.semantics.Role
 import com.mzstd.hxmyproxy.ui.components.WorkbenchRow
 import com.mzstd.hxmyproxy.ui.dashboard.QrSheet
 
@@ -89,7 +92,7 @@ internal fun ConnectionCard(
     val widestPort = listOf(ui.settings.httpPort, ui.settings.socksPort, ui.settings.pacPort).maxBy { it.toString().length }.toString()
     val minTile = with(density) { measure.measure(widestPort, numberStyle).size.width.toDp() } + 12.dp
     Surface(color = cs.primaryContainer, contentColor = cs.onPrimaryContainer,
-        shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth().testTag("connection_card")) {
+        shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth().testTag("connection_card")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.ui_proxy_ip_ports), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -100,7 +103,7 @@ internal fun ConnectionCard(
                             Icon(painterResource(R.drawable.ic_b_chevron_down), null, Modifier.size(16.dp))
                         }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            hosts.forEach { h -> DropdownMenuItem(text = {
+                            hosts.forEach { h -> DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = {
                                 Column { Text(h.label); Text(h.host, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
                             }, onClick = { onSelect(h.host); menu = false }) }
                         }
@@ -136,7 +139,7 @@ internal fun ConnectionCard(
                                     contentColor = if (busy) cs.onErrorContainer else if (ready) cs.onSurface else cs.onSurfaceVariant,
                                     shape = MaterialTheme.shapes.medium) {
                                     Column(Modifier.fillMaxWidth().testTag("endpoint_${protocol.name}")
-                                        .clickable(enabled = ready) { value?.let { onCopy(it.copyValue) } }
+                                        .clickable(enabled = ready, role = Role.Button) { value?.let { onCopy(it.copyValue) } }
                                         .heightIn(min = 80.dp).padding(horizontal = 4.dp, vertical = 8.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(protocol.name, style = MaterialTheme.typography.labelMedium)
@@ -150,16 +153,16 @@ internal fun ConnectionCard(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AdaptiveActionPair(stringResource(R.string.shareable_interfaces), stringResource(R.string.ui_edit_ports), extraWidth = 44.dp) { button ->
                 OutlinedButton(onClick = { onSettings("interfaces") },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("home_inbound"),
+                    modifier = button.testTag("home_inbound"),
                     contentPadding = PaddingValues(horizontal = 10.dp)) {
                     Icon(painterResource(R.drawable.ic_b_wifi), null, Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(stringResource(R.string.shareable_interfaces))
                 }
                 OutlinedButton(onClick = { onSettings("ports") },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("home_ports"),
+                    modifier = button.testTag("home_ports"),
                     contentPadding = PaddingValues(horizontal = 10.dp)) {
                     Icon(painterResource(R.drawable.ic_b_swap), null, Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
@@ -178,13 +181,14 @@ internal fun ConnectionCard(
                     Text(stringResource(R.string.ui_network_fallback), style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            val setupLabel = stringResource(if (host == null) R.string.ui_choose_network else if (!ui.share.running) R.string.start_sharing else R.string.qr_setup)
+            AdaptiveActionPair(setupLabel, stringResource(R.string.ui_all_addresses), extraWidth = 16.dp,
+                textStyle = MaterialTheme.typography.labelMedium) { button ->
                 FilledTonalButton(onClick = { when { host == null -> onSettings("interfaces"); !ui.share.running -> onStart(); else -> onQr() } },
-                    enabled = !ui.share.starting, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(stringResource(if (host == null) R.string.ui_choose_network else if (!ui.share.running) R.string.start_sharing else R.string.qr_setup),
-                        style = MaterialTheme.typography.labelMedium)
+                    enabled = !ui.share.starting, modifier = button, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(setupLabel, style = MaterialTheme.typography.labelMedium)
                 }
-                TextButton(onClick = onAddresses, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                TextButton(onClick = onAddresses, modifier = button, contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text(stringResource(R.string.ui_all_addresses), style = MaterialTheme.typography.labelMedium)
                 }
             }

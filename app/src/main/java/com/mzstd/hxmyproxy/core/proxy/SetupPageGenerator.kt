@@ -39,7 +39,8 @@ object SetupPageGenerator {
         val pacEsc = pac.htmlEscape()
         val platform = detectPlatform(userAgent)
         val primary = when (platform) {
-            Platform.APPLE -> appleSection(pacEsc, manualProxy, zh)
+            Platform.APPLE -> appleSection(pacEsc, manualProxy, zh,
+                isMac = "mac" in userAgent.lowercase() && "mobile" !in userAgent.lowercase())
             Platform.WINDOWS -> windowsSection(pacEsc, zh)
             Platform.OTHER -> androidSection(pacEsc, zh)
         }
@@ -55,50 +56,81 @@ object SetupPageGenerator {
         }
         val title = if (zh) "hxmy proxy · 配置" else "hxmy proxy · Setup"
         val h1 = if (zh) "把这台设备接入 hxmy proxy" else "Connect this device through hxmy proxy"
-        val sub = if (zh) "借旁边那台手机的网络上网。按下面的步骤设置一次即可。"
-            else "Use the phone next to you as your gateway. A one-time setup below."
+        val sub = if (zh) "请在这台客户端上完成以下步骤。扫码打开此页不会自动修改代理设置。"
+            else "Complete these steps on this client. Opening this page does not automatically change its proxy settings."
         val pacTag = if (zh) "通用：自动配置（PAC）地址，复制到系统代理「自动/脚本」一栏"
             else "Universal: auto-config (PAC) URL — paste it into your system proxy's \"Automatic / Script\" field"
+        val copy = if (zh) "复制地址" else "Copy URL"
+        val copied = if (zh) "已复制" else "Copied"
+        val select = if (zh) "地址已选中，请使用系统复制菜单。" else "URL selected. Use the system Copy command."
+        val verify = if (zh) """
+<section class="card"><h2>验证与排障</h2><ol>
+<li>保存客户端代理设置后，在支持代理的应用中打开网页。</li>
+<li>回到手机的“访问”，检查设备、域名和新流量。仅打开此配置页不代表已使用代理。</li>
+<li>没有新流量时，核对接入网络、协议端口、客户端代理设置及认证信息；有流量但访问失败时，点域名查看最近结果、命中规则和出口。</li>
+</ol><p class="tag">仅经过 HTTP、SOCKS5 或 PAC 的流量受代理规则控制；不遵循代理设置的应用不会被自动接管。</p></section>
+<section class="card"><h2>停止使用时</h2><p>先关闭客户端的代理设置，或在设备管理中移除 hxmy proxy 配置文件，再停止手机共享或离开此网络。固定代理地址在手机不可达时会影响客户端联网。</p></section>
+""" else """
+<section class="card"><h2>Check the connection</h2><ol>
+<li>Save the client proxy settings, then open a web page in an app that supports the proxy.</li>
+<li>On the phone, open Activity and look for the device, domain and new traffic. This setup page alone does not confirm proxy use.</li>
+<li>If no traffic appears, check Inbound, protocol ports, client settings and authentication. If traffic appears but the page fails, open the domain to review the latest result, rule and outbound.</li>
+</ol><p class="tag">Rules apply to traffic sent through HTTP, SOCKS5 or PAC. Apps that ignore proxy settings are not automatically routed through this gateway.</p></section>
+<section class="card"><h2>When you stop using it</h2><p>Turn off the client proxy or remove the hxmy proxy profile in device management before stopping sharing or leaving this network. A fixed proxy address can prevent client access when the phone is unavailable.</p></section>
+"""
         return """<!DOCTYPE html>
 <html lang="${if (zh) "zh" else "en"}"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
 <title>$title</title>
 <style>
+:root{color-scheme:light dark;--bg:#f6f8ff;--card:#fff;--ink:#172033;--muted:#526075;--line:#b9c2d0;--accent:#245bb7;--on-accent:#fff;--field:#edf2fb}
+@media(prefers-color-scheme:dark){:root{--bg:#101318;--card:#1b202b;--ink:#e3e7f0;--muted:#b8c2d4;--line:#647086;--accent:#adc7ff;--on-accent:#102e61;--field:#252d3b}}
 *{box-sizing:border-box}
-body{margin:0;padding:20px;font:16px/1.6 -apple-system,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;color:#1c1b1f;background:#fafafa}
-.wrap{max-width:560px;margin:0 auto}
-h1{font-size:22px;margin:0 0 4px}
-.sub{color:#666;margin:0 0 20px}
-.card{background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:18px;margin:0 0 14px}
-.pac{display:flex;gap:8px;align-items:center;background:#f1f3f5;border-radius:10px;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;word-break:break-all}
-.btn{display:inline-block;background:#006a64;color:#fff;text-decoration:none;border:0;border-radius:10px;padding:11px 16px;font-size:15px;cursor:pointer}
-.btn.sec{background:#e7f1f0;color:#006a64}
+body{margin:0;padding:20px;font:16px/1.6 -apple-system,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}
+.wrap{max-width:640px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.125rem;margin:0 0 12px}
+.sub{color:var(--muted);margin:0 0 24px}
+.card{background:var(--card);border-radius:24px;padding:20px;margin:0 0 16px;overflow-wrap:anywhere}
+.pac{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.pac input{font-family:ui-monospace,Menlo,Consolas,monospace;min-width:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;background:var(--accent);color:var(--on-accent);text-decoration:none;border:0;border-radius:24px;padding:12px 20px;font:inherit;cursor:pointer}
+.btn.sec{background:var(--field);color:var(--accent)}
+button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 ol{margin:8px 0 0;padding-left:22px}li{margin:4px 0}
-input{width:100%;padding:11px 12px;border:1px solid #ccc;border-radius:10px;font-size:15px;margin:8px 0}
-details{margin-top:8px}summary{cursor:pointer;color:#006a64}
-.tag{font-size:13px;color:#888}
+input{width:100%;min-height:48px;padding:12px;border:1px solid var(--line);border-radius:12px;font:inherit;color:var(--ink);background:var(--field);margin:8px 0}
+details{margin-top:12px}summary{cursor:pointer;color:var(--accent);min-height:48px;padding:12px 0}
+.tag{font-size:.875rem;color:var(--muted)}code{overflow-wrap:anywhere}
 </style></head>
 <body><div class="wrap">
 <h1>$h1</h1>
 <p class="sub">$sub</p>
 $primary
 <div class="card">
-<p class="tag">$pacTag</p>
-<div class="pac"><span id="pac">$pacEsc</span></div>
+<label for="pac" class="tag">$pacTag</label>
+<div class="pac"><input id="pac" readonly value="$pacEsc"><button class="btn sec" type="button" onclick="copyPac()">$copy</button></div>
+<p id="copy-status" class="tag" role="status" aria-live="polite"></p>
 </div>
+$verify
 $others
+<script>
+async function copyPac(){var field=document.getElementById('pac');field.focus();field.select();field.setSelectionRange(0,field.value.length);var ok=false;
+try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(field.value);ok=true;}else{ok=document.execCommand('copy');}}catch(e){}
+document.getElementById('copy-status').textContent=ok?'$copied':'$select';}
+</script>
 </div></body></html>"""
     }
 
-    private fun appleSection(pacEsc: String, manualProxy: Boolean, zh: Boolean): String {
+    private fun appleSection(pacEsc: String, manualProxy: Boolean, zh: Boolean, isMac: Boolean = false): String {
         // manualProxy=true(已开 HTTP 代理)→ 描述文件用 Manual HTTP，装上即生效、不 fetch PAC，iPhone 最稳。
         // manualProxy=false(仅 SOCKS)→ 描述文件回退 Auto/PAC，提示用户开 HTTP 代理可获最稳体验。
         val effect = when {
-            manualProxy && zh -> "<li>装好后该 Wi-Fi 立即经 hxmy proxy 上网，无需额外步骤（仅对这个 Wi-Fi 生效）。</li>"
-            manualProxy -> "<li>Once installed, this Wi-Fi routes through hxmy proxy immediately — no extra steps (applies to this Wi-Fi only).</li>"
-            zh -> "<li>装好后该 Wi-Fi 会自动经 hxmy proxy 上网（仅对这个 Wi-Fi 生效）。</li>"
-            else -> "<li>Once installed, this Wi-Fi automatically routes through hxmy proxy (applies to this Wi-Fi only).</li>"
+            manualProxy && zh -> "<li>该文件为指定 Wi-Fi 设置 HTTP 代理。安装后，请按下方步骤检查客户端访问。</li>"
+            manualProxy -> "<li>The profile sets an HTTP proxy for the specified Wi-Fi. After installing, check client access using the steps below.</li>"
+            zh -> "<li>该文件为指定 Wi-Fi 设置 PAC 自动代理。安装后，请按下方步骤检查客户端访问。</li>"
+            else -> "<li>The profile sets automatic PAC proxy configuration for the specified Wi-Fi. After installing, check client access below.</li>"
         }
         val hint = when {
             manualProxy -> ""
@@ -109,21 +141,27 @@ $others
             else "<p>1. Enter the Wi-Fi name you're currently on, 2. download &amp; install the profile:</p>"
         val placeholder = if (zh) "你的 Wi-Fi 名称（区分大小写）" else "Your Wi-Fi name (case-sensitive)"
         val dl = if (zh) "下载配置文件" else "Download profile"
-        val step1 = if (zh) "<li>下载后：设置 → 通用 → <b>VPN 与设备管理</b> → 安装该描述文件 → 输入锁屏密码确认。</li>"
-            else "<li>After downloading: Settings → General → <b>VPN &amp; Device Management</b> → install the profile → confirm with your passcode.</li>"
-        val unsigned = if (zh) "未签名会显示「未验证」，可放心安装；也可改用下方 PAC 地址手动设置。"
-            else "The profile is unsigned so it shows \"Unverified\" — safe to install. You can also use the PAC URL below manually."
+        val iosStep = if (zh) "<li>iPhone / iPad：打开设置中的“已下载描述文件”，或通用 → <b>VPN 与设备管理</b>，检查内容后安装并确认。</li>"
+            else "<li>iPhone / iPad: open Profile Downloaded in Settings, or General → <b>VPN &amp; Device Management</b>. Review and install the profile.</li>"
+        val macStep = if (zh) "<li>Mac：打开下载的文件，再到系统设置 → 通用 → <b>设备管理</b>，检查并安装该描述文件。</li>"
+            else "<li>Mac: open the downloaded file, then System Settings → General → <b>Device Management</b>. Review and install the profile.</li>"
+        val step1 = if (isMac) macStep else iosStep
+        val otherApple = if (isMac) iosStep else macStep
+        val unsigned = if (zh) "未签名文件会显示“未验证”。请确认它来自你自己的 hxmy 手机，且 Wi-Fi 名称及代理地址正确，再决定安装。它只包含此 Wi-Fi 的代理配置，不包含证书或账号；可在设备管理中移除。也可使用下方 PAC 地址手动设置。"
+            else "An unsigned profile is shown as Unverified. Install only after checking that it came from your hxmy phone and that the Wi-Fi name and proxy address are correct. It contains Wi-Fi proxy settings, not certificates or accounts, and can be removed in device management. Manual PAC setup is also available below."
         val alertMsg = if (zh) "请先填写 Wi-Fi 名称" else "Please enter your Wi-Fi name first"
         return """
 <div class="card">
 <b>iPhone / iPad / Mac</b>
 $head
+<label for="ssid">$placeholder</label>
 <input id="ssid" placeholder="$placeholder" autocapitalize="off" autocorrect="off">
 <a id="dl" class="btn" href="#" onclick="return go()">$dl</a>
 <ol>
 $step1
 $effect
 </ol>
+<details><summary>${if (zh) "另一种 Apple 设备" else "Another Apple device"}</summary><ol>$otherApple</ol></details>
 $hint
 <p class="tag">$unsigned</p>
 <script>

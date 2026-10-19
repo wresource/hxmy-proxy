@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -118,7 +119,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                 // 域名清单卡:实时计数头 + 等宽多行编辑框
                 BentoCard(tier = CardTier.Primary, contentPadding = 12.dp) {
                     CardHeader(
-                        title = stringResource(R.string.ruleset_domains_count, parseDomains(t).size),
+                        title = pluralStringResource(R.plurals.ruleset_domains_count, parseDomains(t).size, parseDomains(t).size),
                         icon = painterResource(R.drawable.ic_b_doc),
                     )
                     OutlinedTextField(
@@ -129,7 +130,10 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                     )
                 }
                 // 保存/导入/导出:等宽三按钮(中英文文案都不挤不断行)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.mzstd.hxmyproxy.ui.components.AdaptiveActions(
+                    listOf(stringResource(R.string.ruleset_save), stringResource(R.string.ruleset_import), stringResource(R.string.ruleset_export)),
+                    extraWidth = 32.dp,
+                ) { button ->
                     Button(
                         enabled = parsed.invalidLines.isEmpty(),
                         onClick = {
@@ -137,18 +141,15 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
                             if (isBuiltin) viewModel.setGroupOverride(id, domains) else viewModel.setRuleSetDomains(id, domains)
                             onBack()
                         },
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.large,
+                        modifier = button,
                     ) { Text(stringResource(R.string.ruleset_save), maxLines = 1) }
                     OutlinedButton(
                         onClick = { importLauncher.launch(arrayOf("text/plain")) },
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.large,
+                        modifier = button,
                     ) { Text(stringResource(R.string.ruleset_import), maxLines = 1) }
                     OutlinedButton(
                         onClick = { exportLauncher.launch("$title.txt") },
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.large,
+                        modifier = button,
                     ) { Text(stringResource(R.string.ruleset_export), maxLines = 1) }
                 }
                 if (isBuiltin && hasOverride) {
@@ -165,7 +166,7 @@ fun RuleSetEditScreen(kind: String, id: String, ui: MainUiState, viewModel: Main
         AlertDialog(
             onDismissRequest = { pendingImport = null },
             title = { Text(stringResource(R.string.ruleset_import)) },
-            text = { Text(stringResource(R.string.ruleset_import_how, parseDomains(pending).size)) },
+            text = { Text(pluralStringResource(R.plurals.ruleset_import_how, parseDomains(pending).size, parseDomains(pending).size)) },
             confirmButton = {
                 TextButton(onClick = {
                     text = text.orEmpty().trimEnd() + "\n" + pending

@@ -31,7 +31,7 @@ import com.mzstd.hxmyproxy.core.rules.RuleScope
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.locale.ProvideAppLocale
 import com.mzstd.hxmyproxy.ui.monitor.*
-import com.mzstd.hxmyproxy.ui.rules.HostRuleEdits
+import com.mzstd.hxmyproxy.core.rules.HostRuleEdits
 import com.mzstd.hxmyproxy.ui.run.ConnectionCard
 import com.mzstd.hxmyproxy.ui.theme.HxmyProxyTheme
 import org.junit.Assert.*

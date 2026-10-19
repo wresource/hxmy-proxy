@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -167,7 +168,7 @@ private fun DomainDetailContent(state: DomainDetailState, onEdit: () -> Unit, on
     if (row.requests.isNotEmpty()) WorkbenchFold(stringResource(R.string.ui_connection_records, row.requests.size), "requests-${row.key}") {
         Column(Modifier.fillMaxWidth()) {
             row.requests.forEach { record ->
-                Row(Modifier.fillMaxWidth().clickable { onRecord(record) }.heightIn(min = 56.dp).padding(vertical = 8.dp)
+                Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { onRecord(record) }.heightIn(min = 56.dp).padding(vertical = 8.dp)
                     .testTag("request_${record.key}"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("${activityTime(record.startedAt)} · ${stringResource(outcomeLabel(record.outcome))}", style = MaterialTheme.typography.bodyMedium)

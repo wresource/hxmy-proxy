@@ -42,6 +42,7 @@ private val dateFmt = SimpleDateFormat("MM-dd HH:mm", Locale.US)
 @Composable
 fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     val clipboard = LocalClipboardManager.current
     DetailScaffold(title = stringResource(R.string.history_title), onBack = onBack) { padding ->
         if (ui.history.isEmpty()) {
@@ -88,7 +89,7 @@ fun HistoryDetailScreen(ui: MainUiState, mainViewModel: MainViewModel, onBack: (
                             }
                             TextButton(onClick = {
                                 clipboard.setText(AnnotatedString(ip))
-                                Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, resources.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                             }) { Text(stringResource(R.string.copy)) }
                             TextButton(onClick = {
                                 ui.history.filter { it.entry.ip == ip }.forEach { mainViewModel.removeHistoryEndpoint(it.entry) }

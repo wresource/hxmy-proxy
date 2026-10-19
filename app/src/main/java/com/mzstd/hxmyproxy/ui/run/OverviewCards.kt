@@ -13,11 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -59,8 +60,9 @@ import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 
 /** 告警条：未就绪三态 + 端口占用。文案与判定沿用旧 hero 的同一套规则。 */
 @Composable
-internal fun WarnBanners(ui: MainUiState) {
+internal fun WarnBanners(ui: MainUiState, onSettings: ((String) -> Unit)? = null) {
     val share = ui.share
+    val actions = linkedMapOf<String, Int>()
     if (share.startupFailed) WarnBanner(stringResource(R.string.startup_failed))
     if (!share.running) return
     if (share.directEgressUnavailable) {
@@ -71,8 +73,12 @@ internal fun WarnBanners(ui: MainUiState) {
             com.mzstd.hxmyproxy.core.model.DirectEgressChoice.AUTO -> R.string.egress_auto
         }
         WarnBanner(stringResource(R.string.direct_egress_missing, stringResource(label)))
+        actions["direct-egress"] = R.string.ui_direct_egress
     }
-    if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) WarnBanner(stringResource(R.string.ui_pac_only))
+    if (ui.settings.pacEnabled && !ui.settings.httpEnabled && !ui.settings.socksEnabled) {
+        WarnBanner(stringResource(R.string.ui_pac_only))
+        actions["ports"] = R.string.ui_edit_ports
+    }
     val noProto = !ui.settings.httpEnabled && !ui.settings.socksEnabled && !ui.settings.pacEnabled
     val d = share.diagnostics
     val anyPortUp = d.httpPortUp || d.socksPortUp || d.pacPortUp
@@ -83,6 +89,8 @@ internal fun WarnBanners(ui: MainUiState) {
         else -> null
     }
     if (warnRes != null) WarnBanner(stringResource(warnRes))
+    if (share.admissionEmpty) actions["interfaces"] = R.string.shareable_interfaces
+    if (noProto || !anyPortUp) actions["ports"] = R.string.ui_edit_ports
     if (share.portBindErrors.isNotEmpty()) {
         WarnBanner(
             stringResource(
@@ -90,6 +98,10 @@ internal fun WarnBanners(ui: MainUiState) {
                 share.portBindErrors.joinToString(" / ") { it.name },
             ),
         )
+        actions["ports"] = R.string.ui_edit_ports
+    }
+    if (onSettings != null) actions.forEach { (page, label) ->
+        TextButton(onClick = { onSettings(page) }) { Text(stringResource(label)) }
     }
 }
 
@@ -155,7 +167,7 @@ internal fun RateStatsCard(ui: MainUiState, viewModel: MainViewModel) {
 private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.medium)
             .padding(horizontal = 8.dp, vertical = 7.dp),
     ) {
         Text(
@@ -243,7 +255,7 @@ internal fun SummaryGrid(
 }
 
 @Composable
-private fun SummaryCell(
+internal fun SummaryCell(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
@@ -254,9 +266,10 @@ private fun SummaryCell(
     val cs = MaterialTheme.colorScheme
     Column(
         modifier
+            .clip(MaterialTheme.shapes.medium)
             .background(
                 if (tint) cs.tertiaryContainer else cs.surfaceContainer,
-                RoundedCornerShape(12.dp),
+                MaterialTheme.shapes.medium,
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
@@ -269,9 +282,10 @@ private fun SummaryCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row {
             Text(
                 value,
+                modifier = Modifier.alignByBaseline(),
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -282,6 +296,7 @@ private fun SummaryCell(
             if (unit.isNotEmpty()) {
                 Text(
                     " $unit",
+                    modifier = Modifier.alignByBaseline(),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (tint) cs.onTertiaryContainer else cs.onSurfaceVariant,
                 )

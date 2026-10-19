@@ -26,7 +26,6 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
-import java.io.FileDescriptor
 import java.io.IOException
 import java.net.ConnectException
 import java.net.Inet4Address
@@ -735,9 +734,8 @@ class OutboundConnector(
 
     /**
      * 同 [connect]，但产出已连接的（阻塞模式）[SocketChannel]，供非阻塞 relay 使用（调用方在进入 relay 前
-     * 切 `configureBlocking(false)`）。[bypassVpn]=true 时用反射取 fd + `Network.bindSocket(fd)`（connect 前）
-     * 做出口分流——Phase 0 spike 已验证（见 BindSocketSpikeTest）。反射取 fd 失败则抛 [IOException]，
-     * 调用方应回退到阻塞 [connect] + 阻塞 relay。
+     * 切 `configureBlocking(false)`）。所选出口在 connect 前通过公开的 Network.bindSocket(Socket) 绑定。
+     * 绑定能力失败保持 IOException，调用方仍可回退到同一出口的 socketFactory + 阻塞 relay。
      */
     suspend fun connectChannel(
         host: String,
@@ -774,7 +772,7 @@ class OutboundConnector(
                 }
         } catch (e: ProxyException) {
             // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
-            // 让调用方走「反射不可用 → 回退阻塞路径」的既有逻辑。
+            // 让调用方走「NIO绑定不可用 → 同一出口的阻塞路径」的既有逻辑。
             if (bypassVpn) {
                 // 见 connect() 里同处注释：全局状况不进 per-host 账本。
                 if (e.stage == "no-physical-egress") DirectEgressFailures.recordNoEgress()
@@ -885,26 +883,29 @@ class OutboundConnector(
 
     /**
      * 非阻塞 relay 用：产出已连接的**阻塞** [SocketChannel]（调用方进入 relay 前切非阻塞）。
-     * 出口分流（[network] 非空）靠反射取 fd + `network.bindSocket(fd)`（**必须 connect 之前**）；
-     * 反射取 fd 失败抛 [IOException]，调用方回退阻塞路径。
+     * 出口分流（[network] 非空）使用公开的 bindSocket(Socket)，必须在 connect 之前。
+     * Android SocketAdaptor 由 FileDescriptorHolderSocketImpl 持有 channel 的同一个 fd。
+     * 绑定失败必须关闭尚未交接的 channel，并保留 IOException 让调用方回退到绑定出口的阻塞路径。
      */
-    private suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel {
-        // 出口分流（network 非空）的前提是反射取 fd 可用。**fail-fast**：不可用直接抛 IOException，让调用方回退
-        // 阻塞 relay——否则反射失败会被 Happy Eyeballs 编排吞成 ProxyException，无法与「连接失败」区分。
-        if (network != null && !ensureFdReflectionUsable()) {
-            throw IOException("SocketChannel fd reflection unavailable, cannot bindSocket for egress split")
-        }
+    internal suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel {
         return connectAnyGeneric(
             addrs, port,
             create = {
                 val ch = SocketChannel.open()
-                ch.configureBlocking(true)
-                if (network != null) {
-                    val fd = fileDescriptorOf(ch)
-                        ?: run { ch.closeQuietly(); throw IOException("failed to obtain SocketChannel fd, cannot bindSocket for egress split") }
-                    network.bindSocket(fd)   // connect 之前绑定到非 VPN 网络
+                try {
+                    ch.configureBlocking(true)
+                    if (network != null) {
+                        try { network.bindSocket(ch.socket()) }
+                        catch (failure: Exception) {
+                            throttledFileLog("nio-bind:$network", "NIO socket binding failed; using bound socketFactory fallback: $failure")
+                            throw ChannelBindingUnavailable(failure)
+                        }
+                    }
+                    ch
+                } catch (failure: Throwable) {
+                    ch.closeQuietly()
+                    throw failure
                 }
-                ch
             },
             // keepAlive：让内核主动探测「链路没了但没有 FIN/RST」的死连接。
             // 注意它只是辅助——Java 无法设置探测间隔，系统默认约 2 小时。
@@ -917,27 +918,6 @@ class OutboundConnector(
                 ch.socket().connect(a, ProxyTuning.CONNECT_TIMEOUT_MS)
             },
         )
-    }
-
-    /** 反射取 SocketChannel fd 是否可用（探测一次并缓存；进程内不变）。 */
-    @Volatile private var fdReflectionUsable: Boolean? = null
-    private fun ensureFdReflectionUsable(): Boolean {
-        fdReflectionUsable?.let { return it }
-        val probe = SocketChannel.open()
-        val ok = fileDescriptorOf(probe) != null
-        probe.closeQuietly()
-        fdReflectionUsable = ok
-        // 落盘放在这个**一次性探测**里而不是调用方的 catch：后者每条走出口分流的连接都会命中，
-        // 落盘会刷屏且需要节流。这里进程内只执行一次，信息还更准确（是能力探测结果，
-        // 不是某条连接的偶发失败）。不可用意味着整机降级到阻塞 relay —— 性能特征完全变了，
-        // 而此前这件事只写 logcat，release 下连 logcat 都没有。
-        if (!ok) {
-            com.mzstd.hxmyproxy.core.log.Ev.kw(
-                com.mzstd.hxmyproxy.core.log.LogCat.EGRESS, "nio.fdReflect.unavailable",
-                "impact" to "egress-split falls back to blocking relay",
-            )
-        }
-        return ok
     }
 
     /**
@@ -980,6 +960,9 @@ class OutboundConnector(
                 val conn = try {
                     create()
                 } catch (e: Throwable) {
+                    // This failure is about channel binding, not a remote address. Preserve the
+                    // existing IOException fallback instead of converting it to ProxyException.
+                    if (e is ChannelBindingUnavailable) throw e
                     if (!closed.get()) results.trySend(Outcome(null, mapConnectError(e)))
                     return@launch
                 }
@@ -1047,24 +1030,8 @@ class OutboundConnector(
         }
     }
 
-    /**
-     * 反射取 [SocketChannel] 底层 [FileDescriptor]（喂 `Network.bindSocket(fd)`）。
-     * Phase 0 spike 实测：`socket().getFileDescriptor$()` 路径在目标 ROM 可用；`SocketChannelImpl.fd` 字段
-     * 在部分 ROM 不存在，作兜底。取不到返回 null（调用方回退阻塞路径）。
-     */
-    private fun fileDescriptorOf(channel: SocketChannel): FileDescriptor? {
-        runCatching {
-            val sock = channel.socket()
-            val m = sock.javaClass.getMethod("getFileDescriptor\$")
-            (m.invoke(sock) as? FileDescriptor)?.let { return it }
-        }
-        runCatching {
-            val f = Class.forName("sun.nio.ch.SocketChannelImpl").getDeclaredField("fd")
-            f.isAccessible = true
-            (f.get(channel) as? FileDescriptor)?.let { return it }
-        }
-        return null
-    }
+    private class ChannelBindingUnavailable(cause: Exception) :
+        IOException("Cannot bind NIO socket to the selected network", cause)
 
     private fun mapConnectError(e: Throwable): ProxyError = when (e) {
         is SocketTimeoutException -> ProxyError.RemoteTimeout

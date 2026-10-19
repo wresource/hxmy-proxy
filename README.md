@@ -2,89 +2,124 @@
 
 > **English** · [简体中文](README.zh-CN.md)
 
-**A local proxy gateway for Android.** Run HTTP / HTTPS CONNECT, SOCKS5 and PAC proxies on your
-phone, and let other devices on the same network — a laptop, a tablet, another phone — go online
-through your phone's current uplink, including any system/Google VPN it happens to be on.
+**Use your Android phone as a local proxy gateway.** Connect a laptop, tablet or another phone
+through HTTP / HTTPS CONNECT, SOCKS5 TCP or PAC. Choose the phone's outgoing network, see which
+devices are using it, and inspect destination traffic when a website stops working.
 
-It is **not a traditional VPN app**: it builds no `VpnService` and no tunnel of its own. Think of
-it as turning your phone into a network relay — point a device's proxy at the phone and you're done.
+The app runs a proxy on your phone; it does not provide its own VPN service. A compatible VPN
+already running on the phone can serve as an outgoing network. Each client must be configured
+to use the proxy. Apps that ignore proxy settings, UDP traffic and connections that bypass the
+gateway are outside its coverage. VPN app policies and the local network can affect compatibility.
 
-## Two modes (works with or without a VPN)
+## Download and latest update
 
-- **Phone on a VPN → shared egress.** Other devices borrow the phone's VPN tunnel — connect once,
-  share to many, no per-device VPN setup.
-- **Phone with no VPN → filtering gateway.** The uplink is a plain network, but downstream devices
-  get a free rule engine: ad/tracker blocking, 65 built-in app/service rule sets, whitelist direct-connect,
-  per-domain routing and per-connection monitoring. A root-free, hardware-free whole-home ad blocker
-  that works at the **proxy layer** (HTTP CONNECT / SOCKS) — it blocks the real connection target,
-  so encrypted DNS (DoH/DoT) can't slip past it. That's the fundamental difference from DNS-layer
-  blockers like Pi-hole.
+[**1.48.76 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.48.76/hxmy-proxy-1.48.76.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.48.76) ·
+[What's new](docs/releases/1.48.76.md)
 
-## Highlights
+This release brings a clearer workbench, persistent recent rule changes with safe restore, fixes
+for traffic-list crashes, and improvements to DNS and network recovery. IPs, ports and Inbound
+controls stay close at hand. Inbound lists IPv4 before IPv6; rounded feedback, alignment and
+large-text layouts are consistent across the interface. Install the APK over the existing app
+to retain its data. The AAB is for Google Play submission. Availability on Play follows its own rollout.
 
-- **Separate proxy & direct egress pickers** — route proxied traffic via Auto / VPN / Wi-Fi / Cellular / Ethernet-USB, and give DIRECT (bypass) traffic its own path (Auto: Ethernet/USB → Wi-Fi → Cellular, or pinned). Per-socket bound and **fail-closed** — DIRECT never leaks to the VPN. Cellular is selectable even while on Wi-Fi (permission-free SIM check).
-- **Rule engine** — Block / Allow modules; wildcard domains, IP literals and **CIDR**; per-host 3-state override (proxy / direct / block); **65 built-in groups** (incl. Apple / App Store direct) with one-tap category & master switches.
-- **Rule scope in three tiers** — how you write it decides how deep it reaches: `apple.com` (all levels) · `*.apple.com` (one level) · `=apple.com` (exact). Scope sets reach, not precedence. When several rules match, the one anchored deeper wins (`xxx.apple.com` beats `apple.com`), so a broad rule added later can never silently erase a narrower one you added months ago; rules anchored at the same domain tie, and the tie goes to whichever you set most recently.
-- **Ad-block false-positive rescue** — public blocklists are auto-aggregated and sweep up vendors' own content domains (mini-program assets, video CDNs); a curated, individually-audited allowlist un-blocks them, so "the app broke and you can't tell why" stops happening. Every entry is checked by tests against the shipped rule data.
-- **Toggle rules without deleting** — every block/allow entry has its own on/off switch and an Active/Off badge; disabled entries drop out of matching (they do *not* flip to the opposite action) and sort below the active ones.
-- **Edit any rule in place** — tap an entry to read its full value (long IPv6 literals and CIDRs are no longer truncated by the list), rewrite it, or move it to a different scope tier — no more delete-and-re-add to fix one character. An edit keeps the entry's original creation time, so most-specific-wins tie-breaks don't silently shift under you.
-- **Survives updates and reboots** — if sharing was on, it comes back by itself after an app update or a device restart (and only then — stopping it yourself keeps it off), so clients don't hit a dead proxy port.
-- **Client link latency** — measures the *client → phone* hop (the one that degrades first when the phone acts as a gateway, and the one nothing used to measure), shown as p50 with p95 alongside and colour-coded. Probed every 10 s, and only while a client is actually connected.
-- **Traffic history** — cross-session usage by period (today / week / month / year / all time) **and by egress**: VPN tunnel, Wi-Fi, cellular, Ethernet-USB. Cellular is broken out on its own — it's the one that costs money. Kept per day on-device; cleared only when you say so, never automatically.
-- **Settings backup** — export/import your whole configuration as JSON, so nothing is lost on reinstall or a new phone (system cloud backup is deliberately off — see Privacy).
-- **Diagnostic log you can actually read** — structured `evt=… k=v` events tagged by subsystem, plus a separate `key.log` ring for lifecycle / admission / rejection / crash events so they're never rotated away by high-frequency noise. After an unexpected stop it also reports **why the process died** (low memory / crash / killed by the system), recovered from the OS after the fact — including a small state note the system keeps for us, which survives even a `SIGKILL` that takes buffered log writes with it. One master switch in Settings.
-- **Self-diagnosing when clients can't connect** — a 60 s heartbeat (ports / accepts / admission / RSSI / link), accept-success logging, a loopback+LAN self-probe pair and client-probe loss events make an exported log tell you *which layer* failed; a one-tap **Refresh service** button fully resets the app-side stack, probes recent clients (refreshing on-path ARP entries) and, if they still don't answer, points you at the system Wi-Fi panel — the one thing apps can't reset themselves.
-- **Protection tab** — session block count, blocked-host detail by hit count, one-tap undo for mis-blocks. When a host you set to *Direct* stops answering, it surfaces here with a one-tap switch back to *Via proxy* — Direct bypasses your VPN and fails closed, so without this the only symptom is "the app feels slow sometimes" while every request waits out a timeout.
-- **Link quality you can see** — packet loss to your devices is measured alongside latency, because they fail independently: a link can show a healthy 12 ms p50 while dropping half the packets (the latency window only holds *successful* probes). Past a threshold the app suggests the fix that actually works — it's a physical-layer problem, so: connect devices to the phone's hotspot instead of the shared Wi-Fi.
-- **DNS resilience** — dual-path system resolve + **DoH backup** (8.8.8.8 / 1.1.1.1) when the network's own DNS misbehaves.
-- **Fail-closed admission** — with no network selected, no connections are accepted.
-- **NIO non-blocking relay** — 2 selectors replace 128 threads, with per-tunnel **back-pressure attribution**: stall time is counted per direction, so a slow session tells you *which* hop is the bottleneck — the client link or the uplink.
-- **100% local** — no account, no cloud, no tracking SDK.
+| Overview | Device and destination traffic | Inbound and ports | Outbound settings |
+|---|---|---|---|
+| <img src="docs/screenshots/en-US/01-home.jpg" width="220" alt="Running gateway with visible proxy IP and protocol ports"> | <img src="docs/screenshots/en-US/02-activity.jpg" width="220" alt="Client usage and destination traffic"> | <img src="docs/screenshots/en-US/04-inbound.jpg" width="220" alt="Inbound interfaces and editable protocol ports"> | <img src="docs/screenshots/en-US/05-outbound.jpg" width="220" alt="Separate proxy and direct outgoing network settings"> |
 
-## The five screens
+Screenshots show the signed 1.48.76 app on an isolated emulator with controlled test traffic.
 
-| Screen | What it does |
+## First connection
+
+1. Put both devices on a reachable local network: Wi-Fi, a phone hotspot, USB tethering or Ethernet.
+2. Select the intended **Inbound** network in hxmy proxy and enable sharing with the top switch.
+3. Use the IP address and protocol port shown in **Run → Overview**. **Edit ports** and **Inbound** are directly
+   beside the connection information. The QR code opens setup instructions; scanning alone does
+   not change the client's network settings.
+4. Set the client's manual proxy or PAC URL. On supported Apple devices, review and install the
+   generated Wi-Fi proxy profile in system settings. Other clients can use the manual instructions.
+5. Open a website on that client, then check its new connections and traffic under **Activity**.
+   “Sharing” means the phone's service is running; confirm the website result on the client.
+
+After stopping sharing or leaving this network, disable the client's proxy or remove its profile
+if it is no longer needed. A client still pointing to a stopped gateway may be unable to connect.
+
+## The workbench
+
+| Area | What you can do |
 |---|---|
-| **Dashboard** | Sharing \| Protection dual-status tiles (Stopped / Not ready / Sharing); live speed + **client link latency**; proxy address (HTTP/PAC + copy + QR); inbound interfaces (ingress); **proxy egress** and **direct egress** pickers. |
-| **Protection** | Session block total, ad-block toggle, blocked-host detail by hit count, 3-state per-host override — works with or without a VPN. |
-| **Monitor** | Diagnostics grid, latency probes, client list, top domains (full list on its own page — tap any domain to add it straight to your block/allow rules, no typing), **traffic history** (period × egress), history & error logs (filterable by level). |
-| **Rules** | 🛡️ Block / 🌐 Allow modules — quick block (domain/IP/CIDR, master toggle), whitelist, per-entry on/off switches, app/service rule sets with per-category & master switches. **65 built-in groups** (incl. Apple / App Store). |
-| **Settings** | Language, theme, performance presets, ports, protocol toggles, backup DNS (DoH), auth, diagnostics. |
+| **Run → Overview** | See IP addresses and HTTP/SOCKS5/PAC ports, copy or scan connection information, select Inbound and edit ports. Use the sharing switch, open client setup, or jump to Activity and Add rule. |
+| **Activity** | See client devices and their upload/download usage, destination traffic, active connections, recent results and the effective rule. Search or sort, open the full domain list from its five-row preview, and inspect a destination without losing context. |
+| **Traffic / Health** | Inspect usage by period and outgoing network, service health, latency, protection, history and diagnostic logs. |
+| **Rules** | Add, edit or disable domain/IP/CIDR rules; choose Proxy, Direct or Block; manage built-in groups and subscriptions. Review recent quick changes and restore a previous rule safely. |
+| **Settings** | Inbound and ports are directly editable. **Outbound** and **Direct egress** remain separate. Configure protocols, DNS, authentication, performance, appearance, diagnostics and backups. |
 
-## Privacy
+The main navigation has Run, Rules and Settings. Overview, Activity, Traffic and Health are sections
+within Run; detailed lists and settings open separate pages or bottom sheets.
 
-Runs entirely on-device — no account, no login, no cloud, no analytics/tracking SDK. It only relays
-traffic between local devices and the phone's network; settings, rules and diagnostic logs never
-leave the device.
+## Routing and troubleshooting
 
-This is enforced, not just promised: logs live in `noBackupFilesDir` and **system cloud backup is
-disabled** (`allowBackup=false`), so nothing — not even via Android Auto Backup — is uploaded
-anywhere. Because that also removes cloud restore, **Settings → Settings backup** lets you export
-and re-import your configuration yourself. Release builds additionally strip verbose/debug/info
-logcat output, so no visited domain or client IP is written to the system log.
+- **Proxy** uses the configured Outbound path. **Direct** uses a physical network independently
+  of the VPN. If a pinned Direct egress network is unavailable, the request fails instead of
+  silently switching to the VPN. With no Inbound network selected, incoming clients are denied.
+- Rules accept domains, IP addresses and CIDR. `example.com` includes all levels,
+  `*.example.com` matches one subdomain level, and `=example.com` is exact. Scope controls reach,
+  not priority. More deeply anchored rules win; equal anchors use their established recency rules.
+- Domain filtering depends on the hostname supplied to the proxy. An IP-only request can be
+  matched by IP/CIDR; the app cannot promise to recover every hostname from encrypted traffic.
+- When a site fails, search Activity, inspect the recorded result and effective rule, and make the
+  smallest appropriate change. **Proxy** and **Direct** have different effects. DNS or an unavailable
+  network may need a network setting change instead of a new rule.
+- Retry on the client and observe a **new** connection. Saving a rule does not rewrite old records
+  or prove that the website works. The latest 20 quick rule changes are retained locally across
+  restarts; restore is blocked if later edits changed the same host, even if it was changed back.
+  Clearing this history keeps the active rules.
 
-## Requirements
+Other capabilities include per-entry rule switches, built-in app/service groups, ad/tracker
+lists, HTTP/SOCKS authentication, IPv4/IPv6 ingress, DNS fallback, adjustable connection limits,
+cross-session traffic totals, link probes and a non-blocking TCP relay. Sharing can resume after
+an update or reboot when it was previously active, subject to Android's background restrictions.
+An intentional stop keeps it off.
 
-Android 10+ (minSdk 29 / targetSdk 37). Namespace `com.mzstd.hxmyproxy`, publisher **mzstd**.
-Latest release: **1.24.10**.
+## Privacy and local data
 
-## More
+No account, advertising SDK or usage analytics SDK is included. Settings, traffic summaries,
+recent rule changes and diagnostic logs are stored on the phone. Android automatic cloud backup
+is disabled; proxy credentials are stored separately and are excluded from settings exports.
 
-- Full overview, architecture and version history: **[简体中文 README](README.zh-CN.md)**
-- Technical deep-dives: [`version-md/`](./version-md/)
+Network access is part of the app's function: it forwards client traffic to destinations, resolves
+names using the configured path, downloads enabled subscriptions and runs requested diagnostics.
+Backup DNS can use Google, Cloudflare, Alibaba or Tencent services. These providers and the chosen
+network/VPN process their respective requests; “local storage” does not mean no network requests.
+
+Settings backups can contain rule domains and recent change history. Diagnostic exports can
+contain destination names, client IPs and connection details. Exports leave app storage only when
+you choose a file destination or sharing recipient, which may itself be a cloud service. There is
+no automatic log upload. The diagnostic switch, traffic-history reset and rule-history clear are
+separate controls; disabling logs does not erase your rules or settings.
+
+## Development
+
+Android 10+ (`minSdk 29`, `targetSdk 37`), Kotlin, Jetpack Compose and Material 3.
+Package: `com.mzstd.hxmyproxy`; publisher: **mzstd**.
+
+The version in `app/build.gradle.kts` describes this checkout, not necessarily the version currently
+published on Google Play. Release builds require the project's signing configuration; without it,
+Gradle produces an unsigned APK. Do not replace an installed release with a differently signed
+build by uninstalling it if you need to keep its data.
+
+```sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease
+```
+
+Instrumented tests require an explicitly selected, isolated test device. Debug-only controlled VPN
+fixtures are excluded from release. Local tests establish the exercised scenarios; they are not
+production Android vitals or proof of compatibility with every VPN and physical network.
+
+Historical architecture and version notes are retained in the [Chinese README](README.zh-CN.md)
+and local `version-md/` records. Older benchmark results apply to the documented versions only.
 
 ## License
 
-Copyright (C) 2026 wresource
-
-hxmy proxy is free software: you can redistribute it and/or modify it under the terms of the
-**GNU Affero General Public License v3.0** as published by the Free Software Foundation. See
-[`LICENSE`](./LICENSE) for the full text.
-
-In short: you may use, study, modify and redistribute this software, but **any derivative work
-you distribute — or run as a network service — must also be released under the AGPL-3.0 with
-its complete source code**. This keeps every fork of a privacy tool auditable by the people
-who run it.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
-without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+Copyright (C) 2026 wresource. Licensed under the **GNU Affero General Public License v3.0**;
+see [LICENSE](LICENSE) for the complete terms. Distributed without any warranty.

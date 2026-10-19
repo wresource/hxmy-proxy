@@ -137,7 +137,7 @@ class HttpProxyServer(
                 )
                 return
             } catch (e: IOException) {
-                // 能力探测处已落一次结构化事件（nio.fdReflect.unavailable），此处不再重复。
+                // NIO 绑定失败已在 connector 节流记录，此处保留同一出口的 socketFactory 回退。
                 null
             }
             if (upstreamCh != null) {

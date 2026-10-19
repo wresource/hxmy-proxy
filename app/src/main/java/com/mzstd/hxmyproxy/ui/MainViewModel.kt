@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -35,7 +36,8 @@ data class MainUiState(
     val credentials: CredentialStore.Credentials = CredentialStore.Credentials(),
 ) {
     /**
-     * 界面该展示的接口列表（受「显示 IPv6」偏好过滤）。
+     * 界面该展示的接口列表（受「显示 IPv6」偏好过滤），常用的IPv4排在IPv6前。
+     * 同地址族保留扫描顺序；只调整展示，不修改原接口列表和已选接口。
      *
      * **凡是给用户看的接口列表都用这个，别用 [share].interfaces**——后者是全量，
      * 供准入、历史入口可用性判定、诊断使用，那些地方必须看见 v6，否则会把
@@ -43,6 +45,7 @@ data class MainUiState(
      */
     val visibleInterfaces: List<ShareInterface>
         get() = visibleUnderIpv6Pref(share.interfaces, settings.showIpv6) { it.isIpv6 }
+            .sortedBy { it.isIpv6 }
 
     /**
      * 因「显示 IPv6」关着而**没被列出来**的接口数;为 0 表示没有东西被藏。
@@ -103,41 +106,30 @@ class MainViewModel @Inject constructor(
         frozenActivity.value = if (activitySnapshot.value.paused) null else activitySnapshot.value.copy(paused = true)
     }
 
-    private val ruleChangeIds = java.util.concurrent.atomic.AtomicLong()
-    private val _recentRuleChanges = MutableStateFlow<List<com.mzstd.hxmyproxy.ui.rules.RecentRuleChange>>(emptyList())
-    val recentRuleChanges: StateFlow<List<com.mzstd.hxmyproxy.ui.rules.RecentRuleChange>> = _recentRuleChanges
+    private val ruleChangeHistory = settingsRepository.ruleChangeHistory
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.mzstd.hxmyproxy.core.rules.RuleChangeJournal())
+    val recentRuleChanges = ruleChangeHistory.map { it.forDisplay() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val ruleChangeHistoryUnreadable = ruleChangeHistory.map { it.unreadable }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun applyDomainRule(input: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction?,
         scope: com.mzstd.hxmyproxy.core.rules.RuleScope, onDone: (Result<String>) -> Unit) = viewModelScope.launch {
         onDone(runCatching {
-            val parsed = com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(input, scope) ?: error("Invalid rule")
-            var change: com.mzstd.hxmyproxy.ui.rules.RecentRuleChange? = null
-            settingsRepository.update { before ->
-                val now = System.currentTimeMillis()
-                val after = com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.apply(before, input, action, scope, now)
-                change = com.mzstd.hxmyproxy.ui.rules.RecentRuleChange(ruleChangeIds.incrementAndGet(), parsed.host,
-                    parsed.value, action, com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.capture(before, parsed.host),
-                    com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.capture(after, parsed.host), now)
-                after
-            }
-            change?.let { _recentRuleChanges.value = (_recentRuleChanges.value + it).takeLast(20) }
+            val host = settingsRepository.applyDomainRule(input, action, scope)
             frozenActivity.value = null
-            activityQuery.value = activityQuery.value.copy(text = parsed.host,
+            activityQuery.value = activityQuery.value.copy(text = host,
                 filter = com.mzstd.hxmyproxy.ui.monitor.ActivityFilter.ALL)
-            parsed.host
+            host
         })
     }
 
-    fun revertDomainChange(id: Long, onDone: (Result<Boolean>) -> Unit) = viewModelScope.launch {
-        onDone(runCatching {
-            val change = _recentRuleChanges.value.firstOrNull { it.id == id } ?: return@runCatching false
-            var applied = false
-            settingsRepository.update { settings ->
-                com.mzstd.hxmyproxy.ui.rules.HostRuleEdits.revert(settings, change)?.also { applied = true } ?: settings
-            }
-            if (applied) _recentRuleChanges.value = _recentRuleChanges.value.map { if (it.id == id) it.copy(reverted = true) else it }
-            applied
-        })
+    fun revertDomainChange(id: String, onDone: (Result<Boolean>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { settingsRepository.revertDomainChange(id) })
+    }
+
+    fun clearRuleChangeHistory(onDone: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { settingsRepository.clearRuleChangeHistory() })
     }
 
     /** 某 host 的**实时完整判定**（含内置组，按引擎优先级：你的覆盖/列表 > 内置广告 > 内置直连 > 兜底代理）。

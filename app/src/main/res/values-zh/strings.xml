@@ -6,9 +6,6 @@
     <string name="app_name">hxmy proxy</string>
 
     <!-- 导航 -->
-    <string name="nav_dashboard">主页</string>
-    <string name="nav_interfaces">入口</string>
-    <string name="nav_diagnostics">诊断</string>
     <string name="nav_monitor">监控</string>
     <string name="nav_settings">设置</string>
     <string name="nav_rules">规则</string>
@@ -16,20 +13,11 @@
     <!-- 主页 -->
     <string name="status_running">共享中</string>
     <string name="status_stopped">已停止</string>
-    <string name="vpn_detected">VPN：已检测到</string>
-    <string name="vpn_not_detected">VPN：未检测到</string>
     <!-- 首页副标题双态 + 防护卡（有没有 VPN 都有用） -->
     <string name="mode_vpn_egress">VPN 已接入 · 共享出口</string>
-    <string name="mode_gateway_adblock_on">过滤网关 · 广告拦截已开</string>
-    <string name="mode_gateway_adblock_off">过滤网关 · 广告拦截未开</string>
     <string name="protection_title">防护</string>
-    <string name="protection_adblock_sub">为网络里每台设备拦截广告与追踪</string>
+    <string name="protection_adblock_sub">对经过代理的连接应用拦截名单</string>
     <string name="protection_blocked_count">本次已拦截 %1$d 次</string>
-    <string name="clients_count">客户端：%1$d</string>
-    <string name="active_conns">活跃连接：%1$d</string>
-    <string name="rate_line">↓ %1$s · ↑ %2$s</string>
-    <string name="total_traffic">本次共享累计：%1$s</string>
-    <string name="signal_label">Wi-Fi 信号：</string>
     <string name="monitor_latency">服务延迟</string>
     <string name="latency_timeout">超时</string>
     <string name="latency_measuring">测量中…</string>
@@ -42,7 +30,6 @@
     <string name="monitor_no_logs">（暂无日志）</string>
     <string name="monitor_open_history">历史 IP</string>
     <string name="monitor_clients">客户端</string>
-    <string name="monitor_client_conns">%1$d 个连接</string>
     <string name="monitor_top_domains">目标域名</string>
     <string name="monitor_no_clients">暂无客户端（其他设备经 hxmy 上网后显示在这里）</string>
     <string name="monitor_no_domains">暂无流量</string>
@@ -52,7 +39,6 @@
     <string name="history_title">历史入口</string>
     <string name="history_unavailable">不可用（IP 或端口已变）</string>
     <string name="delete">删除</string>
-    <string name="recommended_entry">推荐入口</string>
     <string name="entry_config">代理地址</string>
     <string name="no_entry">暂无地址——请先勾选接入网络</string>
     <string name="copy">复制</string>
@@ -70,7 +56,6 @@
     <string name="iface_bluetooth">蓝牙</string>
     <string name="iface_ethernet">以太网</string>
     <string name="iface_unknown">未知</string>
-    <string name="interfaces_hint">勾选允许哪些网络连接到本代理。</string>
 
     <!-- 规则 -->
     <string name="rules_module_list">IP / 域名白名单</string>
@@ -91,10 +76,10 @@
     <string name="ruleset_name">名称</string>
     <string name="ruleset_action_direct">直连(手机网络)</string>
     <string name="ruleset_action_reject">拦截</string>
-    <string name="ruleset_view_domains">查看域名</string>
-    <string name="ruleset_domains_count">%1$d 个域名</string>
+    <plurals name="ruleset_domains_count">
+        <item quantity="other">%1$d 个域名</item>
+    </plurals>
     <string name="ruleset_empty">还没有自建规则集</string>
-    <string name="ruleset_total">共 %1$d 条</string>
     <string name="ruleset_edit">编辑</string>
     <string name="create">创建</string>
     <string name="cancel">取消</string>
@@ -105,7 +90,9 @@
     <string name="ruleset_export">导出</string>
     <string name="ruleset_import_append">追加</string>
     <string name="ruleset_import_replace">替换</string>
-    <string name="ruleset_import_how">导入 %1$d 个域名 — 追加还是替换?</string>
+    <plurals name="ruleset_import_how">
+        <item quantity="other">导入 %1$d 个域名 — 追加还是替换?</item>
+    </plurals>
     <string name="lockdown_warning">出口分流可能失效:你的 VPN 开了「阻止无 VPN 连接」,系统会拦掉绕过 VPN 的流量。要让规则的「直连」生效,请到系统 VPN 设置里关闭它。</string>
     <string name="rules_add">添加</string>
     <string name="rules_add_domain">域名（如 example.com）</string>
@@ -199,15 +186,16 @@
     <string name="settings_backup_export">导出</string>
     <string name="settings_backup_import">导入</string>
     <string name="settings_backup_exported">设置已导出</string>
-    <string name="settings_backup_imported">已恢复 %1$d 项</string>
+    <plurals name="settings_backup_imported">
+        <item quantity="other">已恢复 %1$d 项</item>
+    </plurals>
     <string name="settings_backup_failed">操作失败</string>
     <string name="stat_link">链路</string>
     <string name="stat_loss">丢包</string>
     <!-- 建议是**物理层**的：这一段是空口质量，软件层修不了（见 LinkLossBanner 的说明） -->
     <string name="link_loss_banner">到在线设备的探测有 %1$d%% 丢失。让设备直连这台手机的热点（而不是共用 Wi-Fi），或把手机挪近路由器。已休眠的设备不计入这个数。</string>
     <string name="settings_log_enabled">诊断日志</string>
-    <string name="settings_log_enabled_sub">在本机记录运行事件(约 10MB,不上传),供「运行 → 诊断 → 错误日志」查看与排障</string>
-    <string name="rules_none_enabled">还没有启用的规则集——点「管理规则集」按分类挑选启用。</string>
+    <string name="settings_log_enabled_sub">在本机记录事件供排障。导出的日志可能包含域名和客户端 IP，请检查后再分享。</string>
     <string name="log_show_more">展开</string>
     <string name="log_show_less">收起</string>
     <string name="rules_remove">移除</string>
@@ -222,17 +210,13 @@
     <string name="diag_vpn_sharing">共享出口</string>
     <string name="diag_vpn_gateway">过滤网关</string>
     <!-- 防护 tab / 拦截明细 / per-host 三态覆盖 -->
-    <string name="nav_protection">防护</string>
     <string name="status_share">共享</string>
-    <string name="status_on">已开启</string>
     <string name="protect_off">未开启</string>
-    <string name="protect_blocked">已拦 %1$d 次</string>
     <!-- 规则页语义重组：拦截/放行分区 + 快速拦截 + 格式提醒 -->
     <string name="rules_group_reject">拦截</string>
     <string name="rules_group_bypass">放行</string>
     <string name="rules_reject_quick">快速拦截</string>
     <string name="rules_reject_quick_hint">加入的域名 / IP 会被拒绝连接，广告与追踪立刻失联</string>
-    <string name="rules_reject_sets">拦截规则集</string>
     <string name="rules_format_hint">*.a.com 含一级 · a.com 含所有层级 · =a.com 仅此域 · 1.2.3.4 · 192.168.0.0/16</string>
     <!-- fail-closed 警示：运行中但没有任何客户端能连上 -->
     <string name="warn_no_iface">未选网段 · 拒绝所有连接</string>
@@ -243,17 +227,13 @@
     <string name="backup_dns">备用 DNS（DoH）</string>
     <string name="backup_dns_sub">解析失败时改走加密 DNS 重试</string>
     <string name="override_adjust">调整</string>
-    <string name="rules_row_empty">暂无</string>
     <string name="rules_swap_a11y">切换 %1$s 的放行/拦截</string>
     <string name="rules_disable_a11y">停用 %1$s</string>
-    <string name="mode_gateway_plain">过滤网关模式</string>
     <string name="protect_works_always">有没有 VPN 都生效</string>
-    <string name="rules_manage_all">管理全部（%1$d）</string>
     <string name="rules_list_empty">还没有条目</string>
     <string name="monitor_others">（其他）</string>
     <string name="blocked_detail_title">拦截明细</string>
     <string name="save">保存</string>
-    <string name="override_current">当前：%1$s</string>
     <string name="override_clear">移除覆盖</string>
     <string name="override_desc">覆盖此 host 的处理方式（最高优先级，压过所有规则）：</string>
     <string name="override_proxy">走代理</string>
@@ -262,9 +242,13 @@
     <string name="protection_hero_sub">本次已拦截 · 有没有 VPN 都生效</string>
     <string name="protection_view_blocked">查看拦截明细</string>
     <!-- 直连不通提示（DIRECT fail-closed 的失败对用户静默，必须在此现形） -->
-    <string name="direct_fail_banner">%1$d 个设为「直连」的域名连不上</string>
+    <plurals name="direct_fail_banner">
+        <item quantity="other">%1$d 个设为「直连」的域名连不上</item>
+    </plurals>
     <string name="direct_fail_desc">「直连」会绕过 VPN。这些域名在物理网络上没有响应，于是每次访问都要白等一次连接超时。改回「走代理」就会经 VPN 出去。</string>
-    <string name="direct_fail_row_sub">连续失败 %1$d 次 · %2$s</string>
+    <plurals name="direct_fail_row_sub">
+        <item quantity="other">连续失败 %1$d 次 · %2$s</item>
+    </plurals>
     <string name="direct_fail_switch">走代理</string>
     <string name="direct_fail_reason_timeout">连接超时</string>
     <string name="direct_fail_reason_dns">DNS 解析失败</string>
@@ -279,14 +263,13 @@
     <string name="override_hint_reject">直接拒绝连接。</string>
     <string name="protection_top_blocked">拦得最多</string>
     <string name="protection_how_title">防护如何工作</string>
-    <string name="protection_how_body">请求在代理层就被过滤，所以网络里每台设备的广告与追踪都会被拦掉——无需逐台设置，有没有 VPN 都能用。若某项被误拦，点它即可放行。</string>
     <!-- 引导：双模式（有没有 VPN 都能用） -->
     <string name="ob_dual_title">两种用法</string>
     <string name="ob_dual_body">有没有 VPN 都能用——任选其一，随时切换。</string>
     <string name="ob_dual_c1_title">🌐 开着 VPN——共享出口</string>
-    <string name="ob_dual_c1_body">网络里每台设备都经你的 VPN 上网，一份订阅覆盖电视、主机、笔记本。</string>
+    <string name="ob_dual_c1_body">已配置代理的客户端可使用手机上兼容的 VPN，请先确认该 VPN 的共享限制。</string>
     <string name="ob_dual_c2_title">🛡️ 不用 VPN——过滤网关</string>
-    <string name="ob_dual_c2_body">打开广告拦截，网络里每台设备的广告与追踪都在代理层被拦掉——像 Pi-hole，无需 VPN。</string>
+    <string name="ob_dual_c2_body">使用手机的物理网络出口，对经过代理的连接应用拦截名单与分流规则。</string>
     <string name="diag_ok">正常</string>
     <string name="diag_fail">异常</string>
     <string name="diag_disabled">未启用</string>
@@ -304,12 +287,10 @@
     <string name="guide_localnet_body">Android 17 起需要本地网络权限才能接受局域网设备的连接。请在应用设置中允许。</string>
     <string name="settings_general">通用</string>
     <string name="qr_sheet_hint">用另一台设备扫码，按页面提示完成配置。仅适用于 HTTP 代理。</string>
-    <string name="qr_dismiss_hint">点击空白处关闭</string>
     <string name="localnet_versions_body">各版本的区别：\n· Android 15 及以下——没有这项权限，应用可直接访问局域网；\n· Android 16（当前系统）——本地网络保护为可选测试特性，普通应用不受限，因此无需授权；\n· Android 17 起——强制运行时权限，必须授权才能接受局域网设备连接，届时此项会显示授权状态并可点击开启。</string>
     <string name="help_f_title">避免共享间断</string>
     <string name="help_f_body">长时间共享要防系统「杀后台」：① 电池优化设为「无限制」（设置 → 应用 → hxmy proxy → 电池；或直接在「运行 → 诊断 → 检查与权限」里点「电池优化」一键开启）。② 别划掉常驻通知——部分系统划掉通知会连带终止服务。③ 小米/华为等系统还需在「自启动 / 后台管理」里允许本应用。④ 系统「省电模式 / 极致省电」会冻结后台，共享期间建议关闭。⑤ 开着「流量节省程序」时，后台数据可能受限。做完 ①② 后，检查与权限应显示「电池优化：无限制」「通知权限：正常」。</string>
     <string name="pac_needs_backend">PAC 已开启但 HTTP 和 SOCKS 都关了，只会直连、不代理。请至少开启 HTTP 或 SOCKS。</string>
-    <string name="qr_http_only">此扫码/配置仅用于 HTTP 代理；SOCKS5、PAC 请在入口卡复制地址手动配置。</string>
     <string name="start_to_show_entries">开始共享后，这里会显示代理地址。</string>
     <string name="proto_http_sub">浏览器、系统代理通用</string>
     <string name="proto_socks_sub">终端、游戏等 TCP 应用常用</string>
@@ -325,12 +306,9 @@
     <string name="monitor_realtime">实时速率</string>
     <string name="monitor_down">下行</string>
     <string name="monitor_up">上行</string>
-    <string name="monitor_more">更多</string>
     <string name="stat_conns">连接</string>
     <string name="stat_traffic">累计</string>
     <string name="stat_signal">信号</string>
-    <string name="diag_logs_title">日志</string>
-    <string name="diag_logs_hint">记录错误、崩溃与会话事件。导出并发送该文件即可用于分析。</string>
     <string name="export_logs">导出日志</string>
     <string name="clear_logs">清空</string>
     <string name="logs_cleared">日志已清空</string>
@@ -353,11 +331,7 @@
     <string name="preset_balanced">均衡</string>
     <string name="preset_high">高</string>
     <string name="preset_custom">自定义</string>
-    <string name="settings_protocols">协议</string>
-    <string name="proto_http">HTTP / HTTPS</string>
     <string name="proto_socks">SOCKS5</string>
-    <string name="proto_pac">PAC</string>
-    <string name="settings_ports">端口</string>
     <string name="port_http">HTTP 端口</string>
     <string name="port_socks">SOCKS5 端口</string>
     <string name="port_pac">PAC 端口</string>
@@ -389,24 +363,20 @@
     <string name="egress_priority_up">上移</string>
     <string name="egress_priority_down">下移</string>
     <string name="egress_priority_hint">按此顺序挑第一张在线的网；指定出口连不上时也按它换路，且不会换回刚失败的那条。</string>
-    <string name="direct_egress_auto_desc">以太网/USB → Wi-Fi → 蜂窝；都没有则断开</string>
     <string name="egress_cellular_metered">蜂窝出口会消耗移动数据</string>
     <string name="cellular_confirm_title">使用蜂窝作为出口?</string>
     <string name="cellular_confirm_msg">经蜂窝出口的流量会消耗你的移动数据,可能产生资费。</string>
     <string name="cellular_confirm_ok">使用蜂窝</string>
-    <string name="egress_offline">离线</string>
     <string name="egress_vpn_warn">系统 VPN 正开启——绑定物理出口可能失败（VPN lockdown/未允许绕过）。</string>
     <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
     <string name="settings_limits">连接上限</string>
     <string name="limit_global">最大连接数</string>
     <string name="limit_per_client">单客户端上限</string>
-    <string name="limit_parallelism">转发并行度</string>
     <string name="limit_buffer">缓冲（KiB）</string>
     <string name="limit_idle">空闲超时（秒）</string>
 
     <!-- 扫码配置 -->
     <string name="qr_setup">扫码配置</string>
-    <string name="qr_setup_hint">用其他设备扫码，按页面提示一步步设置。</string>
     <string name="qr_need_pac">请先在「设置」中开启 PAC，才能用扫码配置。</string>
     <string name="setup_close">关闭</string>
 
@@ -414,50 +384,51 @@
     <string name="notif_channel">代理服务</string>
     <string name="notif_starting">正在启动…</string>
     <string name="startup_failed">共享未能启动。请查看诊断日志后重试，已保存的规则仍保留。</string>
-    <string name="notif_running">%1$s · %2$d 连接 · ↓%3$s ↑%4$s</string>
+    <plurals name="notif_running">
+        <item quantity="other">%1$s · %2$d 连接 · ↓%3$s ↑%4$s</item>
+    </plurals>
     <string name="notif_running_no_entry">运行中——未选择入口</string>
     <string name="notif_stopped">已停止</string>
     <string name="notif_stop">停止</string>
 
     <!-- 权限 -->
-    <string name="perm_local_net_msg">hxmy proxy 需要本地网络访问权限，才能接受其它设备的连接。</string>
 
     <!-- 首次引导 -->
     <string name="ob_skip">跳过</string>
     <string name="ob_next">下一步</string>
     <string name="ob1_title">把这台手机的网，借给旁边的设备用</string>
-    <string name="ob1_body">hxmy proxy 让同一个 WiFi 下的电脑、平板、另一台手机，借用这台手机的上网通道——包括它连着的 VPN。把这台手机当成一个「网络中转站」，其他设备连上它，就跟它走同一条路出门。</string>
+    <string name="ob1_body">让附近设备把这台手机作为代理网关。客户端设置 HTTP、SOCKS5 或 PAC 后，通过 hxmy proxy 中选定的可用出口联网。</string>
     <string name="ob2_title">适合什么场景</string>
-    <string name="ob2_c1_title">📺 一处翻墙，全家共享</string>
-    <string name="ob2_c1_body">手机上已有能上外网的 VPN？不用每台设备都单独装，电脑、平板直接借它出门。</string>
+    <string name="ob2_c1_title">📺 共享兼容的 VPN 连接</string>
+    <string name="ob2_c1_body">已配置代理的客户端可使用手机上兼容的 VPN；是否可用取决于该 VPN 及其共享限制。</string>
     <string name="ob2_c2_title">💻 给不方便装 VPN 的设备</string>
-    <string name="ob2_c2_body">公司电脑、智能电视、游戏机——连上这台手机就能用它的网。</string>
+    <string name="ob2_c2_body">适用于支持 HTTP、SOCKS5 或 PAC 的设备和应用。不遵循代理设置的应用不会经过这个网关。</string>
     <string name="ob2_c3_title">🏨 临时网络环境</string>
-    <string name="ob2_c3_body">出差、酒店，只有一台设备能上网时，把它变成全屋的入口。</string>
+    <string name="ob2_c3_body">在客户端可到达手机的本地网络中，共享手机出口；各客户端仍需配置代理。</string>
     <string name="ob3_title">就三步，真的</string>
     <string name="ob3_s1_title">连同一个 WiFi</string>
     <string name="ob3_s1_body">手机和其他设备在同一个网里才能互相找到（用手机热点也行）。</string>
-    <string name="ob3_s2_title">点「开始共享」</string>
-    <string name="ob3_s2_body">App 会给你一个地址，像 192.168.x.x:1080。</string>
+    <string name="ob3_s2_title">选择接入网络，再开始共享</string>
+    <string name="ob3_s2_body">选中客户端所在的网络。首页会显示 IP，以及 HTTP、SOCKS5、PAC 端口。</string>
     <string name="ob3_s3_title">在其他设备填这个地址</string>
-    <string name="ob3_s3_body">在电脑/平板的「代理设置」里填进去就连上了。各端怎么填，帮助页有图文。</string>
-    <string name="ob3_footer">填完后，那台设备的网就和这台手机一样了——它连的 VPN 也一起借给你。</string>
+    <string name="ob3_s3_body">填写代理设置，或扫码打开指引并完成其中步骤。部分系统需要安装配置描述文件。</string>
+    <string name="ob3_footer">在客户端打开网页，再到“访问”查看新流量。仅打开配置网页不代表已使用代理。</string>
     <string name="ob5_title">开始前，需要你点一下「允许」</string>
     <string name="ob5_body">为了让旁边的设备能找到并连上这台手机，系统会问你要一个「本地网络」权限——就是允许这台手机在你家 WiFi 里被别的设备看见。</string>
-    <string name="ob5_privacy">🔒 它只在你的 WiFi 里工作，不碰外网、不上传任何东西。</string>
+    <string name="ob5_privacy">🔒 设置和日志保存在本机，由你决定是否导出。代理转发及 DNS 查询会连接完成请求所需的服务。</string>
     <string name="ob5_allow">好的，允许</string>
     <string name="ob5_later">稍后再说</string>
 
     <!-- 为什么选 -->
     <string name="why_title">同类不少，为什么用它</string>
-    <string name="why1_title">🔒 数据只在你手机里，绝不上云</string>
-    <string name="why1_body">不传任何连接信息到服务器，没有账号、不联网汇报。只在你家 WiFi 里干活。</string>
+    <string name="why1_title">🔒 设置和日志本地保存</string>
+    <string name="why1_body">无账号、无统计追踪 SDK。设置、规则和诊断数据存放在本机，由你决定是否导出。</string>
     <string name="why2_title">🚫 没有广告，不偷偷收费</string>
     <string name="why2_body">打开就是干净的界面，没有横幅、弹窗、「升级 Pro」。</string>
-    <string name="why3_title">🌍 手机的 VPN 自动一起借出去</string>
-    <string name="why3_body">手机上在用的 VPN，其他设备连上来就自动跟着走，不用每台重配。</string>
-    <string name="why4_title">📱 跟得上最新系统（支持到 Android 17）</string>
-    <string name="why4_body">专门适配到最新 Android 17，权限与后台方式都做对了，连接更稳。</string>
+    <string name="why3_title">🌍 自己选择出口网络</string>
+    <string name="why3_body">按需使用可用的 VPN、Wi-Fi、蜂窝或以太网。直连规则使用单独设置的直连出口。</string>
+    <string name="why4_title">📱 后台持续共享</string>
+    <string name="why4_body">保留共享通知便于查看状态。如果后台连接中断，可在“诊断”检查电池限制。</string>
     <string name="why5_title">🛠 开源透明，代码谁都能看</string>
     <string name="why5_body">它做了什么、没做什么，代码公开摆在那，谁都能查个明白。</string>
 
@@ -466,16 +437,16 @@
     <string name="replay_onboarding">重新查看引导</string>
     <string name="help_title">帮助</string>
     <string name="help_a_title">这是什么（30 秒）</string>
-    <string name="help_a_body">hxmy proxy 把这台手机的上网通道，分享给同一个 WiFi 下的其他设备。其他设备填一个地址，就能借这台手机上网——连它的 VPN 也一起借。全程在本机，不上云、无广告、开源。</string>
+    <string name="help_a_body">hxmy proxy 在手机上提供 HTTP、SOCKS5 和 PAC 入口。配置了代理的客户端通过选定出口联网；你可以查看设备和域名流量、检查命中规则，并恢复最近的快捷修改。</string>
     <string name="help_b_title">常见问题</string>
     <string name="faq_q1">代理是什么？我需要懂技术吗？</string>
-    <string name="faq_a1">不用。可以理解成「让 A 设备替 B 设备出门上网」。你只要在这台手机点开始、把地址填到另一台设备上就行。</string>
+    <string name="faq_a1">代理会替其他设备转发它支持的请求。先选接入网络并开始共享，再在客户端填写首页的 IP 和对应协议端口。</string>
     <string name="faq_q2">这安全吗？会偷我的数据吗？</string>
-    <string name="faq_a2">hxmy proxy 不联网、不上传、不收集任何信息，代码也公开。它只在你自己的 WiFi 里帮设备之间「搭桥」。</string>
+    <string name="faq_a2">开发者不会收到使用统计。设置和日志存放在本机，由你决定是否导出。转发流量会到达请求的目标，DNS 可能连接外部解析服务；分享日志前请检查内容。</string>
     <string name="faq_q4">HTTP、SOCKS5、PAC 我该选哪个？</string>
-    <string name="faq_a4">不知道就用 HTTP，最通用。要更全面的支持选 SOCKS5。PAC 是给想让浏览器自动按规则走代理的进阶用户，新手可忽略。</string>
+    <string name="faq_a4">HTTP 适合许多浏览器和系统代理设置，也支持 HTTPS CONNECT；SOCKS5 适合 TCP 客户端；PAC 为支持它的客户端提供自动代理脚本。不经过这些代理设置的流量不会被过滤。</string>
     <string name="faq_q5">其他设备真的会用到我手机的 VPN 吗？</string>
-    <string name="faq_a5">会。它们走的就是这台手机当前的网络出口，手机连着 VPN，它们就跟着走 VPN。</string>
+    <string name="faq_a5">兼容的 VPN 可以承载代理流量。请选择所需出口，并用新的客户端连接验证。部分 VPN 限制共享；直连规则使用单独设置的直连出口。</string>
     <string name="faq_q6">要不要设密码？</string>
     <string name="faq_a6">默认不设，方便快速用。在公共/办公 WiFi 担心别人蹭，可在「设置」里开启用户名密码，只有知道的人能连。</string>
     <string name="help_c_title">各端怎么连</string>
@@ -492,7 +463,7 @@
     <string name="help_d_title">连不上？故障排查</string>
     <string name="help_d_body">① 先确认两台设备在同一个网络（最常见原因）。② 核对地址、端口、类型有没有填错——注意手机换到别的 WiFi 后 IP 会变，昨天能用的地址今天可能已经失效。③ 只有某一个 App 连不上、别的都正常？多半是那个 App 缺「本地网络」权限（macOS：系统设置 → 隐私与安全性 → 本地网络；Android 17+ 同理）。开关看着是开的也可能没真生效，关一次再开，还不行就重启设备。④ 看手机通知栏「共享」还开着吗，被划掉就停了。⑤ 提示要账号密码 = 手机开了认证，去设置查。⑥ 突然全断可能是手机 VPN 掉了，默认保护下会自动停。⑦ 还不行去「诊断」页看哪一步出问题。</string>
     <string name="help_e_title">关于 · 隐私 · 开源</string>
-    <string name="help_e_body">hxmy proxy 是开源、免费、无广告的本地工具。不收集数据、不联网汇报、没有账号。你的所有连接都只在本地 WiFi 内，我们看不到、也存不了。</string>
+    <string name="help_e_body">hxmy proxy 无账号、广告 SDK 或使用统计。设置、规则、流量历史和诊断数据保存在本机。代理转发、DNS、订阅和网络检查会连接对应服务。由你控制导出，分享前请检查内容。</string>
 
     <!-- Bento 重设计（images/html 01–06） -->
     <!-- 01 主页 -->
@@ -514,8 +485,6 @@
     <string name="rules_scope_confirm_use_single">改用 *.%1$s</string>
     <string name="rules_scope_confirm_keep_suffix">仍用所有层级</string>
     <string name="rules_edit_title">编辑规则</string>
-    <string name="rules_edit_current">当前值</string>
-    <string name="rules_edit_scope">作用范围</string>
     <string name="rules_edit_result">将变为：%1$s</string>
     <string name="rules_edit_added">添加于 %1$s</string>
     <string name="rules_scope_badge_exact">仅此域</string>
@@ -534,41 +503,46 @@
     <string name="diag_battery_warn_sub">后台可能被系统中断共享，建议改为无限制</string>
     <string name="monitor_blocked_tag">广告 · 追踪</string>
     <!-- 03 防护 -->
-    <string name="protection_mode_line">本次会话 · 实时</string>
-    <string name="protection_hero_label">广告与追踪拦截 · 运行中</string>
     <string name="protection_unit_times">次</string>
     <string name="protection_set_direct">直连</string>
     <string name="protection_top_note">其他来源 ×%1$d · 误拦的域名点右侧调节可放行或直连</string>
     <string name="protection_how_1">代理层过滤，不占通道</string>
-    <string name="protection_how_2">网络里每台设备都生效</string>
+    <string name="protection_how_2">适用于已配置代理的客户端</string>
     <string name="protection_how_3">没有 VPN 也能用</string>
     <string name="protection_how_4">误拦域名点它放行</string>
     <!-- 04 规则 -->
-    <string name="rules_mode_line">分流 · 拦截与放行</string>
     <string name="rules_reject_zone_sub">拒绝连接 · 有无 VPN 都生效</string>
     <string name="rules_bypass_zone_sub">直连手机网络 · 绕过共享出口</string>
     <string name="rules_type_domain">域名</string>
     <string name="rules_type_ip">IP 段</string>
     <string name="rules_enabled_count">已启用 %1$d</string>
-    <string name="rules_groups_count">%1$d 组</string>
+    <plurals name="rules_groups_count">
+        <item quantity="other">%1$d 组</item>
+    </plurals>
+    <plurals name="rules_categories_count">
+        <item quantity="other">%1$d 类</item>
+    </plurals>
     <string name="ruleset_custom_count">自建 %1$d</string>
     <string name="ruleset_builtin_count">内置 %1$d 组</string>
     <!-- 05 设置 -->
-    <string name="settings_mode_line">改动即时生效</string>
     <string name="settings_proto_ports">协议与端口</string>
-    <string name="proto_pac_full">自动配置</string>
     <string name="settings_risk_tag">有风险</string>
     <string name="auth_enable_sub">客户端需凭用户名与密码接入</string>
     <string name="settings_nav_tap_hint">点击格子移动</string>
     <!-- 06 规则集管理 -->
-    <string name="ruleset_enabled_of_total">%1$d / %2$d 组已启用</string>
-    <string name="ruleset_domains_total">共 %1$d 个域名</string>
+    <plurals name="ruleset_enabled_of_total">
+        <item quantity="other">%1$d / %2$d 组已启用</item>
+    </plurals>
+    <plurals name="ruleset_domains_total">
+        <item quantity="other">共 %1$d 个域名</item>
+    </plurals>
     <string name="ruleset_search_hint">搜索规则集或域名</string>
-    <string name="ruleset_groups_cats">%1$d 组 · %2$d 类</string>
+    <string name="ruleset_groups_cats">%1$s · %2$s</string>
     <string name="ruleset_collapse_all">全部收起</string>
     <string name="ruleset_on_count">%1$d 开</string>
-    <string name="ruleset_domain_preview">域名预览 · 共 %1$d 条</string>
-    <string name="protection_hero_label_off">广告与追踪拦截 · 已关闭</string>
+    <plurals name="ruleset_domain_preview">
+        <item quantity="other">域名预览 · 共 %1$d 条</item>
+    </plurals>
     <string name="rules_manage_all_plain">管理全部</string>
     <plurals name="count_entries">
         <item quantity="other">%1$d 条</item>
@@ -626,7 +600,6 @@
     <string name="doh_egress_hint">DoH 是解析失败后的救济手段。走系统默认路由时，它与要救的那条链路同路——链路坏了它也一起失效。</string>
     <string name="domains_sort_recent">最近访问</string>
     <string name="domains_sort_traffic">流量</string>
-    <string name="domains_sort_label">排序</string>
     <!-- 指定出口连不通时的策略 -->
     <string name="egress_fallback_title">这个出口连不通时</string>
     <string name="egress_fallback_sub">你指定的出口走不了，该怎么办</string>
@@ -637,13 +610,7 @@
     <!-- 工作台重构(2026-08):3 tab + 分段 -->
     <string name="nav_run">运行</string>
     <string name="seg_overview">概览</string>
-    <string name="seg_devices">设备</string>
-    <string name="seg_monitor">监控</string>
     <string name="seg_traffic">流量</string>
-    <string name="done">完成</string>
-    <string name="overview_addr_info">别的设备填这个地址就能借这台手机上网 · 点徽标即复制 · PAC 复制的是完整 URL(只填 IP:端口对 PAC 不生效)</string>
-    <string name="overview_actual_egress">出口</string>
-    <string name="overview_session_bytes">本次</string>
     <string name="overview_clients">客户端</string>
     <string name="overview_inbound">入口</string>
     <string name="overview_open_config">入口与出口设置</string>

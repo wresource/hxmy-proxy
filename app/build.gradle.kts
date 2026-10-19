@@ -31,8 +31,8 @@ android {
         // 版本号:每次构建递增。三段式语义化 MAJOR.MINOR.PATCH —
         //   修复/诊断 +PATCH、新功能 +MINOR(PATCH 归 0)、重大变更 +MAJOR(其余归 0)。
         //   versionCode 单调 +1(Play 据此判断升级)。便于真机区分「装的是哪一版构建」。
-        versionCode = 216
-        versionName = "1.48.53"
+        versionCode = 239
+        versionName = "1.48.76"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,6 +72,8 @@ android {
     buildFeatures {
         compose = true
     }
+    // Both supported languages must be available to the in-app picker, even offline.
+    bundle { language { enableSplit = false } }
     lint {
         // release 不跑 lintVital（其与配置缓存/网络代理冲突，且不影响 R8 验证）
         checkReleaseBuilds = false
@@ -181,6 +183,12 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.compose.ui.test.accessibility)
+    // ATF uses full Guava. Keep its runtime aligned with AGP's debug/test consistency
+    // constraints; these test-support dependencies do not enter release builds.
+    debugImplementation(libs.accessibility.test.framework)
+    debugImplementation(libs.androidx.concurrent.futures)
+    debugImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

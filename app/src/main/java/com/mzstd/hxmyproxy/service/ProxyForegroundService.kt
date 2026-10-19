@@ -136,8 +136,8 @@ class ProxyForegroundService : Service() {
             state.unreachableClients.isNotEmpty() ->
                 loc.getString(R.string.notif_client_unreachable, state.unreachableClients.joinToString(", "))
             entry == null -> loc.getString(R.string.notif_running_no_entry)
-            else -> loc.getString(
-                R.string.notif_running,
+            else -> loc.resources.getQuantityString(
+                R.plurals.notif_running, state.activeConnections,
                 // displayEndpoint:HTTP/SOCKS 仍是 host:port,PAC 给完整 http://ip:port/proxy.pac,通知里也不误导。
                 entry.displayEndpoint,
                 state.activeConnections,

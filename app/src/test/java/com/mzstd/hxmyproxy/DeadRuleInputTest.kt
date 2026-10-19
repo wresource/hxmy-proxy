@@ -57,6 +57,7 @@ class DeadRuleInputTest {
         every { settingsRepo.settings } returns settingsFlow
         every { settingsRepo.onboardingCompleted } returns MutableStateFlow(true)
         every { settingsRepo.domainHistory } returns flowOf(emptySet())
+        every { settingsRepo.ruleChangeHistory } returns flowOf(com.mzstd.hxmyproxy.core.rules.RuleChangeJournal())
         coEvery { settingsRepo.update(any()) } answers {
             val transform = firstArg<(ProxySettings) -> ProxySettings>()
             settingsFlow.value = transform(settingsFlow.value)

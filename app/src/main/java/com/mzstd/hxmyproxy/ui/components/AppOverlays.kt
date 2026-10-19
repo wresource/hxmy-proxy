@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -49,7 +50,7 @@ fun AppAlertDialog(
 fun AppDropdownMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit) {
     val environment = rememberAppWindowEnvironment()
-    DropdownMenu(expanded, onDismissRequest, modifier) {
+    DropdownMenu(expanded, onDismissRequest, modifier, shape = MaterialTheme.shapes.medium) {
         val scope = this
         environment.Provide { content(scope) }
     }

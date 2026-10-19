@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.service
 
+import androidx.core.content.edit
 import android.content.Context
 
 /**
@@ -20,7 +21,7 @@ object ServiceState {
 
     /** 记录共享是否处于开启中；开机 / app 更新后 [RestartReceiver] 据此决定是否自动恢复。 */
     fun setWasSharing(ctx: Context, on: Boolean) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_WAS_SHARING, on).apply()
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit(commit = false) { putBoolean(KEY_WAS_SHARING, on) }
     }
 
     fun wasSharing(ctx: Context): Boolean =

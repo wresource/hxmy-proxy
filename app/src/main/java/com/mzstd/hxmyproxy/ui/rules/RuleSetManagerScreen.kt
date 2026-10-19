@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -84,6 +86,8 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
     // 分类展开态（key=RuleCategory.name，默认全部折叠；搜索时强制展开命中分类）
     val expandedCats = remember { mutableStateMapOf<String, Boolean>() }
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
 
     val settings = ui.settings
     val byCategory = remember { RuleCatalog.all.groupBy { it.category } }
@@ -100,9 +104,9 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
 
     // 搜索：纯本地过滤（自建集名 + 内置组名/id）
     val q = query.trim()
-    val matchedGroupIds: Set<String>? = if (q.isEmpty()) null else remember(q) {
+    val matchedGroupIds: Set<String>? = if (q.isEmpty()) null else remember(q, resources, configuration) {
         RuleCatalog.all
-            .filter { context.getString(it.titleRes).contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
+            .filter { resources.getString(it.titleRes).contains(q, ignoreCase = true) || it.id.contains(q, ignoreCase = true) }
             .map { it.id }.toSet()
     }
     val shownUserSets = if (q.isEmpty()) settings.userRuleSets
@@ -155,8 +159,8 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
                                 modifier = Modifier.padding(vertical = 6.dp),
                             )
                         } else {
-                            shownUserSets.forEachIndexed { i, set ->
-                                if (i > 0)                                UserRuleSetRow(set, viewModel, onEdit)
+                            shownUserSets.forEach { set ->
+                                UserRuleSetRow(set, viewModel, onEdit)
                             }
                         }
                     }
@@ -167,7 +171,11 @@ fun RuleSetManagerScreen(ui: MainUiState, viewModel: MainViewModel, onBack: () -
             item(key = "builtin-head") {
                 SectionHeaderRow(
                     label = stringResource(R.string.ruleset_builtin),
-                    badge = stringResource(R.string.ruleset_groups_cats, totalGroups, byCategory.size),
+                    badge = stringResource(
+                        R.string.ruleset_groups_cats,
+                        pluralStringResource(R.plurals.rules_groups_count, totalGroups, totalGroups),
+                        pluralStringResource(R.plurals.rules_categories_count, byCategory.size, byCategory.size),
+                    ),
                 ) {
                     // 全部内置规则集总开关：一键开/关所有组（全开=on）。
                     Switch(
@@ -231,7 +239,7 @@ private fun BuiltinHeroCard(enabled: Int, total: Int, rejOn: Int, dirOn: Int, do
             )
         }
         // 「12 / 64 组已启用」：%1$d 在中英文都居首，剥出大数字、其余做 dim 单位
-        val line = stringResource(R.string.ruleset_enabled_of_total, enabled, total)
+        val line = pluralStringResource(R.plurals.ruleset_enabled_of_total, total, enabled, total)
         val big = enabled.toString()
         BigStat(value = big, unit = line.removePrefix(big).trim(), valueSize = 32)
         val t = total.coerceAtLeast(1)
@@ -247,7 +255,7 @@ private fun BuiltinHeroCard(enabled: Int, total: Int, rejOn: Int, dirOn: Int, do
             LegendItem(MaterialTheme.colorScheme.surfaceContainerHighest, "${stringResource(R.string.diag_disabled)} ${(total - rejOn - dirOn).coerceAtLeast(0)}")
             Spacer(Modifier.weight(1f))
             Text(
-                domainsTotal?.let { stringResource(R.string.ruleset_domains_total, it) } ?: "…",
+                domainsTotal?.let { pluralStringResource(R.plurals.ruleset_domains_total, it, it) } ?: "…",
                 style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum", fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -279,8 +287,8 @@ private fun RuleSetSearchField(query: String, onChange: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyMedium,
-        // 圆角/字号与规则页添加框统一(shapes.small 12dp + bodyMedium)——原 large(24dp)+默认 16sp 与添加框对不上。
-        shape = MaterialTheme.shapes.small,
+        // 与全部搜索/编辑输入框共用medium圆角；保留紧凑bodyMedium字体。
+        shape = MaterialTheme.shapes.medium,
         placeholder = { Text(stringResource(R.string.ruleset_search_hint), style = MaterialTheme.typography.bodyMedium) },
         leadingIcon = {
             Icon(
@@ -307,16 +315,18 @@ private fun RuleSetSearchField(query: String, onChange: (String) -> Unit) {
 
 /** 分区头：全大写小标签 + 计数徽章 + 右侧动作槽。 */
 @Composable
-private fun SectionHeaderRow(label: String, badge: String, trailing: @Composable () -> Unit) {
-    Row(
+internal fun SectionHeaderRow(label: String, badge: String, trailing: @Composable () -> Unit) {
+    Column(
         Modifier.fillMaxWidth().padding(top = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        StatLabel(label)
-        CountBadge(badge)
-        Spacer(Modifier.weight(1f))
-        trailing()
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            CountBadge(badge)
+        }
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+            itemVerticalAlignment = Alignment.CenterVertically) { trailing() }
     }
 }
 
@@ -328,6 +338,7 @@ private fun NewSetChip(onClick: () -> Unit) {
             .clip(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.primaryContainer)
             .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -349,11 +360,12 @@ private fun NewSetChip(onClick: () -> Unit) {
 
 /** 「全部收起」文字动作。 */
 @Composable
-private fun CollapseAllChip(onClick: () -> Unit) {
+internal fun CollapseAllChip(onClick: () -> Unit) {
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
             .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -376,11 +388,11 @@ private fun CollapseAllChip(onClick: () -> Unit) {
 /** 我的规则集行：图标圆盘 + 名称/动作副行 + 编辑/删除/开关（行为与旧卡一致，仅换紧凑行形态）。 */
 @Composable
 private fun UserRuleSetRow(set: UserRuleSet, viewModel: MainViewModel, onEdit: (String, String) -> Unit) {
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         IconDisc(
             painterResource(R.drawable.ic_b_bookmark),
             bg = if (set.enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -388,16 +400,19 @@ private fun UserRuleSetRow(set: UserRuleSet, viewModel: MainViewModel, onEdit: (
             iconSize = 16.dp,
         )
         Column(Modifier.weight(1f)) {
-            Text(set.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(set.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                "${actionLabel(set.action)} · ${stringResource(R.string.ruleset_domains_count, set.domains.size)}",
+                pluralStringResource(R.plurals.ruleset_domains_count, set.domains.size, set.domains.size),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = { onEdit("user", set.id) }, modifier = Modifier.size(34.dp)) {
+        Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) }, colors = stdSwitchColors())
+      }
+      Row(Modifier.fillMaxWidth().padding(start = 42.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(actionLabel(set.action), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        IconButton(onClick = { onEdit("user", set.id) }, modifier = Modifier.size(48.dp)) {
             Icon(
                 painterResource(R.drawable.ic_b_edit),
                 contentDescription = stringResource(R.string.ruleset_edit),
@@ -405,7 +420,7 @@ private fun UserRuleSetRow(set: UserRuleSet, viewModel: MainViewModel, onEdit: (
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = { viewModel.deleteRuleSet(set.id) }, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { viewModel.deleteRuleSet(set.id) }, modifier = Modifier.size(48.dp)) {
             Icon(
                 painterResource(R.drawable.ic_delete),
                 contentDescription = stringResource(R.string.delete),
@@ -413,7 +428,7 @@ private fun UserRuleSetRow(set: UserRuleSet, viewModel: MainViewModel, onEdit: (
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = set.enabled, onCheckedChange = { viewModel.toggleRuleSet(set.id, it) }, colors = stdSwitchColors())
+      }
     }
 }
 
@@ -435,18 +450,19 @@ private fun CategoryHeaderRow(
     ) {
         IconDisc(
             painterResource(catIconRes(cat)),
-            size = 28.dp,
+            size = 32.dp,
             bg = if (expanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
             tint = if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             iconSize = 15.dp,
         )
-        Text(
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          Text(
             stringResource(cat.titleRes),
-            Modifier.weight(1f),
             style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-        )
+          )
+          FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (groups.any { it.kind == RuleGroupKind.REJECT }) {
             // 拦截类徽章：危险语义一律 error 红
             CountBadge(
@@ -455,13 +471,15 @@ private fun CategoryHeaderRow(
                 bg = MaterialTheme.colorScheme.errorContainer,
             )
         }
-        CountBadge(stringResource(R.string.rules_groups_count, groups.size))
+        CountBadge(pluralStringResource(R.plurals.rules_groups_count, groups.size, groups.size))
         if (onCount > 0) {
             CountBadge(
                 stringResource(R.string.ruleset_on_count, onCount),
                 fg = MaterialTheme.colorScheme.onPrimaryContainer,
                 bg = MaterialTheme.colorScheme.primaryContainer,
             )
+        }
+          }
         }
         // 分类大开关：一键开/关本类全部组（全开=on）。
         if (onToggleAll != null) {
@@ -508,8 +526,8 @@ private fun ExpandedCategoryCard(
             allOn = groups.isNotEmpty() && groups.all { it.id in enabledIds },
             onToggleAll = { viewModel.setCategoryEnabled(cat, it) },
         )
-        groups.forEachIndexed { i, group ->
-            if (i > 0)            BuiltinGroupRow(group, group.id in enabledIds, overrides[group.id], viewModel, onEdit)
+        groups.forEach { group ->
+            BuiltinGroupRow(group, group.id in enabledIds, overrides[group.id], viewModel, onEdit)
         }
     }
 }
@@ -551,18 +569,17 @@ private fun BuiltinGroupRow(
                 )
             }
             Column(Modifier.weight(1f)) {
-                Text(stringResource(group.titleRes), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(stringResource(group.titleRes), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     stringResource(group.sourceRes),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-            }
+              Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             CountBadge(preview?.let { pluralStringResource(R.plurals.count_entries, it.first, it.first) } ?: "…")
+            Spacer(Modifier.weight(1f))
             if (group.editable) {
-                IconButton(onClick = { onEdit("builtin", group.id) }, modifier = Modifier.size(34.dp)) {
+                IconButton(onClick = { onEdit("builtin", group.id) }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         painterResource(R.drawable.ic_b_edit),
                         contentDescription = stringResource(R.string.ruleset_edit),
@@ -570,6 +587,8 @@ private fun BuiltinGroupRow(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+              }
             }
             Switch(checked = enabled, onCheckedChange = { viewModel.toggleRuleGroup(group.id, it) }, colors = stdSwitchColors())
         }
@@ -592,7 +611,7 @@ private fun DomainPreviewPanel(preview: Pair<Int, List<String>>?, onCollapse: ()
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatLabel(preview?.let { stringResource(R.string.ruleset_domain_preview, it.first) } ?: "…")
+            StatLabel(preview?.let { pluralStringResource(R.plurals.ruleset_domain_preview, it.first, it.first) } ?: "…")
             Spacer(Modifier.weight(1f))
             Row(
                 Modifier
@@ -637,7 +656,7 @@ private fun NewRuleSetDialog(onCreate: (String, RuleAction) -> Unit, onDismiss: 
         }) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.ruleset_name), style = MaterialTheme.typography.labelLarge)
-            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium)
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.ui_rule_action), style = MaterialTheme.typography.labelLarge)

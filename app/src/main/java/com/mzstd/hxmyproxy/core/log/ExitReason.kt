@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy.core.log
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
+import androidx.core.content.edit
 import android.content.Context
 import android.os.Build
 
@@ -79,10 +80,10 @@ object ExitReason {
                         .sortedByDescending { it.substringBefore(':').toLongOrNull() ?: 0L }
                         .take(MAX_SEEN_RECORDS).toSet()
                     // 至少一次交付：关键环全部写成功才推进。异步偏好保存失败最多重放，不丢证据。
-                    prefs.edit()
-                        .putStringSet(KEY_SEEN_RECORDS, nextSeen)
-                        .putLong(KEY_LAST_SEEN, maxOf(lastSeen, fresh.maxOf { it.timestamp }))
-                        .apply()
+                    prefs.edit(commit = false) {
+                        putStringSet(KEY_SEEN_RECORDS, nextSeen)
+                        putLong(KEY_LAST_SEEN, maxOf(lastSeen, fresh.maxOf { it.timestamp }))
+                    }
                 }
             }
         }.onFailure {
@@ -90,6 +91,7 @@ object ExitReason {
         }
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     internal fun recordKey(info: ApplicationExitInfo): String = "${info.timestamp}:" + evidenceHash(listOf(
         info.pid.toString(), info.realUid.toString(), info.packageUid.toString(), info.processName.orEmpty(),
         info.reason.toString(), info.status.toString(), info.importance.toString(),
@@ -97,6 +99,7 @@ object ExitReason {
         info.processStateSummary?.joinToString(",") { it.toString() }.orEmpty(),
     ))
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private fun logOne(info: ApplicationExitInfo, lmk: Boolean?, upgrading: Boolean): Boolean =
         Ev.kConfirmed(
             LogCat.PROC, "proc.lastExit",

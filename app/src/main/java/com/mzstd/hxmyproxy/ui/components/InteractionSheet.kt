@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -100,12 +101,12 @@ fun InteractionSheet(
 @Composable
 fun SheetActions(primary: String, onPrimary: () -> Unit, secondary: String, onSecondary: () -> Unit,
     enabled: Boolean = true, primaryTag: String = "", primaryEnabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(onClick = onSecondary, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+    AdaptiveActionPair(secondary, primary, extraWidth = 24.dp) { button ->
+        OutlinedButton(onClick = onSecondary, enabled = enabled, modifier = button,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
             Text(secondary, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelLarge)
         }
-        Button(onClick = onPrimary, enabled = enabled && primaryEnabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag(primaryTag),
+        Button(onClick = onPrimary, enabled = enabled && primaryEnabled, modifier = button.testTag(primaryTag),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
             Text(primary, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelLarge)
         }
@@ -114,20 +115,21 @@ fun SheetActions(primary: String, onPrimary: () -> Unit, secondary: String, onSe
 
 @Composable
 fun DetailValueRow(label: String, value: String, onClick: (() -> Unit)? = null, mono: Boolean = false) {
-    val click = if (onClick == null) Modifier else Modifier.clickable(role = Role.Button, onClick = onClick)
+    val click = if (onClick == null) Modifier else Modifier.clip(MaterialTheme.shapes.small).clickable(role = Role.Button, onClick = onClick)
     Row(Modifier.fillMaxWidth().then(click).heightIn(min = if (onClick == null) 32.dp else 48.dp)
         .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(label, Modifier.weight(0.45f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, Modifier.weight(0.55f), style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium, fontFamily = if (mono) FontFamily.Monospace else null, textAlign = TextAlign.End)
         if (onClick != null) Icon(painterResource(R.drawable.ic_b_edit), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+        else Spacer(Modifier.size(18.dp))
     }
 }
 
 @Composable
 fun SheetChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, description: String? = null) {
     Surface(color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = MaterialTheme.shapes.small) {
+        shape = MaterialTheme.shapes.medium) {
         Row(Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = 52.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -154,11 +156,11 @@ fun RuleScopePicker(scope: RuleScope, onChange: (RuleScope) -> Unit) {
         ExposedDropdownMenuBox(expanded, { expanded = !expanded }) {
             OutlinedTextField(stringResource(label(scope)), {}, readOnly = true,
                 modifier = Modifier.menuAnchor().fillMaxWidth().testTag("rule_scope"),
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }, textStyle = MaterialTheme.typography.bodyMedium)
-            ExposedDropdownMenu(expanded, { expanded = false }) {
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }, textStyle = MaterialTheme.typography.bodyMedium, shape = MaterialTheme.shapes.medium)
+            ExposedDropdownMenu(expanded, { expanded = false }, shape = MaterialTheme.shapes.medium) {
               environment.Provide {
                 listOf(RuleScope.EXACT, RuleScope.SINGLE, RuleScope.SUFFIX).forEach { value ->
-                    DropdownMenuItem(text = { Text(stringResource(label(value))) }, onClick = { onChange(value); expanded = false })
+                    DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(label(value))) }, onClick = { onChange(value); expanded = false })
                 }
               }
             }

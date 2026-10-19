@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ui_local_access_required">Local network access is off. Allow it so nearby devices can reach this proxy.</string>
+    <string name="ui_app_permissions">App permissions</string>
     <string name="ui_edit_ports">Edit ports</string>
     <string name="ui_port">Port</string>
     <string name="ui_ports_help">HTTP supports browsers and system proxies. SOCKS5 supports TCP clients. PAC provides automatic proxy setup.\n\nPorts must be different and within 1024–65535, including disabled protocols. A valid edit is saved when you tap Done or leave the field.\n\nAfter changing a port, update it on your client too.</string>
@@ -20,12 +22,13 @@
     <string name="ui_recent_activity">Recent activity</string>
     <string name="ui_runtime_details">Runtime &amp; network settings</string>
     <string name="ui_stop_title">Stop sharing?</string>
-    <string name="ui_stop_body">Connected clients will lose their proxy connections. Settings and traffic history are preserved.</string>
+    <string name="ui_stop_body">Clients using this proxy may lose access. Turn off their proxy settings or remove the setup profile when you stop using this gateway. Settings and traffic history are preserved.</string>
+    <string name="ui_data_flow_title">How your data is used</string>
+    <string name="ui_data_flow_body">Settings, rules, recent changes and diagnostic logs are stored on this device. There is no account or usage analytics SDK.\n\nProxy traffic goes to the destinations requested by your clients. System DNS uses the selected network; enabled backup DNS can query Google, Cloudflare, Alibaba or Tencent over HTTPS. Subscriptions and diagnostic checks contact their corresponding services.\n\nExported settings can include rules and domain history; exported logs can include domains and client IP addresses. Proxy passwords are excluded from settings backups. Review exports before sharing them. Clear recent changes from Recent rule changes.</string>
     <string name="ui_more_actions">More actions</string>
     <string name="ui_quick_rule_saved">Rule saved. Retry from the client with a new connection.</string>
     <string name="ui_rule_changes">Recent rule changes</string>
     <string name="ui_manual_overrides">Manual overrides</string>
-    <string name="ui_settings_details">Connection settings</string>
     <string name="ui_protocol_summary">HTTP %1$d · SOCKS5 %2$d · PAC %3$d</string>
     <string name="ui_appearance">Language &amp; appearance</string>
     <string name="ui_network_priority">Network priority</string>
@@ -49,7 +52,6 @@
     <string name="ui_connection_failed">Failed</string>
     <string name="ui_connection_records">Recent connections · %1$d</string>
     <string name="ui_cumulative_traffic">Total traffic</string>
-    <string name="ui_current_rule">Current rule: %1$s</string>
     <string name="ui_devices_count">Devices · %1$d</string>
     <string name="ui_diagnostic_details">Diagnostic details</string>
     <string name="ui_direct_egress">Direct egress</string>
@@ -74,7 +76,7 @@
     <string name="ui_no_domain_match">No matching retained records. Retry from the client; this does not prove there was no request.</string>
     <string name="ui_no_overrides">No manual overrides</string>
     <string name="ui_no_request_evidence">No recent request details for this host. Traffic counters are independent of request records.</string>
-    <string name="ui_no_rule_changes">No quick rule changes in this app session.</string>
+    <string name="ui_no_rule_changes">No saved quick rule changes yet.</string>
     <string name="ui_override_hint">Per-host overrides take precedence. Direct and Block lists remain available in Rules.</string>
     <string name="ui_pac_only">Only PAC is on. Clients using this PAC will connect directly.</string>
     <string name="ui_paused_snapshot">Paused snapshot</string>
@@ -83,7 +85,6 @@
     <string name="ui_protection">Network protection</string>
     <string name="ui_proxy">Proxy</string>
     <string name="ui_proxy_egress">Outbound</string>
-    <string name="ui_record_bytes">This connection: %1$s</string>
     <string name="ui_recorded_rule">Rule used: %1$s</string>
     <string name="ui_related_logs">View logs</string>
     <string name="ui_relayed">Transferred</string>
@@ -96,10 +97,18 @@
     <string name="ui_revert_rule">Restore previous rule</string>
     <string name="ui_reverted">Restored. Verify with a new connection.</string>
     <string name="ui_rule_blocked">Blocked</string>
-    <string name="ui_rule_changes_hint">Last 20 quick edits in this app session. Restore affects only that host and never overwrites a later edit. New rules apply to new connections.</string>
+    <string name="ui_rule_changes_hint">The last 20 quick edits are saved on this device, including after a restart. Restore affects only that host and protects later edits. Verify changes with a new connection.</string>
+    <string name="ui_rule_changed_later">A later edit takes priority. This restore is currently unavailable.</string>
+    <string name="ui_clear_rule_history">Clear change history</string>
+    <string name="ui_clear_rule_history_confirm">Delete the saved change history? Your current rules will stay as they are.</string>
+    <string name="ui_rule_history_unreadable">Saved change history could not be read. Your current rules are unchanged.</string>
+    <string name="ui_rule_history_clear_failed">Could not clear change history. Please try again.</string>
     <string name="ui_rule_scope">Applies to</string>
     <string name="ui_save_failed">Could not save. Your input is retained; try again.</string>
-    <string name="ui_selected_networks">%1$d allowed networks</string>
+    <plurals name="ui_selected_networks">
+        <item quantity="one">%1$d allowed network</item>
+        <item quantity="other">%1$d allowed networks</item>
+    </plurals>
     <string name="ui_session_usage">This session · %1$s</string>
     <string name="ui_settings_backup">Settings backup</string>
     <string name="ui_vpn_missing">The selected VPN is unavailable. Check egress and fallback settings.</string>
@@ -110,7 +119,6 @@
     <string name="ui_listener_pending">Not ready</string>
     <string name="ui_network_fallback">The selected network disappeared. Sharing now uses the available networks; review your inbound selection.</string>
     <string name="ui_no_selected_network">Choose an inbound network to view the proxy IP.</string>
-    <string name="ui_retained_usage">Retained traffic · %1$s</string>
     <string name="ui_active_unknown">Activity unknown</string>
     <string name="ui_untracked_counter">This host has no retained per-host counter. Its traffic may be in Other or an expired entry; request records are shown separately.</string>
     <string name="ui_show_ipv6">Show IPv6 addresses</string>
@@ -133,7 +141,6 @@
     <string name="ui_upload_rate">Upload speed</string>
     <string name="ui_last_activity">Last activity</string>
     <string name="ui_original_rule">Original rule</string>
-    <string name="ui_connection_note">Connection info</string>
     <string name="ui_view_traffic">View traffic</string>
     <string name="ui_details">Details</string>
 </resources>

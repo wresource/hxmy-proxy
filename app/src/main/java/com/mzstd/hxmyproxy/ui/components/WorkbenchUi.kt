@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -65,6 +66,7 @@ fun WorkbenchFold(title: String, key: String, content: @Composable () -> Unit) {
     Column {
         val stateLabel = stringResource(if (expanded) R.string.ui_expanded else R.string.ui_collapsed)
         Row(Modifier.fillMaxWidth().testTag("fold_$key").semantics { stateDescription = stateLabel }
+            .clip(MaterialTheme.shapes.small)
             .clickable(role = Role.Button) { expanded = !expanded }
             .heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

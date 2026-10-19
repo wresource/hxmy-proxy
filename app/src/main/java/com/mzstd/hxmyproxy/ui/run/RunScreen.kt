@@ -1,7 +1,9 @@
 package com.mzstd.hxmyproxy.ui.run
 
+import androidx.core.net.toUri
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -39,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -48,16 +52,23 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.data.repository.ManualResetPhase
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DomainRuleEditor
+import com.mzstd.hxmyproxy.ui.components.AdaptiveActionPair
 import com.mzstd.hxmyproxy.ui.components.SegTabs
 import com.mzstd.hxmyproxy.ui.components.WorkbenchFold
 import com.mzstd.hxmyproxy.ui.components.WorkbenchHeader
 import com.mzstd.hxmyproxy.ui.components.WorkbenchRow
+import com.mzstd.hxmyproxy.ui.components.WarnBanner
 import com.mzstd.hxmyproxy.ui.monitor.ActivityQuery
 import com.mzstd.hxmyproxy.ui.monitor.ActivityScreen
 import com.mzstd.hxmyproxy.ui.monitor.DomainActivityDialog
@@ -80,12 +91,23 @@ fun RunScreen(ui: MainUiState, viewModel: MainViewModel, onOpenConfig: () -> Uni
     var editor by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedDomain by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    fun hasLocalAccess() = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(context,
+        "android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED
+    var localAccess by remember { mutableStateOf(hasLocalAccess()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(context, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) localAccess = hasLocalAccess() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        localAccess = hasLocalAccess()
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val snapshot by viewModel.activitySnapshot.collectAsStateWithLifecycle()
     val version by viewModel.ruleVersion.collectAsStateWithLifecycle()
     val recent = remember(snapshot) { domainActivities(snapshot, ActivityQuery(sort = DomainSort.RECENT)) }
     // Retain the pending-result guard: a permission result must not start a new sharing session twice.
     var startRequested by remember { mutableStateOf(false) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        localAccess = hasLocalAccess()
         if (startRequested) { startRequested = false; ProxyForegroundService.start(context) }
     }
     val start: () -> Unit = {
@@ -115,7 +137,7 @@ fun RunScreen(ui: MainUiState, viewModel: MainViewModel, onOpenConfig: () -> Uni
                     listOf(R.string.refresh_service to { viewModel.manualReset() }, R.string.ui_all_addresses to onOpenAddresses,
                         R.string.monitor_open_history to onOpenHistory, R.string.error_logs to onOpenLogs,
                         R.string.ui_rule_changes to onChanges, R.string.nav_settings to onOpenConfig).forEach { (label, action) ->
-                        DropdownMenuItem(text = { Text(stringResource(label)) }, enabled = label != R.string.refresh_service || ui.share.running, onClick = { menu = false; action() })
+                        DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(label)) }, enabled = label != R.string.refresh_service || ui.share.running, onClick = { menu = false; action() })
                     }
                 }
             }
@@ -129,11 +151,17 @@ fun RunScreen(ui: MainUiState, viewModel: MainViewModel, onOpenConfig: () -> Uni
                 @Composable fun connection() {
                     Text(stringResource(if (ui.share.starting) R.string.notif_starting else if (ui.share.running) R.string.status_running else R.string.status_stopped),
                         Modifier.testTag("sharing_status"), style = MaterialTheme.typography.titleLarge)
-                    WarnBanners(ui)
+                    if (!localAccess) {
+                        WarnBanner(stringResource(R.string.ui_local_access_required))
+                        TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            "package:${context.packageName}".toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
+                            modifier = Modifier.testTag("local_network_permission_settings")) { Text(stringResource(R.string.ui_app_permissions)) }
+                    }
+                    WarnBanners(ui, onSettings)
                     AddressCard(ui, viewModel, onOpenAddresses, onSettings, start)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { seg = 1 }, modifier = Modifier.weight(1f)) { Icon(painterResource(R.drawable.ic_b_search), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_activity), Modifier.padding(start = 8.dp)) }
-                        FilledTonalButton(onClick = { editor = "" }, modifier = Modifier.weight(1f).testTag("home_add_rule")) { Icon(painterResource(R.drawable.ic_b_plus), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_add_rule), Modifier.padding(start = 8.dp)) }
+                    AdaptiveActionPair(stringResource(R.string.ui_activity), stringResource(R.string.ui_add_rule), extraWidth = 74.dp) { button ->
+                        Button(onClick = { seg = 1 }, modifier = button) { Icon(painterResource(R.drawable.ic_b_search), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_activity), Modifier.padding(start = 8.dp)) }
+                        FilledTonalButton(onClick = { editor = "" }, modifier = button.testTag("home_add_rule")) { Icon(painterResource(R.drawable.ic_b_plus), null, Modifier.size(18.dp)); Text(stringResource(R.string.ui_add_rule), Modifier.padding(start = 8.dp)) }
                     }
                 }
                 @Composable fun details() {

@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -95,7 +96,7 @@ fun ProtectionScreen(
         if (directFails.isNotEmpty()) {
             BentoCard(Modifier.fillMaxWidth(), tier = CardTier.Default, spacing = 10.dp) {
                 WarnBanner(
-                    text = stringResource(R.string.direct_fail_banner, directFails.size),
+                    text = pluralStringResource(R.plurals.direct_fail_banner, directFails.size, directFails.size),
                     level = BannerLevel.Warn,
                     icon = painterResource(R.drawable.ic_b_alert_circle),
                 )
@@ -131,7 +132,7 @@ fun ProtectionScreen(
                                     else -> stringResource(R.string.direct_fail_reason_other)
                                 }
                                 Text(
-                                    stringResource(R.string.direct_fail_row_sub, f.fails, reason),
+                                    pluralStringResource(R.plurals.direct_fail_row_sub, f.fails, f.fails, reason),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

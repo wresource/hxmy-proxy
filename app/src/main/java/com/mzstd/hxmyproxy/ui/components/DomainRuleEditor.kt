@@ -76,7 +76,7 @@ fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialActi
             OutlinedTextField(text, { text = it; failed = false }, Modifier.fillMaxWidth().testTag("domain_rule_input"),
                 placeholder = { Text("example.com") }, isError = attempted && parsed == null,
                 singleLine = true, textStyle = MaterialTheme.typography.bodyLarge,
-                supportingText = { Text(stringResource(if (attempted && parsed == null) R.string.ui_invalid_domain else R.string.ui_domain_input_hint)) })
+                supportingText = { Text(stringResource(if (attempted && parsed == null) R.string.ui_invalid_domain else R.string.ui_domain_input_hint)) }, shape = MaterialTheme.shapes.medium)
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.ui_rule_action), style = MaterialTheme.typography.labelLarge)

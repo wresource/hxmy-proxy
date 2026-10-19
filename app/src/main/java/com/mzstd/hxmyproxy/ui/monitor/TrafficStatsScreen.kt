@@ -126,7 +126,7 @@ fun TrafficStatsScreen(
                             selected = p == period,
                             onClick = { vm.select(p) },
                             label = { Text(stringResource(p.labelRes())) },
-                            colors = stdFilterChipColors(),
+                            colors = stdFilterChipColors(), shape = MaterialTheme.shapes.small,
                         )
                     }
                 }
@@ -274,7 +274,7 @@ private fun DirectionTile(modifier: Modifier, icon: Int, tint: Color, label: Str
 
 /** 出口分解：堆叠条 + 每档一行（色点 · 名称/说明 · 字节 · 占比）。 */
 @Composable
-private fun EgressCard(s: PeriodStats) {
+internal fun EgressCard(s: PeriodStats) {
     BentoCard(tier = CardTier.Default) {
         CardHeader(
             title = stringResource(R.string.traffic_by_egress),
@@ -291,8 +291,8 @@ private fun EgressCard(s: PeriodStats) {
             return@BentoCard
         }
         StackedBar(s.slices, s.bytes)
-        s.slices.forEachIndexed { i, slice ->
-            if (i > 0)            EgressRow(slice, s.bytes)
+        s.slices.forEach { slice ->
+            EgressRow(slice, s.bytes)
         }
         InfoDot(stringResource(R.string.traffic_by_egress), stringResource(R.string.traffic_egress_note))
     }

@@ -2,75 +2,97 @@
 
 > [English](README.md) · **简体中文**
 
-> 一份高层总览：hxmy proxy 是什么、能做什么、怎么实现、如何演进。细节见 version-md 各子文档。
-> 工程命名空间 `com.mzstd.hxmyproxy`，开发/上架主体 **mzstd**。面向 Android 10–17（minSdk 29 / targetSdk 37）。
+**把 Android 手机作为本地代理网关。** 电脑、平板或另一台手机可通过 HTTP / HTTPS CONNECT、
+SOCKS5 TCP 或 PAC 使用手机的出口网络；在工作台直接查看接入设备、每台设备的用量及目标域名流量，
+访问异常时检查原因、修改规则并观察新的连接。
 
----
+Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开发主体 **mzstd**。
+当前源码版本以 `app/build.gradle.kts` 为准，不代表 Google Play 已发布该版本。
 
-## 1. 是什么
+## 下载与本次更新
 
-**hxmy proxy 是一台 Android 本地代理网关**。手机在本机运行 HTTP / HTTPS CONNECT、SOCKS5、PAC
-代理端口，让同一网络下的其他设备（笔记本、平板、另一台手机）借用**这台手机当前的网络出口**上网
-——包括手机已连接的系统/Google VPN。
+[**1.48.76 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.48.76/hxmy-proxy-1.48.76.apk) ·
+[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.48.76) ·
+[完整更新内容](docs/releases/1.48.76.md)
 
-它**不是传统 VPN App**，V1 不自建 VpnService、不自己实现隧道；它是「把手机当成网络中转站」，
-其他设备把代理指向手机即可。核心气质：**可感知 VPN、可感知本地网络接口变化、能自动发布稳定入口**。
+本版更新工作台、设备与域名流量展示、可安全恢复的近期规则修改记录，并修复已确认的访问列表闪退，
+改善 DNS 与网络恢复。IP、端口和接入入口直接可见，Inbound 优先显示 IPv4；同类圆角、点击反馈、
+数字和端口对齐，以及大字体布局统一打磨。APK 可直接覆盖旧版保留数据，AAB 用于 Google Play 提交；
+Play 的上线时间以对应商店为准。
 
-**两种模式（有没有 VPN 都成立）**：
+| 运行概览 | 设备与域名流量 | 接入网络与端口 | 出口设置 |
+|---|---|---|---|
+| <img src="docs/screenshots/zh-CN/01-home.jpg" width="220" alt="共享中的代理IP和各协议端口"> | <img src="docs/screenshots/zh-CN/02-activity.jpg" width="220" alt="接入设备用量与目标域名流量"> | <img src="docs/screenshots/zh-CN/04-inbound.jpg" width="220" alt="接入接口与可直接编辑的协议端口"> | <img src="docs/screenshots/zh-CN/05-outbound.jpg" width="220" alt="代理出口与直连出口分别设置"> |
 
-- **手机有 VPN → 共享出口**：其他设备借用手机当前的 VPN 通道，一处联网、多设备共享，不必每台单独配。
-- **手机没 VPN → 规则过滤网关**：出口是普通网络，但下游设备白赚一层规则引擎——广告/追踪拦截、65 组 App/服务直连、
-  白名单直连、域名分流、按连接监控。相当于一台免 root、免额外硬件的全屋广告拦截网关；且工作在
-  **代理层**（HTTP CONNECT / SOCKS），拦的是真实连接目标，即使加密 DNS（DoH/DoT）也绕不过——
-  这是它与 DNS 层拦截（如 Pi-hole）的本质区别。
+截图来自1.48.76正式签名应用，数据为独立模拟器内的受控测试流量。
 
-app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，无 VPN 时延迟检测会提示可能不反映共享出口。
+## 1. 适用范围
 
-## 2. 核心场景
+应用运行本地代理，不自建 VPN 服务。手机上兼容的 VPN 可以作为出口，但 VPN 应用策略和本地网络
+会影响可用性。**每台客户端都要配置代理**；忽略代理设置的应用、UDP 和绕过网关的连接不在覆盖范围内。
 
-- 手机连着 VPN，想让电脑/平板也走同一出口，但不想在每台设备单独配 VPN。
-- 同一 Wi‑Fi / 手机热点 / USB 网络共享 / 以太网下，一台设备借另一台的网络通道。
-- 需要对部分流量分流（直连/拦截/走代理）与广告拦截的轻量网关。
+- 有 VPN：已配置代理的客户端可复用手机上的兼容 VPN 出口，无需各自安装 VPN。
+- 无 VPN：仍可使用手机的物理网络出口，并对实际经过代理的连接应用规则与统计。
+- 支持 Wi-Fi、手机热点、USB 网络共享或以太网等可达的本地连接；不承诺任意网络都允许客户端互访。
 
-## 3. 功能模块（五屏）
+域名规则依赖客户端向代理提供的主机名。只有 IP 的请求可按 IP/CIDR 匹配，不能保证从所有加密流量中
+还原域名，也不能把它描述成自动接管整个局域网的过滤器。
 
-| 屏 | 内容 |
+## 2. 第一次接入与日常排障
+
+1. 让客户端与手机位于相互可达的本地网络，在 **Inbound** 中选择接入接口。
+2. 用首页顶部的左右开关开启共享。首页直接显示 IP 和 HTTP/SOCKS5/PAC 端口，旁边可编辑端口和接入网络。
+3. 打开客户端的代理设置，填写对应地址或 PAC URL。二维码打开接入说明，**扫码本身不会修改客户端设置**。
+   支持的 Apple 设备可以下载 Wi-Fi 代理描述文件，核对后在系统设置中安装；其他设备按说明手动配置。
+4. 在客户端打开网站，再到“访问”查看新连接和流量。“共享中”表示手机服务在运行，网站是否可用仍以客户端结果为准。
+5. 停止共享或离开该网络后，不再需要代理时应在客户端关闭代理或移除描述文件，避免继续指向已停止的网关。
+
+网站打不开时：搜索目标域名 → 查看这次连接的结果和命中规则 → 做最小必要修改 → 客户端重试 → 观察新连接。
+“走代理”和“直连”含义不同；DNS 失败、指定网络离线应检查对应设置，不能一律通过添加放行规则解决。
+
+## 3. 工作台与功能入口
+
+| 区域 | 内容 |
 |---|---|
-| **主页 Dashboard** | 第一排「共享 \| 防护」双状态 tile（三态：已停止/未就绪/分享中，红/黄/绿）；实时速率 + 统计竖条（连接数/信号/**链路时延 p50·p95**/累计）；入口配置卡（HTTP/PAC 地址 + 复制 + 扫码 QR）；**接入网络卡（入口，每接口一开关）**；**出口网络卡**（PROXY 出口：Auto / VPN / Wi-Fi / 蜂窝 / 以太网-USB）+ **直连出口卡**（DIRECT 出口独立配置：Auto=以太网/USB→Wi-Fi→蜂窝 或手动指定，蜂窝首次弹移动流量确认）；开始/停止按钮（竖屏悬浮、横屏竖排 rail）。 |
-| **防护 Protection** | 独立 tab：本会话拦截总数大字 + 广告拦截开关 + 拦截明细入口；**拦截明细页按命中次数降序**（排查误封）；点任一域名弹**三态救济弹窗**（走代理/直连/拦截，最高优先级覆盖）。有无 VPN 都生效。 |
-| **监控 Monitor** | 诊断三态网格（本地网络权限/VPN 出口/通知/电池/HTTP/SOCKS5/PAC 端口）；服务延迟测量；客户端列表；**目标域名**（协议色圆点 + 规则引擎**实时判定**的直连/拦截标；「查看全部」进独立详情页，点域名即写入 block/allow 规则、免手输）；**流量统计入口卡**（今日总量 + 近 7 日趋势，点进去是周期 × 出口两维概览）；历史入口 / 错误日志（可按级别过滤）。 |
-| **规则 Rules** | 语义重组为 **🛡️拦截(Reject) / 🌐放行(Bypass)** 两大模块：快速拦截（域名/IP/CIDR，带整体开关）、白名单直连、**每条独立启停开关**（停用不删、Active/Off 状态标、停用项排后）、**点条目看全值并就地改写 / 换作用域档位**、App/服务规则集两行式（一键在放行/拦截间移）+ **分类/全部一键批量开关**。内置 **65 组**（含 Apple / App Store 直连）；per-host 三态覆盖。 |
-| **设置 Settings** | 语言、外观、性能预设 + 连接上限/缓冲/超时；端口、协议开关、**备用 DNS（DoH）开关**、认证、诊断日志总开关、**设置备份（导出/导入 JSON）**。 |
+| **运行 → 概览** | 常驻共享开关、IP/协议/端口，复制与扫码就近；Inbound、编辑端口、访问和添加规则直接进入。 |
+| **访问** | 接入设备及每台上下行用量，域名累计流量、活跃连接与访问结果；搜索、排序、暂停查看。域名摘要先显示5行，完整列表进入单独页面；详情保留上下文。 |
+| **流量 / 健康** | 按时段和实际出口统计用量，查看连接质量、权限和端口状态，以及防护、历史和日志。 |
+| **规则** | 域名/IP/CIDR 增删改与独立启停，代理/直连/拦截、作用域、内置规则组和订阅。最近20次快捷修改跨进程保留，可安全恢复或清空记录。 |
+| **设置** | 入口栏直接编辑接入接口与端口；Outbound 与 Direct egress 独立保留。其他栏目提供协议、DNS、认证、性能、外观、诊断及备份。 |
 
-## 4. 技术架构
+主导航为运行、规则、设置；概览、访问、流量、健康是运行页内的栏目，完整列表和细项按需要打开单独页面或底部面板。
+不推测不存在的数据关联：客户端用量与域名用量分别展示，累计流量、单条连接流量与实时速率分开标注。
 
-- **代理核心**：HTTP/HTTPS CONNECT + SOCKS5（可选认证、反 SSRF）+ PAC server。relay 已从阻塞多线程
-  改为 **NIO 非阻塞**（2 selector 取代 128 线程，见 [proxy-relay-nonblocking-plan.md](./version-md/proxy-relay-nonblocking-plan.md)）。
-  IPv4 优先 / dnsCache / Happy Eyeballs / TCP_NODELAY。
-- **规则引擎**：`RuleEngine.decide(host)` 短路优先级链——per-host 三态覆盖 > 用户白名单 > 快速拦截 >
-  内置广告 > app 直连组 > 默认 PROXY。支持泛域名 / IP 字面量 / **CIDR**（`InetAddresses` 前缀匹配，不查 DNS）。
-- **出口选择器（PROXY + DIRECT 双通道）**：`UnderlyingNetworkProvider` 多网络句柄提供者（WiFi/蜂窝/以太网/VPN 各 `registerNetworkCallback`），
-  按用户选择 **per-socket 绑定**（`Network.socketFactory` / `bindSocket`，官方推荐）；选物理出口时 `requestNetwork` 拉起保活。
-  **DIRECT 分流独立配置**（AUTO=以太网/USB→WiFi→蜂窝），拿不到物理网 **fail-closed 断开、绝不回落 VPN**（防地理敏感直连泄漏）；
-  蜂窝可选性依**免权限** SIM 能力（`FEATURE_TELEPHONY`+`getSimState`），WiFi 在线也能选蜂窝出口。
-- **DNS 三层防线**：系统解析双路互援（默认网络 ↔ 底层 WiFi，换 netId 绕负缓存）→ **DoH 备援**
-  （8.8.8.8 / 1.1.1.1，IP 直连 443）；上游失败按路径分类落 FileLog（可导出自证）。
-- **网络与准入**：接口枚举/分类、VPN 检测、`0.0.0.0` 监听 + **fail-closed 来源准入**（不选网段=全拒 + 收缩即时清扫在途）。
-- **服务与权限**：前台服务 `connectedDevice`；Android 10–17 权限（`ACCESS_LOCAL_NETWORK` day-one 硬门）；
-  加密凭据存储（DataStore）。
-- **UI**：Jetpack Compose + Material 3；Candy Azure 蓝配色（明暗分色）；共享组件 `SharedUi.kt`
-  （CardGrid / AvatarCircle / LabeledSwitchRow / ExpandCollapseButton）+ `cardContainerColor` / `stdFilterChipColors`。
-- **性能对标**：第二轮 vs Every Proxy 18.0.1，TTFB 快 ~14%、65% 胜、z=5.21（[proxy-benchmark-2](./version-md/proxy-benchmark-2-1.2.10-vs-every.md)）。
+## 4. 行为与实现约定
 
-## 5. 隐私与合规
+- **规则**：`example.com` 全层级、`*.example.com` 单级、`=example.com` 精确。作用域决定覆盖范围，
+  不是优先级；更深锚点优先，同一锚点保留既有的时序裁决。编辑保留原条目的创建时间，停用不等于改成相反动作。
+- **出口**：Proxy 使用 Outbound；Direct 使用独立的物理网络。固定 Direct egress 不可用时拒绝连接，
+  不偷偷回到 VPN。Inbound 没选接口时全部拒绝，收缩准入也会清理不再允许的在途连接。
+- **安全恢复**：快捷修改与其前后快照同一 DataStore 事务保存，最多20条。本域名后来被编辑过时，
+  旧记录不能覆盖后续修改，即使后来又改回相同值；无关域名和端口不受撤销影响。清空记录不改变生效规则。
+- **网络与服务**：HTTP/CONNECT、SOCKS5 TCP、PAC，IPv4/IPv6 入站，NIO 转发及背压统计。
+  系统 DNS 主路失败后按配置提供互援与 DoH；服务以 connectedDevice 前台通知运行。
+- **恢复共享**：上次正在共享时可在更新/重启后尝试恢复，仍受 Android 后台限制；主动停止则保持关闭。
+- **界面**：Jetpack Compose + Material 3，中英文、浅深色、宽屏和大字体；复杂详情统一底部面板。
+- **历史性能资料**：本地`version-md/proxy-benchmark-2-1.2.10-vs-every.md`针对当时版本与测试环境，
+  不是当前版本在所有设备上的性能承诺。本地受控 VPN 测试也不等同实体网络、商业 VPN 或线上 Android vitals。
 
-**完全本地运行**：无账号、无登录、不上云、无统计/追踪 SDK。仅在本地设备与手机网络之间转发流量；
-设置/规则/诊断日志只存设备本地。上架文案定位为「局域网网络共享」中性工具，避开翻墙表述。
+## 5. 隐私与数据
 
-这一条是**用机制保证的、不只是承诺**：日志落 `noBackupFilesDir` 且 `allowBackup=false`，
-连 Android Auto Backup 都不会把它传到云端；release 版另用 R8 剥离 logcat 的 v/d/i，
-正式版不向系统日志输出访问域名与客户端 IP。云端恢复因此被主动放弃，换机迁移改由
-**设置 → 设置备份**（导出/导入 JSON，不含代理凭据）承担。
+无账号、广告 SDK 或使用分析 SDK。设置、流量摘要、近期规则修改和诊断日志保存在本机；
+`allowBackup=false` 关闭 Android 自动云备份，代理凭据单独加密保存且不包含在设置导出里。
+
+应用会为其功能访问网络：转发客户端请求、解析域名、下载启用的订阅和执行用户请求的诊断。
+备用 DNS 可使用 Google、Cloudflare、阿里或腾讯服务；请求会经过所选网络/VPN 到达对应服务。
+“本地保存”不能解释为“不访问外部网络”。
+
+用户主动导出的设置可包含规则域名与最近修改记录；诊断日志可包含访问域名、客户端 IP 和连接详情。
+这些文件按用户选择写入文件位置或交给分享对象，目标也可能是云盘。应用没有自动上传日志的功能。
+日志总开关、流量历史清空和规则修改记录清空分别控制对应数据；关闭日志不会删除规则和设置。
+
+开发验证需使用明确选定的隔离设备；Debug 专用 VPN 夹具不进入 Release。正式升级应使用原签名，
+不要通过卸载旧版来绕过签名冲突，否则会丢失本地数据。以下为保留的**历史版本资料**，不表示当前页面结构或验证状态。
 
 ## 6. 版本演进（关键里程碑）
 
@@ -202,7 +224,7 @@ app 自身即感知这两态：监控页显示 `VPN: detected / not detected`，
 
 ## 7. 文档索引
 
-技术子文档均在 [`version-md/`](./version-md/)：设计入口 `v1-design.md` · 代理核心 `v1-proxy-core.md` ·
+历史技术子文档保留于本地 `version-md/`（不随源码发布）：设计入口 `v1-design.md` · 代理核心 `v1-proxy-core.md` ·
 PAC/共享 `v1-pac-and-sharing.md` · 网络准入 `v1-network-and-admission.md` · 服务权限 `v1-service-permissions-compat.md` ·
 架构/UI `v1-architecture-ui-state.md` · 路线 `roadmap.md`。
 

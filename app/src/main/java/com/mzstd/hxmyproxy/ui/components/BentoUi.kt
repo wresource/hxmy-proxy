@@ -154,9 +154,10 @@ fun BigStat(
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
     valueSize: Int = 34,
 ) {
-    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             value,
+            modifier = Modifier.alignByBaseline(),
             style = MaterialTheme.typography.displaySmall.copy(fontSize = valueSize.sp, lineHeight = (valueSize + 6).sp),
             color = valueColor,
         )
@@ -165,7 +166,7 @@ fun BigStat(
                 unit,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp),
+                modifier = Modifier.alignByBaseline(),
             )
         }
     }
@@ -227,8 +228,8 @@ fun Sparkline(
 @Composable
 fun RatioBar(
     fraction: Float,
-    color: Color = MaterialTheme.colorScheme.primary,
     modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
     height: Dp = 5.dp,
     track: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
 ) {
@@ -298,7 +299,7 @@ fun ProtoBadge(protocol: ProxyProtocol) {
         protocol.name,
         style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace),
         color = fg,
-        modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(bg).padding(horizontal = 7.dp, vertical = 3.dp),
+        modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).background(bg).padding(horizontal = 7.dp, vertical = 3.dp),
     )
 }
 
@@ -309,8 +310,8 @@ enum class BannerLevel { Warn, Error }
 @Composable
 fun WarnBanner(
     text: String,
-    level: BannerLevel = BannerLevel.Warn,
     modifier: Modifier = Modifier,
+    level: BannerLevel = BannerLevel.Warn,
     icon: Painter? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {

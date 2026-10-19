@@ -1,0 +1,13 @@
+<en-US>
+• Redesigned workbench keeps proxy IPs, ports and Inbound controls close at hand.
+• See device and destination traffic, inspect failures, and edit rules with a persistent change history and safe restore.
+• Fixed traffic-list crashes and improved DNS, network switching and background sharing.
+• Polished dialogs, alignment and large-text layouts. Inbound now lists IPv4 before IPv6.
+</en-US>
+
+<zh-CN>
+• 全新工作台：代理 IP 和端口常显，接入网络与端口可直接调整。
+• 直观看设备与域名流量，查看访问结果并就近修改规则；最近修改跨重启保留，支持安全恢复。
+• 修复访问列表闪退，改善 DNS 解析、切网与后台共享稳定性。
+• 统一圆角、点击反馈与对齐，改善大字体显示；接入列表优先显示 IPv4。
+</zh-CN>

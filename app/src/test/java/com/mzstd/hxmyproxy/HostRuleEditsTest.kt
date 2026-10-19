@@ -5,8 +5,8 @@ import com.mzstd.hxmyproxy.core.model.RuleEntry
 import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleMatcher
 import com.mzstd.hxmyproxy.core.rules.RuleScope
-import com.mzstd.hxmyproxy.ui.rules.HostRuleEdits
-import com.mzstd.hxmyproxy.ui.rules.RecentRuleChange
+import com.mzstd.hxmyproxy.core.rules.HostRuleEdits
+import com.mzstd.hxmyproxy.core.rules.RecentRuleChange
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -35,7 +35,7 @@ class HostRuleEditsTest {
     @Test fun undoRestoresOnlyTargetAndRefusesAConflictingLaterEdit() {
         val original = ProxySettings(userDirectRules = listOf(RuleEntry("*.example.org", enabled = false, addedAt = 1)))
         val edited = HostRuleEdits.apply(original, "example.org", RuleAction.PROXY, RuleScope.EXACT, 2)
-        val change = RecentRuleChange(1, "example.org", "=example.org", RuleAction.PROXY,
+        val change = RecentRuleChange("change-1", "example.org", "=example.org", RuleAction.PROXY,
             HostRuleEdits.capture(original, "example.org"), HostRuleEdits.capture(edited, "example.org"), 2)
         val unrelated = edited.copy(userRejectRules = listOf(RuleEntry("=unrelated.org")))
         val restored = HostRuleEdits.revert(unrelated, change)!!

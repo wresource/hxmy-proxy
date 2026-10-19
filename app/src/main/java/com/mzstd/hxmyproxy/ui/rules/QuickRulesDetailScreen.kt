@@ -73,7 +73,6 @@ fun QuickRulesDetailScreen(
             OutlinedButton(
                 onClick = { showHistory = true },
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
             ) { Text(stringResource(R.string.rules_add_from_history)) }
             if (rules.isEmpty()) {
                 Text(

@@ -102,7 +102,7 @@ fun RuleEditDialog(
             Text(stringResource(R.string.ui_domain_input), style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(bare, { bare = it }, isError = result == null,
                 supportingText = if (result == null) ({ Text(stringResource(R.string.rule_input_invalid)) }) else null,
-                modifier = Modifier.fillMaxWidth().testTag("rule_edit_input"), placeholder = { Text(stringResource(R.string.rules_add_domain)) })
+                modifier = Modifier.fillMaxWidth().testTag("rule_edit_input"), placeholder = { Text(stringResource(R.string.rules_add_domain)) }, shape = MaterialTheme.shapes.medium)
         }
         if (!isIp) {
             RuleScopePicker(scope) { scope = it }

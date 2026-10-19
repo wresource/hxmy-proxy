@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.ui.monitor
 
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -142,11 +142,11 @@ private enum class DiagGuide(val titleRes: Int, val bodyRes: Int) {
             // 直接弹系统「允许不受限制」授权框（manifest 已声明 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS）。
             BATTERY -> android.content.Intent(
                 android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                android.net.Uri.parse("package:$pkg"),
+                "package:$pkg".toUri(),
             )
             LOCAL_NET -> android.content.Intent(
                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                android.net.Uri.parse("package:$pkg"),
+                "package:$pkg".toUri(),
             )
         }
     }
@@ -668,7 +668,7 @@ private fun RateColumn(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(
-                Modifier.size(20.dp).clip(RoundedCornerShape(7.dp)).background(chipBg),
+                Modifier.size(20.dp).clip(MaterialTheme.shapes.extraSmall).background(chipBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = chipTint, modifier = Modifier.size(12.dp))
@@ -812,7 +812,7 @@ private fun ClientRow(c: ClientSession, maxDown: Long) {
                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(MaterialTheme.shapes.extraSmall)
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
@@ -958,7 +958,7 @@ internal fun DomainRow(d: DomainTraffic, maxBytes: Long, override: RuleAction?, 
 private fun BlockedChip(host: String, count: Long) {
     Row(
         Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .background(MaterialTheme.colorScheme.errorContainer)
             .padding(horizontal = 7.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1045,7 +1045,7 @@ private fun LinkQualityCard(ui: MainUiState) {
 private fun LinkCell(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceContainer)
             .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {

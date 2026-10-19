@@ -87,6 +87,7 @@ class MainViewModelTest {
         every { settingsRepo.settings } returns settingsFlow
         every { settingsRepo.onboardingCompleted } returns onboardingFlow
         every { settingsRepo.domainHistory } returns flowOf(emptySet())
+        every { settingsRepo.ruleChangeHistory } returns flowOf(com.mzstd.hxmyproxy.core.rules.RuleChangeJournal())
         // 把真实的 transform 应用到内存状态上——这样测的是 ViewModel 的变换逻辑本身，
         // 而不是「有没有调用 repository」这种无信息量的断言。
         coEvery { settingsRepo.update(any()) } answers {
@@ -687,7 +688,9 @@ class MainViewModelTest {
     }
 
     @Test fun `打开开关后 IPv6 出现且带方括号`() {
-        shareFlow.value = ShareState(interfaces = listOf(iface("192.168.1.34"), iface6("fd00::1")))
+        val all = listOf(iface6("fd00::2"), iface("192.168.1.35"), iface6("fd00::1"), iface("192.168.1.34"))
+        shareFlow.value = ShareState(interfaces = all)
+        val selectedBefore = s().selectedInterfaceIds
         vm.setShowIpv6(true)
         // 方括号不是装饰——用户照着抄进别的设备，fd00::1:8080 是非法的（RFC 3986 §3.2.2）。
         //
@@ -695,7 +698,10 @@ class MainViewModelTest {
         // `Inet6Address.getHostAddress()` 不做 `::` 压缩。**Android 上不是这样**——
         // libcore 走 inet_ntop，模拟器实测显示的是压缩形式 `[fec0::5054:ff:fe12:3456]`。
         // 所以别拿这一行去推断界面上的样子，两边平台行为不同。
-        assertEquals(listOf("192.168.1.34", "[fd00:0:0:0:0:0:0:1]"), visible())
+        assertEquals(listOf("192.168.1.35", "192.168.1.34", "[fd00:0:0:0:0:0:0:2]", "[fd00:0:0:0:0:0:0:1]"), visible())
+        // IPv4在前，同时保持各地址族的原始顺序；准入输入与选中项不随展示重排。
+        assertEquals(all, observe(vm.uiState).share.interfaces)
+        assertEquals(selectedBefore, s().selectedInterfaceIds)
     }
 
     @Test fun `只有 IPv6 接口时照常显示——否则界面空白而共享其实是好的`() {

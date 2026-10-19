@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -70,6 +69,7 @@ enum class LogLevelFilter(val labelRes: Int, private val floor: Int) {
 @Composable
 fun LogsDetailScreen(onBack: () -> Unit, initialHost: String = "") {
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     val vm: LogsViewModel = hiltViewModel()
     val all by vm.entries.collectAsStateWithLifecycle()
     // 级别下限筛选。默认 ALL：不擅自替用户隐藏内容；但 I 级(心跳/规则判定)条数占绝对多数，
@@ -95,7 +95,7 @@ fun LogsDetailScreen(onBack: () -> Unit, initialHost: String = "") {
                         putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    context.startActivity(Intent.createChooser(send, context.getString(R.string.export_logs)))
+                    context.startActivity(Intent.createChooser(send, resources.getString(R.string.export_logs)))
                 }.onFailure {
                     Toast.makeText(context, it.message ?: "export failed", Toast.LENGTH_SHORT).show()
                 }
@@ -129,7 +129,7 @@ fun LogsDetailScreen(onBack: () -> Unit, initialHost: String = "") {
                     val warn = all.count { it.level == "W" }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                         androidx.compose.material3.OutlinedTextField(search, { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                            label = { Text(stringResource(R.string.ui_log_search)) })
+                            label = { Text(stringResource(R.string.ui_log_search)) }, shape = MaterialTheme.shapes.medium)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             LogLevelFilter.entries.forEach { f ->
                                 val on = minLevel == f
@@ -140,7 +140,7 @@ fun LogsDetailScreen(onBack: () -> Unit, initialHost: String = "") {
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(MaterialTheme.shapes.extraSmall)
                                         .background(
                                             if (on) MaterialTheme.colorScheme.secondaryContainer
                                             else MaterialTheme.colorScheme.surfaceContainerHighest,

@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -624,7 +623,7 @@ private fun RateColumn(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(
-                Modifier.size(20.dp).clip(RoundedCornerShape(7.dp)).background(chipBg),
+                Modifier.size(20.dp).clip(MaterialTheme.shapes.extraSmall).background(chipBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(painterResource(iconRes), contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
@@ -788,8 +787,9 @@ private fun PortBindBanner(ui: MainUiState) {
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun EntryCard(ui: MainUiState) {
+internal fun EntryCard(ui: MainUiState) {
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     val clipboard = LocalClipboardManager.current
     val share = ui.share
     var entriesExpanded by remember { mutableStateOf(false) }
@@ -810,7 +810,7 @@ private fun EntryCard(ui: MainUiState) {
             Row(
                 Modifier
                     .alpha(if (primaryEntry != null) 1f else 0.45f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { showQr = true }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -866,8 +866,8 @@ private fun EntryCard(ui: MainUiState) {
             val pacEntry = allEntries.firstOrNull { it.protocol == ProxyProtocol.PAC && it != primaryEntry }
             val collapsedEntries = listOfNotNull(primaryEntry, pacEntry)
             val shownEntries = if (entriesExpanded) allEntries else collapsedEntries
-            shownEntries.forEachIndexed { i, e ->
-                if (i > 0)                Row(
+            shownEntries.forEach { e ->
+                Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -884,7 +884,7 @@ private fun EntryCard(ui: MainUiState) {
                     IconButton(
                         onClick = {
                             clipboard.setText(AnnotatedString(e.copyValue))
-                            Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, resources.getString(R.string.copied), Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.size(32.dp),
                     ) {
@@ -1042,6 +1042,7 @@ internal fun InterfacesCard(ui: MainUiState, viewModel: MainViewModel, modifier:
             shownIfaces.forEach { iface ->
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("interface_${iface.id}")
+                        .clip(MaterialTheme.shapes.small)
                         .toggleable(value = iface.id in ui.settings.selectedInterfaceIds, role = Role.Switch,
                             onValueChange = { viewModel.toggleInterface(iface.id, it) }),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1170,7 +1171,7 @@ internal fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Mod
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    },
+                    }, shape = MaterialTheme.shapes.small,
                 )
             }
         }
@@ -1220,7 +1221,7 @@ internal fun EgressCard(ui: MainUiState, viewModel: MainViewModel, modifier: Mod
                                 )
                             }
                         } else null,
-                        label = { Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        label = { Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis) }, shape = MaterialTheme.shapes.small,
                     )
                 }
             }
@@ -1404,7 +1405,7 @@ internal fun DirectEgressCard(ui: MainUiState, viewModel: MainViewModel, modifie
                     } else null,
                     label = {
                         Text(stringResource(labelRes), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
+                    }, shape = MaterialTheme.shapes.small,
                 )
             }
         }

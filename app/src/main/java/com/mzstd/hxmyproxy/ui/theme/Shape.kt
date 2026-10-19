@@ -6,7 +6,8 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 全局圆角体系（Bento 重设计定稿 24/16）：large=卡片 24dp、medium=卡内嵌块/输入框/横幅 16dp、
- * small 给小组件（chips/徽标裁剪），extraLarge 给对话框/底部弹层（M3 惯例保留层次）。
+ * small=选项/行反馈12dp，extraSmall=小徽章8dp，extraLarge=对话框/底部弹层28dp。
+ * 同类控件共用角色；圆形图标/胶囊保留全圆。点击反馈必须与背景使用同一裁剪形状。
  */
 val Shapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),

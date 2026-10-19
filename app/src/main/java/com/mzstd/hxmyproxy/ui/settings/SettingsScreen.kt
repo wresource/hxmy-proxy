@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.ui.settings
 
+import androidx.core.net.toUri
 import com.mzstd.hxmyproxy.core.model.DohEgressChoice
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -190,20 +191,22 @@ fun SettingsScreen(
 private fun SettingsIndex(ui: MainUiState, section: Int, open: (String) -> Unit, help: () -> Unit, onboarding: () -> Unit) {
     val s = ui.settings
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     @Composable fun entry(page: String, subtitle: String? = null, icon: Int = R.drawable.ic_nav_settings) {
         com.mzstd.hxmyproxy.ui.components.WorkbenchRow(stringResource(settingsTitle(page)), subtitle, icon,
             tag = "settings_$page", onClick = { open(page) })
     }
     when (section) {
         0 -> {
-            entry("interfaces", stringResource(R.string.ui_selected_networks, ui.share.interfaces.count { it.id in s.selectedInterfaceIds }), R.drawable.ic_b_wifi)
+            val selected = ui.share.interfaces.count { it.id in s.selectedInterfaceIds }
+            entry("interfaces", pluralStringResource(R.plurals.ui_selected_networks, selected, selected), R.drawable.ic_b_wifi)
             entry("ports", stringResource(R.string.ui_protocol_summary, s.httpPort, s.socksPort, s.pacPort), R.drawable.ic_b_swap)
             entry("auth", stringResource(if (s.authEnabled) R.string.ui_enabled else R.string.ui_disabled), R.drawable.ic_b_shield_check)
         }
         1 -> {
             entry("proxy-egress", stringResource(egressChoiceLabel(s.egressChoice.name)), R.drawable.ic_b_arrow_right)
             entry("direct-egress", stringResource(egressChoiceLabel(s.directEgressChoice.name)), R.drawable.ic_b_arrow_right)
-            entry("priority", s.egressPriority.joinToString(" → ") { context.getString(egressChoiceLabel(it.name)) })
+            entry("priority", s.egressPriority.joinToString(" → ") { resources.getString(egressChoiceLabel(it.name)) })
             entry("dns", stringResource(if (s.backupDnsEnabled) R.string.ui_enabled else R.string.ui_disabled))
         }
         2 -> { entry("privacy"); entry("backup") }
@@ -288,6 +291,7 @@ fun SettingsDetailScreen(page: String, ui: MainUiState, viewModel: MainViewModel
 @Composable
 private fun BackupCard(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     var pendingJson by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -298,8 +302,8 @@ private fun BackupCard(viewModel: MainViewModel) {
         message = runCatching {
             context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
         }.fold(
-            { context.getString(R.string.settings_backup_exported) },
-            { context.getString(R.string.settings_backup_failed) },
+            { resources.getString(R.string.settings_backup_exported) },
+            { resources.getString(R.string.settings_backup_failed) },
         )
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -308,13 +312,13 @@ private fun BackupCard(viewModel: MainViewModel) {
             context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { r -> r.readText() }
         }.getOrNull()
         if (text.isNullOrBlank()) {
-            message = context.getString(R.string.settings_backup_failed)
+            message = resources.getString(R.string.settings_backup_failed)
             return@rememberLauncherForActivityResult
         }
         viewModel.importSettings(text) { r ->
             message = r.fold(
-                { context.getString(R.string.settings_backup_imported, it) },
-                { context.getString(R.string.settings_backup_failed) },
+                { resources.getQuantityString(R.plurals.settings_backup_imported, it, it) },
+                { resources.getString(R.string.settings_backup_failed) },
             )
         }
     }
@@ -338,8 +342,8 @@ private fun BackupCard(viewModel: MainViewModel) {
                         r.onSuccess { json ->
                             pendingJson = json
                             runCatching { exportLauncher.launch("hxmy-settings.json") }
-                                .onFailure { message = context.getString(R.string.settings_backup_failed) }
-                        }.onFailure { message = context.getString(R.string.settings_backup_failed) }
+                                .onFailure { message = resources.getString(R.string.settings_backup_failed) }
+                        }.onFailure { message = resources.getString(R.string.settings_backup_failed) }
                     }
                 },
                 Modifier.weight(1f),
@@ -349,7 +353,7 @@ private fun BackupCard(viewModel: MainViewModel) {
                 stringResource(R.string.settings_backup_import),
                 {
                     runCatching { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
-                        .onFailure { message = context.getString(R.string.settings_backup_failed) }
+                        .onFailure { message = resources.getString(R.string.settings_backup_failed) }
                 },
                 Modifier.weight(1f),
             )
@@ -478,7 +482,7 @@ private fun DohEgressPicker(
                 FilterChip(
                     selected = choice == c,
                     onClick = { onPick(c) },
-                    label = { Text(stringResource(labelRes)) },
+                    label = { Text(stringResource(labelRes)) }, shape = MaterialTheme.shapes.small,
                 )
             }
         }
@@ -500,7 +504,7 @@ private fun DohBadge() {
         "DoH",
         style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace),
         color = fg,
-        modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(bg).padding(horizontal = 7.dp, vertical = 3.dp),
+        modifier = Modifier.clip(MaterialTheme.shapes.extraSmall).background(bg).padding(horizontal = 7.dp, vertical = 3.dp),
     )
 }
 
@@ -548,8 +552,11 @@ private fun ProtoPortRow(
             var focused by remember { mutableStateOf(false) }
             @Composable fun portField(modifier: Modifier) { OutlinedTextField(
                 value = text, onValueChange = { text = it.filter(Char::isDigit).take(5) },
-                label = { Text(stringResource(R.string.ui_port)) }, singleLine = true, isError = invalid || bindError,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                // A floating label reserves extra top space and shifts the visible number
+                // below the protocol/switch center. The row and semantics already name the port.
+                placeholder = { Text(stringResource(R.string.ui_port), Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                singleLine = true, isError = invalid || bindError,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { commitIfValid(); focusManager.clearFocus() }),
                 modifier = modifier.testTag("port_input_$tag").semantics { if (portLabel != null) contentDescription = portLabel }
@@ -559,7 +566,7 @@ private fun ProtoPortRow(
                             if (invalid) text = port.toString() else commitIfValid()
                         }
                         focused = focus.isFocused
-                    },
+                    }, shape = MaterialTheme.shapes.medium,
             ) }
             @Composable fun toggle() {
                 Switch(checked = checked, onCheckedChange = onToggle, colors = stdSwitchColors(),
@@ -665,7 +672,7 @@ private fun AuthCredentials(
         onValueChange = { username = it },
         label = { Text(stringResource(R.string.auth_username)) },
         singleLine = true,
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.medium,
         isError = username.isBlank(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         modifier = Modifier
@@ -677,7 +684,7 @@ private fun AuthCredentials(
         onValueChange = { password = it },
         label = { Text(stringResource(R.string.auth_password)) },
         singleLine = true,
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.medium,
         isError = password.isBlank(),
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -712,6 +719,7 @@ private fun PrivacyCard(ui: MainUiState, viewModel: MainViewModel) {
             icon = painterResource(R.drawable.ic_b_shield_check),
             iconBg = iconBg,
             iconTint = iconFg,
+            trailing = { InfoDot(stringResource(R.string.ui_data_flow_title), stringResource(R.string.ui_data_flow_body)) },
         )
         LabeledSwitchRow(
             title = stringResource(R.string.settings_block_private),
@@ -797,7 +805,7 @@ private fun PresetCard(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                        },
+                        }, shape = MaterialTheme.shapes.small,
                     )
                 }
             }
@@ -933,7 +941,7 @@ private fun <T> OptionChipFlow(
                 selected = option == selected,
                 onClick = { onSelect(option) },
                 colors = chipColors,
-                label = { Text(label(option), style = MaterialTheme.typography.labelMedium) },
+                label = { Text(label(option), style = MaterialTheme.typography.labelMedium) }, shape = MaterialTheme.shapes.small,
             )
         }
     }
@@ -1050,7 +1058,7 @@ private fun NavTabCell(
     val dark = LocalDarkTheme.current
     // 格底 = Primary 档面色（Sunken 卡上浮出的白格，HTML --cell-bg）。
     val cellBg = if (dark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest
-    val cellShape = RoundedCornerShape(12.dp)
+    val cellShape = MaterialTheme.shapes.medium
     val edge = sunkenColor()
     val clickMod = if (onClick != null) Modifier.clickable(onClickLabel = a11y, onClick = onClick) else Modifier
     // 外层 Box 不裁剪、留出顶部空间——徽标挂在外层,不会被点击区的圆角 clip 切掉(修「徽标被遮挡」)。
@@ -1158,12 +1166,12 @@ private fun AboutCard() {
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickable {
+            modifier = Modifier.clip(MaterialTheme.shapes.small).clickable {
                 runCatching {
                     context.startActivity(
                         android.content.Intent(
                             android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse("https://github.com/wresource/hxmy-proxy"),
+                            "https://github.com/wresource/hxmy-proxy".toUri(),
                         ),
                     )
                 }

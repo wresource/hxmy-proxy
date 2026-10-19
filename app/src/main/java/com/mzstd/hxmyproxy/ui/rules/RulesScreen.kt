@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import com.mzstd.hxmyproxy.ui.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
@@ -124,8 +123,8 @@ fun RulesScreen(
             androidx.compose.foundation.layout.Box {
                 androidx.compose.material3.IconButton(onClick = { more = true }) { Icon(painterResource(R.drawable.ic_ui_more), stringResource(R.string.ui_more_actions)) }
                 com.mzstd.hxmyproxy.ui.components.AppDropdownMenu(more, onDismissRequest = { more = false }) {
-                    androidx.compose.material3.DropdownMenuItem(text = { Text(stringResource(R.string.ui_manual_overrides)) }, onClick = { more = false; onOpenOverrides() })
-                    androidx.compose.material3.DropdownMenuItem(text = { Text(stringResource(R.string.ui_rule_changes)) }, onClick = { more = false; onOpenChanges() })
+                    androidx.compose.material3.DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(R.string.ui_manual_overrides)) }, onClick = { more = false; onOpenOverrides() })
+                    androidx.compose.material3.DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(R.string.ui_rule_changes)) }, onClick = { more = false; onOpenChanges() })
                 }
             }
         }
@@ -560,14 +559,14 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
             Button(
                 onClick = { if (input.isNotBlank()) submit(input) },
                 enabled = parsed != null,
-                shape = RoundedCornerShape(10.dp),
+                shape = MaterialTheme.shapes.small,
                 colors = ButtonDefaults.buttonColors(containerColor = accent.main, contentColor = accent.onMain),
                 contentPadding = PaddingValues(horizontal = 14.dp),
                 modifier = Modifier.padding(end = 6.dp).height(36.dp),
             ) { Text(stringResource(R.string.rules_add), style = MaterialTheme.typography.labelLarge) }
         },
-        // 圆角对齐 app 体系(卡 24 / medium 16 / small 12)——原全圆角胶囊(50)在方正 bento 卡里突兀、圆角对不上。
-        shape = MaterialTheme.shapes.small,
+        // 全部输入框统一medium圆角，与外卡/小标签区分层级。
+        shape = MaterialTheme.shapes.medium,
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = field,
             unfocusedContainerColor = field,
@@ -650,7 +649,7 @@ private fun RuleScopeBadge(rule: String, enabled: Boolean) {
         maxLines = 1,
         modifier = Modifier
             .alpha(if (enabled) 1f else 0.4f)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .padding(horizontal = 6.dp, vertical = 3.dp),
     )
@@ -669,7 +668,7 @@ internal fun RuleTypeChip(rule: String, accent: RuleAccent) {
         maxLines = 1,
         modifier = Modifier
             .widthIn(min = 44.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .background(accent.main.copy(alpha = 0.10f))
             .padding(horizontal = 6.dp, vertical = 3.dp),
     )
@@ -688,7 +687,7 @@ private fun GridRowLabel(accent: RuleAccent, name: String, count: Int) {
         StatusDot(accent.main, size = 7.dp)
         Text(name, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
         CountBadge(
-            stringResource(R.string.rules_groups_count, count),
+            pluralStringResource(R.plurals.rules_groups_count, count, count),
             fg = accent.onContainer,
             bg = accent.container,
         )
@@ -748,7 +747,8 @@ private fun RuleSetGridCell(modifier: Modifier, d: RuleCellDesc, ring: Color, id
             Spacer(Modifier.size(5.dp))
             Text(
                 name,
-                maxLines = 1,
+                minLines = 2,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodySmall,
@@ -853,7 +853,7 @@ internal fun HistoryAddDialog(history: List<String>, onAdd: (String) -> Unit, on
         // bounded viewport instead of eagerly composing every saved domain in the sheet.
         else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).testTag("rule_history_list")) {
             items(history) { host ->
-                Row(Modifier.fillMaxWidth().clickable { onAdd(host) }.heightIn(min = 48.dp).padding(vertical = 10.dp),
+                Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { onAdd(host) }.heightIn(min = 48.dp).padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(host, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Icon(painterResource(R.drawable.ic_b_plus), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)

@@ -27,6 +27,7 @@ class ReviewRulesRegressionTest {
         every { settings.settings } returns state
         every { settings.onboardingCompleted } returns flowOf(true)
         every { settings.domainHistory } returns flowOf(emptySet())
+        every { settings.ruleChangeHistory } returns flowOf(com.mzstd.hxmyproxy.core.rules.RuleChangeJournal())
         coEvery { settings.update(any()) } answers { state.value=firstArg<(ProxySettings)->ProxySettings>()(state.value) }
         val proxy=mockk<ProxyServerRepository>(relaxed=true) {
             every { this@mockk.state } returns MutableStateFlow(ShareState())

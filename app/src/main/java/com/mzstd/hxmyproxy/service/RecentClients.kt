@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.service
 
+import androidx.core.content.edit
 import android.content.Context
 import org.json.JSONObject
 
@@ -39,6 +40,6 @@ object RecentClients {
             .toList().sortedByDescending { it.second }.take(MAX).toMap()
         val o = JSONObject()
         merged.forEach { (ip, t) -> o.put(ip, t) }
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(KEY, o.toString()).apply()
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit(commit = false) { putString(KEY, o.toString()) }
     }
 }

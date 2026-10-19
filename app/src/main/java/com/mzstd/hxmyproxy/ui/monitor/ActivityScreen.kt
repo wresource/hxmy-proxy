@@ -34,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -141,7 +142,7 @@ internal fun DomainMonitorControls(query: ActivityQuery, onQuery: (ActivityQuery
         }
         OutlinedTextField(query.text, { onQuery(query.copy(text = it)) }, Modifier.fillMaxWidth().testTag("domain_search"),
             singleLine = true, placeholder = { Text(stringResource(R.string.ui_domain_search)) },
-            leadingIcon = { Icon(painterResource(R.drawable.ic_b_search), null) })
+            leadingIcon = { Icon(painterResource(R.drawable.ic_b_search), null) }, shape = MaterialTheme.shapes.medium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MonitorChoice(ActivityFilter.entries, query.filter, ::activityFilterLabel, Modifier.weight(1f).testTag("activity_filter")) { onQuery(query.copy(filter = it)) }
             MonitorChoice(DomainSort.entries, query.sort, ::domainSortLabel, Modifier.weight(1f).testTag("activity_sort")) { onQuery(query.copy(sort = it)) }
@@ -158,7 +159,7 @@ internal fun <T> MonitorChoice(choices: List<T>, selected: T, label: (T) -> Int,
             Icon(painterResource(R.drawable.ic_b_chevron_down), null, Modifier.size(16.dp))
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            choices.forEach { value -> DropdownMenuItem(text = { Text(stringResource(label(value))) }, onClick = { onSelect(value); expanded = false }) }
+            choices.forEach { value -> DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(label(value))) }, onClick = { onSelect(value); expanded = false }) }
         }
     }
 }

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 出站上网：代理转发的上行连接走默认网络（通常携带系统 VPN） -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -25,15 +24,11 @@
 
     <!-- 常驻通知（Android 13+ 运行时权限） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 电池优化白名单请求（诊断「电池优化」引导直接弹系统授权框；长时共享防后台冻结间断） -->
+    <!-- 持续为客户端提供网络是核心功能；仅在用户点击诊断引导后申请后台豁免。
+         对应 Android Doze 文档的外围设备持续互联网接入用途，仍由用户在系统授权框确认。 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 开机后自动恢复共享（仅当上次在共享中；见 RestartReceiver）。normal 权限，不弹窗。 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!-- 电池优化白名单引导（Play 敏感权限，仅用于减少后台被杀） -->
-    <uses-permission
-        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
-        tools:ignore="BatteryLife" />
 
     <!-- allowBackup=false：DataStore 与日志含用户上网相关配置/记录，隐私政策承诺「完全本地、不上云」。
          换机迁移改由「设置 → 设置备份」手动导出/导入 JSON 承担。 -->
@@ -51,7 +46,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.HxmyProxy.Starting"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

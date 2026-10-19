@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ui_local_access_required">本地网络权限未开启，请允许附近设备接入此代理。</string>
+    <string name="ui_app_permissions">应用权限设置</string>
     <string name="ui_edit_ports">修改端口</string>
     <string name="ui_port">端口</string>
     <string name="ui_ports_help">HTTP 适用于浏览器和系统代理；SOCKS5 适用于 TCP 客户端；PAC 提供自动代理配置。\n\n端口范围为 1024–65535，三个协议的端口不能重复，关闭的协议也一样。输入有效端口后，点键盘“完成”或离开输入框即保存。\n\n修改后，请同步更新客户端的端口。</string>
@@ -20,12 +22,13 @@
     <string name="ui_recent_activity">最近访问</string>
     <string name="ui_runtime_details">运行详情与网络设置</string>
     <string name="ui_stop_title">停止共享？</string>
-    <string name="ui_stop_body">已接入设备的代理连接会断开，配置和历史流量会保留。</string>
+    <string name="ui_stop_body">使用此代理的客户端可能无法继续联网。不再使用此网关时，请关闭客户端的代理设置或移除配置描述文件。配置和历史流量会保留。</string>
+    <string name="ui_data_flow_title">数据如何使用</string>
+    <string name="ui_data_flow_body">设置、规则、最近修改和诊断日志保存在本机。应用没有账号或使用统计 SDK。\n\n代理流量会到达客户端请求的目标。系统 DNS 使用对应网络；开启备用 DNS 时，可能通过 HTTPS 查询 Google、Cloudflare、阿里或腾讯解析服务。订阅和诊断检查会连接各自的服务。\n\n导出的设置可能包含规则与域名历史，导出的日志可能包含域名和客户端 IP。设置备份不包含代理密码。分享前请检查内容；最近修改可在“最近规则修改”中清除。</string>
     <string name="ui_more_actions">更多操作</string>
     <string name="ui_quick_rule_saved">规则已保存，请回客户端用新连接重试。</string>
     <string name="ui_rule_changes">最近规则修改</string>
     <string name="ui_manual_overrides">手动覆盖</string>
-    <string name="ui_settings_details">连接设置</string>
     <string name="ui_protocol_summary">HTTP %1$d · SOCKS5 %2$d · PAC %3$d</string>
     <string name="ui_appearance">语言与外观</string>
     <string name="ui_network_priority">出口优先级</string>
@@ -49,7 +52,6 @@
     <string name="ui_connection_failed">连接失败</string>
     <string name="ui_connection_records">最近连接 · %1$d</string>
     <string name="ui_cumulative_traffic">累计流量</string>
-    <string name="ui_current_rule">当前规则：%1$s</string>
     <string name="ui_devices_count">接入设备 · %1$d</string>
     <string name="ui_diagnostic_details">诊断详情</string>
     <string name="ui_direct_egress">直连出口</string>
@@ -74,7 +76,7 @@
     <string name="ui_no_domain_match">没有匹配的保留记录。请从客户端重试，不要据此断定没有请求。</string>
     <string name="ui_no_overrides">没有手动覆盖</string>
     <string name="ui_no_request_evidence">没有这个目标的近期请求详情，流量统计与请求记录分别计量。</string>
-    <string name="ui_no_rule_changes">本次打开 App 后还没有快捷规则修改。</string>
+    <string name="ui_no_rule_changes">还没有保存的快捷规则修改。</string>
     <string name="ui_override_hint">专用覆盖优先匹配，直连和拦截名单仍可在规则栏目查看。</string>
     <string name="ui_pac_only">只有 PAC 开启，代理协议未开启，使用此 PAC 的客户端将直连。</string>
     <string name="ui_paused_snapshot">已暂停更新 · 快照</string>
@@ -83,7 +85,6 @@
     <string name="ui_protection">网络防护</string>
     <string name="ui_proxy">代理</string>
     <string name="ui_proxy_egress">出口网络</string>
-    <string name="ui_record_bytes">本条连接流量：%1$s</string>
     <string name="ui_recorded_rule">当时规则：%1$s</string>
     <string name="ui_related_logs">查看日志</string>
     <string name="ui_relayed">已转发</string>
@@ -96,10 +97,17 @@
     <string name="ui_revert_rule">恢复修改前</string>
     <string name="ui_reverted">已恢复，请用新连接验证。</string>
     <string name="ui_rule_blocked">规则拦截</string>
-    <string name="ui_rule_changes_hint">保留本次 App 会话最近 20 次快捷修改。恢复只影响对应目标，不覆盖后来的修改，新规则只对新连接生效。</string>
+    <string name="ui_rule_changes_hint">最近 20 次快捷修改保存在本机，重启后仍可查看。恢复只影响对应目标，并保护后来的修改。修改后请用新连接验证。</string>
+    <string name="ui_rule_changed_later">后续修改已生效，暂不能用此记录恢复。</string>
+    <string name="ui_clear_rule_history">清除修改记录</string>
+    <string name="ui_clear_rule_history_confirm">删除已保存的修改记录？当前规则会保持不变。</string>
+    <string name="ui_rule_history_unreadable">无法读取已保存的修改记录，当前规则不受影响。</string>
+    <string name="ui_rule_history_clear_failed">未能清除修改记录，请重试。</string>
     <string name="ui_rule_scope">匹配范围</string>
     <string name="ui_save_failed">保存失败，输入内容已保留，请重试。</string>
-    <string name="ui_selected_networks">已允许 %1$d 个接入网络</string>
+    <plurals name="ui_selected_networks">
+        <item quantity="other">已允许 %1$d 个接入网络</item>
+    </plurals>
     <string name="ui_session_usage">本次共享 · %1$s</string>
     <string name="ui_settings_backup">设置备份</string>
     <string name="ui_vpn_missing">所选 VPN 不可用，请检查出口与降级策略。</string>
@@ -110,7 +118,6 @@
     <string name="ui_listener_pending">未就绪</string>
     <string name="ui_network_fallback">原选网络已消失，现使用当前可共享网络，请检查接入选择。</string>
     <string name="ui_no_selected_network">选择接入网络后，在这里查看代理 IP。</string>
-    <string name="ui_retained_usage">当前保留流量 · %1$s</string>
     <string name="ui_active_unknown">活跃状态未知</string>
     <string name="ui_untracked_counter">当前没有该目标的独立流量计数，可能归入“其他”或条目已清理，请求记录单独显示。</string>
     <string name="ui_show_ipv6">同时显示 IPv6 地址</string>
@@ -133,7 +140,6 @@
     <string name="ui_upload_rate">上传速率</string>
     <string name="ui_last_activity">最近访问</string>
     <string name="ui_original_rule">原规则</string>
-    <string name="ui_connection_note">连接说明</string>
     <string name="ui_view_traffic">查看流量</string>
     <string name="ui_details">详情</string>
 </resources>
