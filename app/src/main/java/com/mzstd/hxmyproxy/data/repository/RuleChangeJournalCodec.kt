@@ -63,6 +63,7 @@ internal object RuleChangeJournalCodec {
     private fun state(value: HostRuleState): JSONObject = JSONObject()
         .put("direct", rules(value.direct)).put("reject", rules(value.reject))
         .put("overrides", JSONObject(value.overrides.mapValues { it.value.name }))
+        .put("disabledOverrides", JSONObject(value.disabledOverrides.mapValues { it.value.name }))
     private fun rules(entries: List<RuleEntry>): JSONArray = JSONArray().apply {
         entries.forEach { put(JSONObject().put("value", it.value).put("enabled", it.enabled)
             .put("addedAt", it.addedAt).put("disabledAt", it.disabledAt)) }
@@ -83,6 +84,10 @@ internal object RuleChangeJournalCodec {
         val overrides = obj.getJSONObject("overrides")
         val values = linkedMapOf<String, RuleAction>()
         overrides.keys().forEach { key -> values[check(key)] = RuleAction.valueOf(overrides.getString(key)) }
-        return HostRuleState(readRules("direct"), readRules("reject"), values)
+        val paused = if (obj.has("disabledOverrides")) obj.getJSONObject("disabledOverrides") else JSONObject()
+        val disabled = linkedMapOf<String, RuleAction>()
+        paused.keys().forEach { key -> disabled[check(key)] = RuleAction.valueOf(paused.getString(key)) }
+        require(values.keys.intersect(disabled.keys).isEmpty()) { "Conflicting active and paused overrides" }
+        return HostRuleState(readRules("direct"), readRules("reject"), values, disabled)
     }
 }

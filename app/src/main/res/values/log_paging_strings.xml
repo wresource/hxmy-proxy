@@ -1,0 +1,14 @@
+<resources>
+    <string name="lg_refresh">Refresh</string>
+    <string name="lg_crashes">Crashes / exits</string>
+    <plurals name="lg_counts">
+        <item quantity="one">%1$d entry · E %2$d · W %3$d</item>
+        <item quantity="other">%1$d entries · E %2$d · W %3$d</item>
+    </plurals>
+    <string name="lg_snapshot">Snapshot taken when loaded. Refresh to include newer records.</string>
+    <string name="lg_export_all">Export all logs</string>
+    <string name="lg_record">Log entry</string>
+    <string name="lg_page">Page %d</string>
+    <string name="lg_copy_record">Copy full entry</string>
+    <string name="lg_copied">Copied</string>
+</resources>

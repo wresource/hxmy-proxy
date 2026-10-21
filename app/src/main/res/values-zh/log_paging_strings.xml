@@ -1,0 +1,13 @@
+<resources>
+    <string name="lg_refresh">刷新</string>
+    <string name="lg_crashes">崩溃 / 退出</string>
+    <plurals name="lg_counts">
+        <item quantity="other">%1$d条记录 · E %2$d · W %3$d</item>
+    </plurals>
+    <string name="lg_snapshot">显示读取时的日志快照，刷新可查看新记录。</string>
+    <string name="lg_export_all">导出全部日志</string>
+    <string name="lg_record">日志详情</string>
+    <string name="lg_page">第%d页</string>
+    <string name="lg_copy_record">复制完整记录</string>
+    <string name="lg_copied">已复制</string>
+</resources>

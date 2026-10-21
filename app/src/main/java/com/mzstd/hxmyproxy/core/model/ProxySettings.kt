@@ -68,6 +68,8 @@ data class ProxySettings(
     val ruleSetOverrides: Map<String, List<String>> = emptyMap(),
     /** per-host 三态覆盖（host → 动作）；最高优先级，误拦救济/手动指定。支持泛域名/IP/CIDR。 */
     val hostOverrides: Map<String, com.mzstd.hxmyproxy.core.rules.RuleAction> = emptyMap(),
+    /** Paused overrides remain editable/exportable but never enter the runtime matcher. */
+    val disabledHostOverrides: Map<String, com.mzstd.hxmyproxy.core.rules.RuleAction> = emptyMap(),
     /** 自定义规则订阅 URL。 */
     val ruleSubscriptionUrls: Set<String> = emptySet(),
     /**

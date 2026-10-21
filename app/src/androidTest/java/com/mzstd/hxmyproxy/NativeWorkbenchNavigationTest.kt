@@ -51,6 +51,7 @@ class NativeWorkbenchNavigationTest {
             compose.onNodeWithTag("domain_rule_input").assert(SemanticsMatcher.expectValue(
                 androidx.compose.ui.semantics.SemanticsProperties.EditableText,
                 androidx.compose.ui.text.AnnotatedString("https://$host/path")))
+            compose.waitUntil(10000) { compose.onAllNodesWithTag("domain_rule_save").filter(isEnabled()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("domain_rule_save").performClick()
             try {
                 compose.waitUntil(10000) { vm.recentRuleChanges.value.any { it.host == host } && vm.uiState.value.settings.hostOverrides.keys.any { RuleScope.parse(it).second == host } }

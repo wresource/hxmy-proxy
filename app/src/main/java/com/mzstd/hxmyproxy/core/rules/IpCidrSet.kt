@@ -19,6 +19,10 @@ class IpCidrSet {
     fun add(cidr: String) {
         val s = cidr.trim()
         if (s.isEmpty()) return
+        if (IpRange.hasRangeSyntax(s)) {
+            IpRange.parse(s)?.cidrs()?.forEach(::add)
+            return
+        }
         val slash = s.indexOf('/')
         val ipPart = if (slash >= 0) s.substring(0, slash) else s
         if (!InetAddresses.isNumericAddress(ipPart)) return
@@ -60,6 +64,7 @@ class IpCidrSet {
         /** 是否 IP 或 CIDR（供 [RuleMatcher.add] 分派到 IP 表 vs 域名表）。 */
         fun looksLikeIpOrCidr(s: String): Boolean {
             val t = s.trim()
+            if (IpRange.hasRangeSyntax(t)) return true
             val slash = t.indexOf('/')
             val ip = if (slash >= 0) t.substring(0, slash) else t
             return InetAddresses.isNumericAddress(ip)

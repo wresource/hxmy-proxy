@@ -101,8 +101,8 @@ object ExitReason {
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     private fun logOne(info: ApplicationExitInfo, lmk: Boolean?, upgrading: Boolean): Boolean =
-        Ev.kConfirmed(
-            LogCat.PROC, "proc.lastExit",
+        Ev.keyConfirmed(
+            exitLevel(info.reason), LogCat.PROC, "proc.lastExit",
             "record" to recordKey(info),
             "replay" to if (upgrading) "identity-upgrade" else null,
             "pid" to info.pid,
@@ -122,6 +122,15 @@ object ExitReason {
             // 死亡时刻附近的自定义状态摘要（见 updateStateSummary）。
             "state" to info.processStateSummary?.toString(Charsets.US_ASCII),
         )
+
+    /** Keep normal upgrades/stops informational; an abnormal exit must remain findable in filters. */
+    internal fun exitLevel(reason: Int): String = when (reason) {
+        ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE,
+        ApplicationExitInfo.REASON_ANR, ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "E"
+        ApplicationExitInfo.REASON_LOW_MEMORY, ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE,
+        ApplicationExitInfo.REASON_SIGNALED, ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "W"
+        else -> "I"
+    }
 
     /**
      * 把「此刻在干什么」交给系统保管：进程被杀后，下一个进程能从

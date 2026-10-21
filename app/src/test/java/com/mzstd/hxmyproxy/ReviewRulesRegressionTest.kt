@@ -135,8 +135,8 @@ class ReviewRulesRegressionTest {
         val domains=state.value.userRuleSets.single().domains
         assertEquals(listOf("*.example.com","2001:db8::/32"),domains)
         repo.rebuild(state.value); assertEquals(RuleAction.PROXY,engine.decide("a.b.example.com"))
-        val parser=Class.forName("com.mzstd.hxmyproxy.ui.rules.RuleSetEditScreenKt").getDeclaredMethod("parseDomains",String::class.java).apply { isAccessible=true }
-        val parsed=parser.invoke(null,"*.example.com\n2001:db8::/32\nnot a domain.com")
+        // The retired whole-text editor now uses the same production validation as streamed imports.
+        val parsed=RuleInput.parseLines("*.example.com\n2001:db8::/32\nnot a domain.com").rules
         assertEquals(domains,parsed)
     }
 }

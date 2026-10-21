@@ -127,13 +127,13 @@ fun DetailValueRow(label: String, value: String, onClick: (() -> Unit)? = null, 
 }
 
 @Composable
-fun SheetChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, description: String? = null) {
+fun SheetChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, description: String? = null, enabled: Boolean = true) {
     Surface(color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         shape = MaterialTheme.shapes.medium) {
-        Row(Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = onClick)
+        Row(Modifier.fillMaxWidth().selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .heightIn(min = 52.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            RadioButton(selected, onClick = null, modifier = Modifier.size(24.dp))
+            RadioButton(selected, onClick = null, enabled = enabled, modifier = Modifier.size(24.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 if (!description.isNullOrBlank()) Text(description, style = MaterialTheme.typography.bodySmall,
@@ -145,7 +145,11 @@ fun SheetChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, descri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RuleScopePicker(scope: RuleScope, onChange: (RuleScope) -> Unit) {
+fun RuleScopePicker(scope: RuleScope, onChange: (RuleScope) -> Unit) = RuleScopePicker(scope, true, onChange)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RuleScopePicker(scope: RuleScope, enabled: Boolean, onChange: (RuleScope) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val environment = rememberAppWindowEnvironment()
     fun label(value: RuleScope) = when (value) {
@@ -153,11 +157,11 @@ fun RuleScopePicker(scope: RuleScope, onChange: (RuleScope) -> Unit) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.ui_rule_scope), style = MaterialTheme.typography.labelLarge)
-        ExposedDropdownMenuBox(expanded, { expanded = !expanded }) {
-            OutlinedTextField(stringResource(label(scope)), {}, readOnly = true,
+        ExposedDropdownMenuBox(expanded && enabled, { if (enabled) expanded = !expanded }) {
+            OutlinedTextField(stringResource(label(scope)), {}, readOnly = true, enabled = enabled,
                 modifier = Modifier.menuAnchor().fillMaxWidth().testTag("rule_scope"),
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }, textStyle = MaterialTheme.typography.bodyMedium, shape = MaterialTheme.shapes.medium)
-            ExposedDropdownMenu(expanded, { expanded = false }, shape = MaterialTheme.shapes.medium) {
+            ExposedDropdownMenu(expanded && enabled, { expanded = false }, shape = MaterialTheme.shapes.medium) {
               environment.Provide {
                 listOf(RuleScope.EXACT, RuleScope.SINGLE, RuleScope.SUFFIX).forEach { value ->
                     DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(label(value))) }, onClick = { onChange(value); expanded = false })

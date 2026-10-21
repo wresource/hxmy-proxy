@@ -6,7 +6,8 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleInput
 import com.mzstd.hxmyproxy.core.rules.RuleScope
 
-data class HostRuleState(val direct: List<RuleEntry>, val reject: List<RuleEntry>, val overrides: Map<String, RuleAction>)
+data class HostRuleState(val direct: List<RuleEntry>, val reject: List<RuleEntry>, val overrides: Map<String, RuleAction>,
+    val disabledOverrides: Map<String, RuleAction> = emptyMap())
 data class RecentRuleChange(val id: String, val host: String, val rule: String, val action: RuleAction?,
     val before: HostRuleState, val after: HostRuleState, val at: Long, val reverted: Boolean = false,
     val beforeVersion: String? = null, val superseded: Boolean = false)
@@ -36,7 +37,7 @@ data class RuleChangeJournal(
     fun observeOtherEdit(before: ProxySettings, after: ProxySettings,
         newVersion: () -> String = { java.util.UUID.randomUUID().toString() }): RuleChangeJournal {
         if (before.userDirectRules == after.userDirectRules && before.userRejectRules == after.userRejectRules &&
-            before.hostOverrides == after.hostOverrides) return this
+            before.hostOverrides == after.hostOverrides && before.disabledHostOverrides == after.disabledHostOverrides) return this
         val changed = changes.mapTo(hashSetOf()) { it.host }.filter {
             HostRuleEdits.capture(before, it) != HostRuleEdits.capture(after, it)
         }
@@ -57,15 +58,20 @@ data class RuleChangeJournal(
 object HostRuleEdits {
     private fun matches(value: String, host: String) = RuleInput.parse(value)?.host == host
     fun capture(settings: ProxySettings, host: String) = HostRuleState(
-        settings.userDirectRules.filter { matches(it.value, host) },
-        settings.userRejectRules.filter { matches(it.value, host) },
-        settings.hostOverrides.filterKeys { matches(it, host) },
+        (settings.userDirectRules as? RebuildableRuleList<RuleEntry>)?.forHost(host) ?: settings.userDirectRules.filter { matches(it.value, host) },
+        (settings.userRejectRules as? RebuildableRuleList<RuleEntry>)?.forHost(host) ?: settings.userRejectRules.filter { matches(it.value, host) },
+        (settings.hostOverrides as? RebuildableRuleMap)?.forHost(host) ?: settings.hostOverrides.filterKeys { matches(it, host) },
+        (settings.disabledHostOverrides as? RebuildableRuleMap)?.forHost(host) ?: settings.disabledHostOverrides.filterKeys { matches(it, host) },
     )
-    fun restore(settings: ProxySettings, host: String, value: HostRuleState): ProxySettings = settings.copy(
-        userDirectRules = settings.userDirectRules.filterNot { matches(it.value, host) } + value.direct,
-        userRejectRules = settings.userRejectRules.filterNot { matches(it.value, host) } + value.reject,
-        hostOverrides = settings.hostOverrides.filterKeys { !matches(it, host) } + value.overrides,
-    )
+    fun restore(settings: ProxySettings, host: String, value: HostRuleState): ProxySettings {
+        val current = capture(settings, host)
+        return settings.copy(
+            userDirectRules = if (current.direct == value.direct) settings.userDirectRules else settings.userDirectRules.ruleRebuild(settings.userDirectRules.asSequence().filterNot { matches(it.value, host) } + value.direct),
+            userRejectRules = if (current.reject == value.reject) settings.userRejectRules else settings.userRejectRules.ruleRebuild(settings.userRejectRules.asSequence().filterNot { matches(it.value, host) } + value.reject),
+            hostOverrides = if (current.overrides == value.overrides) settings.hostOverrides else settings.hostOverrides.ruleRebuild(settings.hostOverrides.asSequence().filter { !matches(it.key, host) }.map { it.key to it.value } + value.overrides.asSequence().map { it.key to it.value }),
+            disabledHostOverrides = if (current.disabledOverrides == value.disabledOverrides) settings.disabledHostOverrides else settings.disabledHostOverrides.ruleRebuild(settings.disabledHostOverrides.asSequence().filter { !matches(it.key, host) }.map { it.key to it.value } + value.disabledOverrides.asSequence().map { it.key to it.value }),
+        )
+    }
     /** This is an explicitly scoped edit. Existing quick actions keep their historical SINGLE default. */
     fun apply(settings: ProxySettings, input: String, action: RuleAction?, scope: RuleScope, now: Long): ProxySettings {
         val parsed = RuleInput.forScope(input, scope) ?: return settings

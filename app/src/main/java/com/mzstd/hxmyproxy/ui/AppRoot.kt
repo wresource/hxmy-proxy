@@ -61,10 +61,14 @@ import com.mzstd.hxmyproxy.ui.monitor.TopDomainsDetailScreen
 import com.mzstd.hxmyproxy.ui.monitor.TrafficStatsScreen
 import com.mzstd.hxmyproxy.ui.protection.BlockedDetailScreen
 import com.mzstd.hxmyproxy.ui.protection.ProtectionScreen
-import com.mzstd.hxmyproxy.ui.rules.QuickRulesDetailScreen
-import com.mzstd.hxmyproxy.ui.rules.RuleSetEditScreen
-import com.mzstd.hxmyproxy.ui.rules.RuleSetManagerScreen
-import com.mzstd.hxmyproxy.ui.rules.RulesScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleLibraryViewModel
+import com.mzstd.hxmyproxy.ui.rules.RuleWorkbenchScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleManualScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleSourceScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleSourcesScreen
+import com.mzstd.hxmyproxy.ui.rules.RuleImportScreen
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.navArgument
 import com.mzstd.hxmyproxy.ui.run.RunScreen
 import com.mzstd.hxmyproxy.ui.settings.SettingsScreen
 
@@ -82,6 +86,11 @@ private fun tabIdx(route: String?) = NavTab.entries.indexOfFirst { it.route == r
 fun AppRoot(viewModel: MainViewModel) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
+    val ruleLibrary: RuleLibraryViewModel = hiltViewModel()
+    val openRuleImport: (String?) -> Unit = { target -> ruleLibrary.beginImport(target); navController.navigate("rule_import") }
+    val openRuleSource: (String, String) -> Unit = { id, query ->
+        navController.navigate("rule_source/${android.net.Uri.encode(id)}?query=${android.net.Uri.encode(query)}")
+    }
     val logHost by viewModel.logHostFilter.collectAsStateWithLifecycle()
     val openLogs: (String) -> Unit = { host -> viewModel.logHostFilter.value = host; navController.navigate("logs_detail") }
     val openSettings: (String) -> Unit = { page -> navController.navigate("settings_detail/$page") }
@@ -223,21 +232,15 @@ fun AppRoot(viewModel: MainViewModel) {
                         BlockedDetailScreen(ui, viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(NavTab.RULES.route) {
-                        RulesScreen(
-                            ui,
-                            viewModel,
-                            onManage = { navController.navigate("ruleset_manager") },
-                            onOpenRejectDetail = { navController.navigate("quick_rules_reject") },
-                            onOpenDirectDetail = { navController.navigate("quick_rules_direct") },
-                            onOpenOverrides = { navController.navigate("manual_overrides") }, onOpenChanges = openChanges,
-                            contentPadding = pagePadding,
-                        )
+                        RuleWorkbenchScreen(ui, viewModel, ruleLibrary, openRuleImport, openRuleSource,
+                            onManual = { query, action -> navController.navigate("rule_manual?query=${android.net.Uri.encode(query)}&action=${action?.name.orEmpty()}") },
+                            onManager = { mode -> navController.navigate("rule_sources/$mode") }, onChanges = openChanges, contentPadding = pagePadding)
                     }
                     composable("quick_rules_reject") {
-                        QuickRulesDetailScreen(reject = true, ui = ui, viewModel = viewModel, onBack = { navController.popBackStack() })
+                        RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, initialAction = com.mzstd.hxmyproxy.core.rules.RuleAction.REJECT)
                     }
                     composable("quick_rules_direct") {
-                        QuickRulesDetailScreen(reject = false, ui = ui, viewModel = viewModel, onBack = { navController.popBackStack() })
+                        RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, initialAction = com.mzstd.hxmyproxy.core.rules.RuleAction.DIRECT)
                     }
                     composable("monitor") {
                         MonitorScreen(
@@ -284,10 +287,10 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable("rule_changes") {
                         com.mzstd.hxmyproxy.ui.rules.RecentRuleChangesScreen(viewModel, { navController.popBackStack() },
                             { host -> viewModel.activityQuery.value = com.mzstd.hxmyproxy.ui.monitor.ActivityQuery(text = host); navController.navigate("top_domains") },
-                            { navController.navigate("manual_overrides") })
+                            { navController.navigate("manual_overrides") }, ruleLibrary)
                     }
                     composable("manual_overrides") {
-                        com.mzstd.hxmyproxy.ui.rules.ManualOverridesScreen(ui, viewModel, { navController.popBackStack() }, openChanges)
+                        RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, overridesOnly = true)
                     }
                     composable("health_detail/{page}") { entry ->
                         val page = entry.arguments?.getString("page")
@@ -300,19 +303,26 @@ fun AppRoot(viewModel: MainViewModel) {
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
                     composable("ruleset_manager") {
-                        RuleSetManagerScreen(
-                            ui, viewModel,
-                            onBack = { navController.popBackStack() },
-                            onEdit = { kind, id -> navController.navigate("ruleset_edit/$kind/$id") },
-                        )
+                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport)
                     }
                     composable("ruleset_edit/{kind}/{id}") { entry ->
-                        RuleSetEditScreen(
-                            kind = entry.arguments?.getString("kind") ?: "user",
-                            id = entry.arguments?.getString("id") ?: "",
-                            ui = ui, viewModel = viewModel,
-                            onBack = { navController.popBackStack() },
-                        )
+                        val id = "${entry.arguments?.getString("kind") ?: "user"}:${entry.arguments?.getString("id").orEmpty()}"
+                        RuleSourceScreen(id, "", ui, viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, openChanges)
+                    }
+                    composable("rule_source/{id}?query={query}", arguments = listOf(navArgument("query") { defaultValue = "" })) { entry ->
+                        RuleSourceScreen(entry.arguments?.getString("id").orEmpty(), entry.arguments?.getString("query").orEmpty(),
+                            ui, viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, openChanges)
+                    }
+                    composable("rule_sources/{mode}") { entry ->
+                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport, entry.arguments?.getString("mode") ?: "builtin")
+                    }
+                    composable("rule_manual?query={query}&action={action}", arguments = listOf(navArgument("query") { defaultValue = "" }, navArgument("action") { defaultValue = "" })) { entry ->
+                        RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource,
+                            initialAction = runCatching { com.mzstd.hxmyproxy.core.rules.RuleAction.valueOf(entry.arguments?.getString("action").orEmpty()) }.getOrNull(),
+                            initialQuery = entry.arguments?.getString("query").orEmpty())
+                    }
+                    composable("rule_import") {
+                        RuleImportScreen(ui, ruleLibrary, { navController.popBackStack() }, openRuleSource, openChanges)
                     }
                 }
             }

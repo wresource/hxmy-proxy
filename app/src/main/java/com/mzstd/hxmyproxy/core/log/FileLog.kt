@@ -8,6 +8,7 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.io.FileInputStream
 
 /**
  * 轻量持久化日志：带时间戳的行写入滚动文件，跨重启留存，供用户一键导出给开发分析。
@@ -66,16 +67,17 @@ object FileLog {
         }
 
         fun flush() = runCatching { writer?.flush(); pending = 0 }
-        fun close() = runCatching { writer?.flush(); writer?.close(); writer = null }
+        fun close() = runCatching { val current = writer; writer = null; current?.close() }
         fun text(): String = buildString {
             if (backup.exists()) runCatching { append(backup.readText()) }
             if (main.exists()) runCatching { append(main.readText()) }
         }
-        fun delete() {
+        fun delete(): Boolean {
             close()
-            runCatching { main.delete() }
-            runCatching { backup.delete() }
+            val mainDeleted = runCatching { !main.exists() || main.delete() }.getOrDefault(false)
+            val backupDeleted = runCatching { !backup.exists() || backup.delete() }.getOrDefault(false)
             size = 0
+            return mainDeleted && backupDeleted
         }
     }
 
@@ -169,10 +171,61 @@ object FileLog {
         }
     }
 
-    fun clear() {
+    data class SnapshotPart(val file: File, val key: Boolean)
+    data class DiskSnapshot(val parts: List<SnapshotPart>, val capturedAt: Long)
+
+    /**
+     * Freeze log readers under the writer lock, then copy outside it with bounded buffers.
+     * Open file descriptors survive rotation, and each copy stops at its captured byte length.
+     * Browsing must never hold the connection-log lock while parsing a large history.
+     */
+    fun snapshotTo(directory: File, checkCancelled: () -> Unit = {}): DiskSnapshot {
+        data class Reader(val input: FileInputStream, val size: Long, val key: Boolean)
+        val opened = ArrayList<Reader>()
+        val capturedAt: Long
         synchronized(lock) {
-            mainSink?.delete()
-            keySink?.delete()
+            mainSink?.flush(); keySink?.flush()
+            capturedAt = System.currentTimeMillis()
+            try {
+                listOf(keySink to true, mainSink to false).forEach { (sink, key) ->
+                    if (sink != null) listOf(sink.backup, sink.main).forEach { file ->
+                        if (file.exists()) {
+                            val input = FileInputStream(file)
+                            try { opened += Reader(input, input.channel.size(), key) }
+                            catch (error: Exception) { input.close(); throw error }
+                        }
+                    }
+                }
+            } catch (error: Exception) { opened.forEach { runCatching { it.input.close() } }; throw error }
+        }
+        try {
+            check(directory.isDirectory || directory.mkdirs()) { "Cannot create log snapshot" }
+            val buffer = ByteArray(64 * 1024)
+            val parts = opened.mapIndexed { index, reader ->
+                val file = File(directory, "$index.log")
+                file.outputStream().use { output ->
+                    var remaining = reader.size
+                    while (remaining > 0) {
+                        checkCancelled()
+                        val n = reader.input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        if (n < 0) break
+                        output.write(buffer, 0, n); remaining -= n
+                    }
+                }
+                SnapshotPart(file, reader.key)
+            }
+            return DiskSnapshot(parts, capturedAt)
+        } catch (error: Exception) { directory.deleteRecursively(); throw error }
+        finally { opened.forEach { runCatching { it.input.close() } } }
+    }
+
+    fun clear() { clearConfirmed() }
+
+    fun clearConfirmed(): Boolean {
+        synchronized(lock) {
+            val main = mainSink?.delete() ?: true
+            val key = keySink?.delete() ?: true
+            return main && key
         }
     }
 

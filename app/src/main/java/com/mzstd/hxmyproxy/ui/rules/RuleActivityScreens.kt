@@ -51,24 +51,49 @@ import com.mzstd.hxmyproxy.ui.monitor.actionLabel
 import com.mzstd.hxmyproxy.ui.monitor.activityTime
 
 @Composable
-fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActivity: (String) -> Unit, onOverrides: () -> Unit) {
+fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActivity: (String) -> Unit, onOverrides: () -> Unit,
+    library: RuleLibraryViewModel? = null) {
     val changes by viewModel.recentRuleChanges.collectAsStateWithLifecycle()
     val unreadable by viewModel.ruleChangeHistoryUnreadable.collectAsStateWithLifecycle()
+    val batches = library?.history?.collectAsStateWithLifecycle()?.value.orEmpty()
+    val ordered = remember(changes, batches) {
+        (changes.map { it.at to "host:${it.id}" } + batches.map { it.at to "batch:${it.id}" }).sortedByDescending { it.first }.distinctBy { it.second }
+    }
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
     val timeFormat = remember(locale) { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT, locale) }
     var clearing by rememberSaveable { mutableStateOf(false) }
     DetailScaffold(stringResource(R.string.ui_rule_changes), onBack, actions = {
-        IconButton(onClick = { clearing = true }, enabled = changes.isNotEmpty() || unreadable,
+        IconButton(onClick = { clearing = true }, enabled = changes.isNotEmpty() || batches.isNotEmpty() || unreadable,
             modifier = Modifier.testTag("clear_rule_history")) {
             Icon(painterResource(R.drawable.ic_delete), stringResource(R.string.ui_clear_rule_history))
         }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("rule_change_history"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text(stringResource(R.string.ui_rule_changes_hint), style = MaterialTheme.typography.bodySmall) }
+            if (library != null) item { RuleMessage(library) }
             if (unreadable) item { Text(stringResource(R.string.ui_rule_history_unreadable), color = MaterialTheme.colorScheme.error) }
-            else if (changes.isEmpty()) item { Text(stringResource(R.string.ui_no_rule_changes)) }
-            items(changes.reversed(), key = { it.id }) { change ->
+            else if (ordered.isEmpty()) item { Text(stringResource(R.string.ui_no_rule_changes)) }
+            items(ordered, key = { it.second }) { (_, key) ->
+              val batch = batches.firstOrNull { "batch:${it.id}" == key }
+              if (batch != null && library != null) {
+                RuleCard {
+                    val verb = stringResource(when (batch.kind) {
+                        "import" -> R.string.rl_history_import; "delete" -> R.string.rl_history_delete
+                        "create" -> R.string.rl_history_create; "copy" -> R.string.rl_history_copy
+                        "restore" -> R.string.rl_history_restore; "enable" -> R.string.rl_history_enable
+                        "disable" -> R.string.rl_history_disable; else -> R.string.rl_history_edit
+                    })
+                    val group = if (batch.target.startsWith("builtin:")) com.mzstd.hxmyproxy.core.rules.RuleCatalog.byId(batch.target.substringAfter(':')) else null
+                    val label = if (batch.kind != "import" && group != null) stringResource(group.titleRes) else batch.label
+                    Text(if (label.isBlank()) verb else "$verb · $label", style = MaterialTheme.typography.titleMedium)
+                    Text(timeFormat.format(java.util.Date(batch.at)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (batch.reverted || batch.superseded) Text(stringResource(if (batch.reverted) R.string.ui_reverted else R.string.ui_rule_changed_later), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { library.undo(batch.id) }, enabled = !batch.reverted && !batch.superseded,
+                        modifier = Modifier.testTag("revert_batch_${batch.id}")) { Text(stringResource(R.string.rl_undo)) }
+                }
+              } else {
+                val change = changes.firstOrNull { "host:${it.id}" == key } ?: return@items
                 Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(change.rule, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
@@ -86,7 +111,9 @@ fun RecentRuleChangesScreen(viewModel: MainViewModel, onBack: () -> Unit, onActi
                         }
                     }
                 }
+              }
             }
+            if (batches.isNotEmpty()) item { Text(stringResource(R.string.rl_history_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             item { WorkbenchRow(stringResource(R.string.ui_manual_overrides), onClick = onOverrides) }
         }
     }

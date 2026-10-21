@@ -85,16 +85,7 @@
     <string name="create">Create</string>
     <string name="cancel">Cancel</string>
     <string name="ruleset_save">Save</string>
-    <string name="ruleset_restore_default">Restore default</string>
-    <string name="ruleset_edit_hint">One domain per line. Wildcards supported (example.com matches *.example.com).</string>
     <string name="ruleset_import">Import</string>
-    <string name="ruleset_export">Export</string>
-    <string name="ruleset_import_append">Append</string>
-    <string name="ruleset_import_replace">Replace</string>
-    <plurals name="ruleset_import_how">
-        <item quantity="one">Import %1$d domain - append or replace?</item>
-        <item quantity="other">Import %1$d domains - append or replace?</item>
-    </plurals>
     <string name="lockdown_warning">Split-tunnel may not work: your VPN has \"Block connections without VPN\" on, so the system drops traffic that bypasses the VPN. To make rule \"direct\" routing take effect, turn that off in the system VPN settings.</string>
     <string name="rules_add">Add</string>
     <string name="rules_add_domain">Domain (e.g. example.com)</string>
@@ -200,7 +191,6 @@
     <string name="settings_log_enabled">Diagnostic log</string>
     <string name="settings_log_enabled_sub">Saved locally for troubleshooting. Exported logs may include domains and client IP addresses.</string>
     <string name="log_show_more">Expand</string>
-    <string name="log_show_less">Collapse</string>
     <string name="rules_remove">Remove</string>
 
     <!-- Diagnostics -->
@@ -646,7 +636,6 @@
     <string name="overview_uptime">Uptime</string>
     <string name="about_version">Version</string>
     <string name="about_source">Open source — view on GitHub</string>
-    <string name="ruleset_invalid_lines">Invalid rules on lines %1$s. Correct them before saving.</string>
     <string name="rule_source_current">Rule source: %1$s</string>
     <string name="rule_source_override">Manual override (takes priority over lists)</string>
     <string name="rule_source_allow">Your direct list</string>

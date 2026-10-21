@@ -18,12 +18,19 @@ import com.mzstd.hxmyproxy.data.repository.CredentialStore
 import com.mzstd.hxmyproxy.data.repository.EndpointHistoryRepository
 import com.mzstd.hxmyproxy.data.repository.ProxyServerRepository
 import com.mzstd.hxmyproxy.data.repository.SettingsRepository
+import com.mzstd.hxmyproxy.data.repository.RuleLibraryRepository
+import com.mzstd.hxmyproxy.core.rules.ruleRebuild
+import com.mzstd.hxmyproxy.core.rules.ruleMap
+import com.mzstd.hxmyproxy.core.rules.ruleFilterNot
+import com.mzstd.hxmyproxy.core.rules.ruleFilterKeys
+import com.mzstd.hxmyproxy.core.rules.rulePlus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -65,6 +72,7 @@ class MainViewModel @Inject constructor(
     private val endpointHistoryRepository: EndpointHistoryRepository,
     private val credentialStore: CredentialStore,
     private val ruleEngine: com.mzstd.hxmyproxy.core.rules.RuleEngine,
+    private val ruleLibraryRepository: RuleLibraryRepository? = null,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainUiState> =
@@ -137,10 +145,29 @@ class MainViewModel @Inject constructor(
     fun decideHost(host: String): com.mzstd.hxmyproxy.core.rules.RuleAction = ruleEngine.decide(host)
     fun decideHostDetailed(host: String) = ruleEngine.decideDetailed(host)
     fun hasDomainRule(host: String, settings: ProxySettings): Boolean {
-        val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
-        return settings.userDirectRules.any { sameHost(it.value, bare) } ||
-            settings.userRejectRules.any { sameHost(it.value, bare) } ||
-            settings.hostOverrides.keys.any { sameHost(it, bare) }
+        val bare = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(host)?.host ?: return false
+        val state = com.mzstd.hxmyproxy.core.rules.HostRuleEdits.capture(settings, bare)
+        return state.direct.isNotEmpty() || state.reject.isNotEmpty() || state.overrides.isNotEmpty() || state.disabledOverrides.isNotEmpty()
+    }
+
+    suspend fun relatedRules(value: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction): List<RuleLibraryRepository.Related> {
+        val repository = ruleLibraryRepository ?: return emptyList()
+        return repository.related(value, action, repository.sources(), com.mzstd.hxmyproxy.core.proxy.RequestActivity.store.snapshot())
+    }
+    suspend fun inspectRule(value: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction): RuleLibraryRepository.Inspection {
+        val repo = ruleLibraryRepository ?: return RuleLibraryRepository.Inspection(emptyList(), false)
+        return repo.inspect(value, action, com.mzstd.hxmyproxy.core.proxy.RequestActivity.store.snapshot())
+    }
+    fun disableRelatedRule(related: RuleLibraryRepository.Related, onDone: (Result<String?>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { requireNotNull(ruleLibraryRepository).disableRelated(related).changeId })
+    }
+    fun enableRelatedRule(related: RuleLibraryRepository.Related, onDone: (Result<String?>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { val repo = requireNotNull(ruleLibraryRepository)
+            repo.enableRelated(related).changeId
+        })
+    }
+    fun revertLibraryRuleChange(id: String, onDone: (Result<Boolean>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching { requireNotNull(ruleLibraryRepository).settings.revertLibraryChange(id) })
     }
 
     /** 规则版本信号：规则一变 +1，供 top domain 标订阅刷新（触发重判所有域名）。 */
@@ -301,14 +328,14 @@ class MainViewModel @Inject constructor(
     fun addUserDirectRule(domain: String) = update {
         val d = normalizeRule(domain)
         if (d == null || it.userDirectRules.any { e -> e.value == d }) it
-        else it.copy(userDirectRules = it.userDirectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
+        else it.copy(userDirectRules = it.userDirectRules.rulePlus(RuleEntry(d, addedAt = System.currentTimeMillis())))
     }
 
     /** 添加快速拦截名单（域名/IP/CIDR/IPv6）；进 userReject 表，命中即拒绝连接。 */
     fun addUserRejectRule(rule: String) = update {
         val d = normalizeRule(rule)
         if (d == null || it.userRejectRules.any { e -> e.value == d }) it
-        else it.copy(userRejectRules = it.userRejectRules + RuleEntry(d, addedAt = System.currentTimeMillis()))
+        else it.copy(userRejectRules = it.userRejectRules.rulePlus(RuleEntry(d, addedAt = System.currentTimeMillis())))
     }
 
     /**
@@ -324,25 +351,25 @@ class MainViewModel @Inject constructor(
     fun updateUserRejectRule(old: String, new: String) = update { s ->
         val d = normalizeRule(new) ?: return@update s
         if (d != old && s.userRejectRules.any { e -> e.value == d }) return@update s
-        s.copy(userRejectRules = s.userRejectRules.map { e -> if (e.value == old) e.copy(value = d) else e })
+        s.copy(userRejectRules = s.userRejectRules.ruleMap { e -> if (e.value == old) e.copy(value = d) else e })
     }
 
     /** 就地改写一条白名单规则（语义同 [updateUserRejectRule]）。 */
     fun updateUserDirectRule(old: String, new: String) = update { s ->
         val d = normalizeRule(new) ?: return@update s
         if (d != old && s.userDirectRules.any { e -> e.value == d }) return@update s
-        s.copy(userDirectRules = s.userDirectRules.map { e -> if (e.value == old) e.copy(value = d) else e })
+        s.copy(userDirectRules = s.userDirectRules.ruleMap { e -> if (e.value == old) e.copy(value = d) else e })
     }
 
     /** 移除快速拦截名单。 */
     fun removeUserRejectRule(rule: String) = update {
-        it.copy(userRejectRules = it.userRejectRules.filterNot { e -> e.value == rule })
+        it.copy(userRejectRules = it.userRejectRules.ruleFilterNot { e -> e.value == rule })
     }
 
     /** 切换单条快速拦截的启用/停用（停用=不参与判定、走默认，**不切到反面**）。停用时记停用时间用于排序。 */
     fun toggleUserRejectRule(value: String) = update {
         val now = System.currentTimeMillis()
-        it.copy(userRejectRules = it.userRejectRules.map { e ->
+        it.copy(userRejectRules = it.userRejectRules.ruleMap { e ->
             if (e.value == value) e.copy(enabled = !e.enabled, disabledAt = if (e.enabled) now else e.disabledAt) else e
         })
     }
@@ -350,7 +377,7 @@ class MainViewModel @Inject constructor(
     /** 切换单条白名单的启用/停用（同上，对称）。 */
     fun toggleUserDirectRule(value: String) = update {
         val now = System.currentTimeMillis()
-        it.copy(userDirectRules = it.userDirectRules.map { e ->
+        it.copy(userDirectRules = it.userDirectRules.ruleMap { e ->
             if (e.value == value) e.copy(enabled = !e.enabled, disabledAt = if (e.enabled) now else e.disabledAt) else e
         })
     }
@@ -384,11 +411,12 @@ class MainViewModel @Inject constructor(
         val v = scopedHost(host) ?: return@update s
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
         s.copy(
-            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
-            userDirectRules = if (s.userDirectRules.any { sameHost(it.value, bare) }) s.userDirectRules.map {
+            userRejectRules = s.userRejectRules.ruleFilterNot { sameHost(it.value, bare) },
+            userDirectRules = if (s.userDirectRules.any { sameHost(it.value, bare) }) s.userDirectRules.ruleRebuild(s.userDirectRules.asSequence().map {
                 if (sameHost(it.value, bare)) it.copy(value = correctedRuleValue(it.value, v), enabled = true, disabledAt = 0, addedAt = System.currentTimeMillis()) else it
-            }.distinctBy { it.value } else s.userDirectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
-            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
+            }.distinctBy { it.value }) else s.userDirectRules.rulePlus(RuleEntry(v, addedAt = System.currentTimeMillis())),
+            hostOverrides = s.hostOverrides.ruleFilterKeys { !sameHost(it, bare) },
+            disabledHostOverrides = s.disabledHostOverrides.ruleFilterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -397,11 +425,12 @@ class MainViewModel @Inject constructor(
         val v = scopedHost(host) ?: return@update s
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(v).second
         s.copy(
-            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
-            userRejectRules = if (s.userRejectRules.any { sameHost(it.value, bare) }) s.userRejectRules.map {
+            userDirectRules = s.userDirectRules.ruleFilterNot { sameHost(it.value, bare) },
+            userRejectRules = if (s.userRejectRules.any { sameHost(it.value, bare) }) s.userRejectRules.ruleRebuild(s.userRejectRules.asSequence().map {
                 if (sameHost(it.value, bare)) it.copy(value = correctedRuleValue(it.value, v), enabled = true, disabledAt = 0, addedAt = System.currentTimeMillis()) else it
-            }.distinctBy { it.value } else s.userRejectRules + RuleEntry(v, addedAt = System.currentTimeMillis()),
-            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
+            }.distinctBy { it.value }) else s.userRejectRules.rulePlus(RuleEntry(v, addedAt = System.currentTimeMillis())),
+            hostOverrides = s.hostOverrides.ruleFilterKeys { !sameHost(it, bare) },
+            disabledHostOverrides = s.disabledHostOverrides.ruleFilterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -409,9 +438,10 @@ class MainViewModel @Inject constructor(
     fun clearDomainRule(host: String) = update { s ->
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
         s.copy(
-            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
-            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
-            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) },
+            userDirectRules = s.userDirectRules.ruleFilterNot { sameHost(it.value, bare) },
+            userRejectRules = s.userRejectRules.ruleFilterNot { sameHost(it.value, bare) },
+            hostOverrides = s.hostOverrides.ruleFilterKeys { !sameHost(it, bare) },
+            disabledHostOverrides = s.disabledHostOverrides.ruleFilterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -420,10 +450,11 @@ class MainViewModel @Inject constructor(
         val value = scopedHost(host) ?: return@update s
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(value).second
         s.copy(
-            userDirectRules = s.userDirectRules.filterNot { sameHost(it.value, bare) },
-            userRejectRules = s.userRejectRules.filterNot { sameHost(it.value, bare) },
-            hostOverrides = s.hostOverrides.filterKeys { !sameHost(it, bare) } +
-                (value to com.mzstd.hxmyproxy.core.rules.RuleAction.PROXY),
+            userDirectRules = s.userDirectRules.ruleFilterNot { sameHost(it.value, bare) },
+            userRejectRules = s.userRejectRules.ruleFilterNot { sameHost(it.value, bare) },
+            hostOverrides = s.hostOverrides.ruleRebuild(s.hostOverrides.asSequence().filter { !sameHost(it.key, bare) }.map { it.key to it.value } +
+                (value to com.mzstd.hxmyproxy.core.rules.RuleAction.PROXY)),
+            disabledHostOverrides = s.disabledHostOverrides.ruleFilterKeys { !sameHost(it, bare) },
         )
     }
 
@@ -438,7 +469,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun removeUserDirectRule(domain: String) {
-        update { it.copy(userDirectRules = it.userDirectRules.filterNot { e -> e.value == domain }) }
+        update { it.copy(userDirectRules = it.userDirectRules.ruleFilterNot { e -> e.value == domain }) }
         // 记入「移除历史」,供「从历史添加」快速加回(只记加过又删的、量小且精准)
         viewModelScope.launch { settingsRepository.addDomainHistory(listOf(domain)) }
     }
@@ -495,7 +526,8 @@ class MainViewModel @Inject constructor(
     fun setHostOverride(host: String, action: com.mzstd.hxmyproxy.core.rules.RuleAction) = update {
         val h = normalizeRule(host) ?: return@update it
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(h).second
-        it.copy(hostOverrides = it.hostOverrides.filterKeys { key -> !sameHost(key, bare) } + (h to action))
+        it.copy(hostOverrides = it.hostOverrides.ruleRebuild(it.hostOverrides.asSequence().filter { key -> !sameHost(key.key, bare) }.map { it.key to it.value } + (h to action)),
+            disabledHostOverrides = it.disabledHostOverrides.ruleFilterKeys { key -> !sameHost(key, bare) })
     }
 
     /**
@@ -514,7 +546,8 @@ class MainViewModel @Inject constructor(
     /** 移除某 host 的覆盖（回归默认规则链）。 */
     fun clearHostOverride(host: String) = update {
         val bare = com.mzstd.hxmyproxy.core.rules.RuleScope.parse(host.trim().lowercase()).second
-        it.copy(hostOverrides = it.hostOverrides.filterKeys { key -> !sameHost(key, bare) })
+        it.copy(hostOverrides = it.hostOverrides.ruleFilterKeys { key -> !sameHost(key, bare) },
+            disabledHostOverrides = it.disabledHostOverrides.ruleFilterKeys { key -> !sameHost(key, bare) })
     }
 
     fun setAuthEnabled(v: Boolean) = update { it.copy(authEnabled = v) }

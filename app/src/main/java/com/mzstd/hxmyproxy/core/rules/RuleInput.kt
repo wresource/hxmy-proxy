@@ -21,6 +21,11 @@ object RuleInput {
     fun parse(input: String): Parsed? {
         val text = input.trim()
         if (text.isEmpty() || text.length > 8192) return null
+        val (rangeScope, rangeText) = RuleScope.parse(text)
+        if (IpRange.hasRangeSyntax(rangeText)) {
+            if (rangeScope != RuleScope.SUFFIX) return null
+            return IpRange.parse(rangeText)?.let { Parsed(it.value, null) }
+        }
         // IDNA may discard format characters. Reject them before conversion, rather than
         // silently changing a pasted rule to a different target. Edge whitespace stays valid.
         if (text.any { it.isWhitespace() || it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }) return null
@@ -70,6 +75,8 @@ object RuleInput {
         // Numeric-looking malformed IPv4 must not fall through to the domain table.
         if (host.all { it in "0123456789." }) return null
         val domain = canonicalDomain(host) ?: return null
+        // A URL host that would normalize into range syntax must not silently become an IP rule.
+        if (IpRange.hasRangeSyntax(domain)) return null
         numericAddress(domain)?.let { return ipResult(it.first)?.copy(fromUrl = url) }
         if (domain.all { it in "0123456789." }) return null
         return Parsed(domain, scope, fromUrl = url)
@@ -99,7 +106,7 @@ object RuleInput {
     }
 
     /** Pure numeric parsing keeps JVM and Android validation identical without a DNS-capable API. */
-    private fun numericAddress(input: String): Pair<String, Int>? {
+    internal fun numericAddress(input: String): Pair<String, Int>? {
         val bracketed = input.startsWith('[') && input.endsWith(']')
         val host = (if (bracketed) input.substring(1, input.length - 1) else input).lowercase(Locale.ROOT)
         fun ipv4(value: String): List<Int>? {
@@ -150,16 +157,19 @@ object RuleInput {
     }
 
     data class Lines(val rules: List<String>, val invalidLines: List<Int>)
+    fun equivalentKey(parsed: Parsed): String = if (parsed.isIp) {
+        IpRange.ofRule(parsed.host)?.let { "ip:${it.bits}:${it.startKey}:${it.endKey}" } ?: parsed.value
+    } else parsed.value
     fun parseLines(text: String): Lines {
-        val rules = linkedSetOf<String>()
+        val rules = linkedMapOf<String, String>()
         val invalid = mutableListOf<Int>()
         text.lineSequence().forEachIndexed { index, line ->
-            val value = line.trim()
+            val value = (if (index == 0) line.removePrefix("\uFEFF") else line).trim()
             if (value.isNotEmpty() && !value.startsWith('#')) {
-                val rule = normalize(value)
-                if (rule == null) invalid += index + 1 else rules += rule
+                val rule = parse(value)
+                if (rule == null) invalid += index + 1 else rules.putIfAbsent(equivalentKey(rule), rule.value)
             }
         }
-        return Lines(rules.toList(), invalid)
+        return Lines(rules.values.toList(), invalid)
     }
 }

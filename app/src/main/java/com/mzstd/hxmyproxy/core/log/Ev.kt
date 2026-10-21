@@ -48,6 +48,9 @@ object Ev {
     fun kConfirmed(cat: LogCat, evt: String, vararg kv: Pair<String, Any?>): Boolean =
         FileLog.appendConfirmed("I", cat.name, line(evt, kv), null, key = true)
 
+    fun keyConfirmed(level: String, cat: LogCat, evt: String, vararg kv: Pair<String, Any?>): Boolean =
+        FileLog.appendConfirmed(level, cat.name, line(evt, kv), null, key = true)
+
     /** 关键事件（W 级）：降级类事件，同样进 key.log。 */
     fun kw(cat: LogCat, evt: String, vararg kv: Pair<String, Any?>) =
         FileLog.append("W", cat.name, line(evt, kv), null, key = true)

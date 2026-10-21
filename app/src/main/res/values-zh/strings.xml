@@ -84,15 +84,7 @@
     <string name="create">创建</string>
     <string name="cancel">取消</string>
     <string name="ruleset_save">保存</string>
-    <string name="ruleset_restore_default">恢复默认</string>
-    <string name="ruleset_edit_hint">一行一个域名。支持泛域名(example.com 匹配 *.example.com)。</string>
     <string name="ruleset_import">导入</string>
-    <string name="ruleset_export">导出</string>
-    <string name="ruleset_import_append">追加</string>
-    <string name="ruleset_import_replace">替换</string>
-    <plurals name="ruleset_import_how">
-        <item quantity="other">导入 %1$d 个域名 — 追加还是替换?</item>
-    </plurals>
     <string name="lockdown_warning">出口分流可能失效:你的 VPN 开了「阻止无 VPN 连接」,系统会拦掉绕过 VPN 的流量。要让规则的「直连」生效,请到系统 VPN 设置里关闭它。</string>
     <string name="rules_add">添加</string>
     <string name="rules_add_domain">域名（如 example.com）</string>
@@ -197,7 +189,6 @@
     <string name="settings_log_enabled">诊断日志</string>
     <string name="settings_log_enabled_sub">在本机记录事件供排障。导出的日志可能包含域名和客户端 IP，请检查后再分享。</string>
     <string name="log_show_more">展开</string>
-    <string name="log_show_less">收起</string>
     <string name="rules_remove">移除</string>
 
     <!-- 诊断 -->
@@ -631,7 +622,6 @@
     <string name="overview_uptime">已运行</string>
     <string name="about_version">版本</string>
     <string name="about_source">开源项目 — 在 GitHub 查看</string>
-    <string name="ruleset_invalid_lines">第 %1$s 行规则无效，请修正后保存。</string>
     <string name="rule_source_current">规则来源：%1$s</string>
     <string name="rule_source_override">手动覆盖（优先于列表）</string>
     <string name="rule_source_allow">你的直连列表</string>

@@ -11,4 +11,7 @@ data class UserRuleSet(
     val action: RuleAction,
     val domains: List<String> = emptyList(),
     val enabled: Boolean = true,
+    val subscriptionUrl: String? = null,
+    val updatedAt: Long = 0,
+    val updateError: String? = null,
 )

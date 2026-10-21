@@ -48,6 +48,17 @@ class RuleRepository @Inject constructor(
      */
     @Synchronized
     fun rebuild(settings: ProxySettings, canApply: () -> Boolean = { true }): Boolean {
+        return try {
+            rebuildSnapshot(settings, canApply)
+        } catch (error: Exception) {
+            // A missing/corrupt rule collection must not publish a partly loaded snapshot.
+            lastBuilt = null
+            Ev.e(LogCat.RULE, "rules.rebuildFailed", error, "source" to "rule-content")
+            false
+        }
+    }
+
+    private fun rebuildSnapshot(settings: ProxySettings, canApply: () -> Boolean): Boolean {
         // A cancelled session may have been waiting on this monitor when a newer session
         // loaded its rules. Monitor acquisition is not FIFO; never publish that old request.
         if (!canApply()) return false
@@ -91,9 +102,9 @@ class RuleRepository @Inject constructor(
         val userDirect = RuleMatcher()
         val userReject = RuleMatcher()
         // 第一模块快速白名单 → 直连（受整体开关控制；关掉则整组临时失效）
-        if (settings.userDirectEnabled) settings.userDirectRules.filter { it.enabled }.forEach { userDirect.add(it.value) }
+        if (settings.userDirectEnabled) settings.userDirectRules.forEach { if (it.enabled) userDirect.add(it.value) }
         // 快速拦截名单 → userReject（受整体开关控制；关掉则整组临时失效，对称白名单）。**停用条目不装载=不参与判定**。
-        if (settings.userRejectEnabled) settings.userRejectRules.filter { it.enabled }.forEach { userReject.add(it.value) }
+        if (settings.userRejectEnabled) settings.userRejectRules.forEach { if (it.enabled) userReject.add(it.value) }
         // 用户自建命名集（按动作进 direct/reject;优先级高于内置）
         settings.userRuleSets.filter { it.enabled }.forEach { set ->
             val into = if (set.action == RuleAction.REJECT) userReject else userDirect
@@ -111,8 +122,8 @@ class RuleRepository @Inject constructor(
             }
         }
         // 平手裁决用:两张用户表各自最近一条的添加时间(停用条目不算,它们不参与判定)。
-        val newestAllow = settings.userDirectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
-        val newestBlock = settings.userRejectRules.filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
+        val newestAllow = settings.userDirectRules.asSequence().filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
+        val newestBlock = settings.userRejectRules.asSequence().filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
         // Reading assets is blocking: cancellation can arrive while it is in progress.
         if (!canApply()) return false
         // 不发布缺失 assets 的部分快照。冷启动保持关闭，热更新保留上一份完整快照。
@@ -176,7 +187,7 @@ class RuleRepository @Inject constructor(
         val userRejectEnabled: Boolean,
         val userDirect: List<RuleEntry>,
         val userReject: List<RuleEntry>,
-        val sets: List<UserRuleSet>,
+        val sets: List<NamedInput>,
     ) {
         companion object {
             fun of(s: ProxySettings) = RuleInputs(
@@ -188,10 +199,14 @@ class RuleRepository @Inject constructor(
                 userRejectEnabled = s.userRejectEnabled,
                 userDirect = s.userDirectRules,
                 userReject = s.userRejectRules,
-                sets = s.userRuleSets,
+                // Inactive named sets do not affect matching or tie timestamps; editing them needs no rebuild.
+                sets = s.userRuleSets.filter { it.enabled }.map { NamedInput(it.id, it.action, it.domains, true) },
             )
         }
     }
+
+    /** Subscription status/name changes do not change the immutable routing inputs. */
+    private data class NamedInput(val id: String, val action: RuleAction, val domains: List<String>, val enabled: Boolean)
 
     private fun loadAsset(path: String, into: RuleMatcher, sampleInto: MutableList<String>? = null) {
         try {
