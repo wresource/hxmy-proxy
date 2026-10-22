@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy.ui.monitor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -36,10 +37,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mzstd.hxmyproxy.R
@@ -68,7 +71,7 @@ fun ActivityScreen(ui: MainUiState, viewModel: MainViewModel, onOpenDomains: () 
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var editHost by rememberSaveable { mutableStateOf<String?>(null) }
     var clientIp by rememberSaveable { mutableStateOf<String?>(null) }
-    val all = remember(snapshot) { domainActivities(snapshot) }
+    val all = remember(snapshot, query) { domainActivities(snapshot, query) }
     ActivityContent(snapshot, query, ui.settings.logEnabled, contentPadding,
         onQuery = { viewModel.activityQuery.value = it }, onPause = viewModel::toggleActivityPaused,
         onAllDomains = onOpenDomains, onAllClients = onOpenClients, onAddRule = { editHost = query.text },
@@ -143,23 +146,51 @@ internal fun DomainMonitorControls(query: ActivityQuery, onQuery: (ActivityQuery
         OutlinedTextField(query.text, { onQuery(query.copy(text = it)) }, Modifier.fillMaxWidth().testTag("domain_search"),
             singleLine = true, placeholder = { Text(stringResource(R.string.ui_domain_search)) },
             leadingIcon = { Icon(painterResource(R.drawable.ic_b_search), null) }, shape = MaterialTheme.shapes.medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MonitorChoice(ActivityFilter.entries, query.filter, ::activityFilterLabel, Modifier.weight(1f).testTag("activity_filter")) { onQuery(query.copy(filter = it)) }
-            MonitorChoice(DomainSort.entries, query.sort, ::domainSortLabel, Modifier.weight(1f).testTag("activity_sort")) { onQuery(query.copy(sort = it)) }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = (maxWidth.value / (112f * LocalDensity.current.fontScale.coerceAtLeast(1f))).toInt().coerceIn(1, 3)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (0..2).toList().chunked(columns).forEach { controls ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        controls.forEach { control ->
+                            when (control) {
+                                0 -> MonitorChoice(ActivityFilter.entries, query.filter, ::activityFilterLabel,
+                                    R.string.ui_activity_status, "activity_filter", Modifier.weight(1f)) { onQuery(query.copy(filter = it)) }
+                                1 -> MonitorChoice(ActivityRoute.entries, query.route, ::activityRouteLabel,
+                                    R.string.ui_activity_route, "activity_route", Modifier.weight(1f)) { onQuery(query.copy(route = it)) }
+                                else -> MonitorChoice(DomainSort.entries, query.sort, ::domainSortLabel,
+                                    R.string.ui_activity_sort, "activity_sort", Modifier.weight(1f)) { onQuery(query.copy(sort = it)) }
+                            }
+                        }
+                    }
+                }
+            }
         }
+        if (query.filtered) Text(stringResource(R.string.ui_activity_filter_scope), Modifier.testTag("activity_filter_scope"),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-internal fun <T> MonitorChoice(choices: List<T>, selected: T, label: (T) -> Int, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
+internal fun <T> MonitorChoice(choices: List<T>, selected: T, label: (T) -> Int, title: Int,
+    tag: String, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Box(modifier) {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
-            Text(stringResource(label(selected)), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
-            Icon(painterResource(R.drawable.ic_b_chevron_down), null, Modifier.size(16.dp))
-        }
-        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            choices.forEach { value -> DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small), text = { Text(stringResource(label(value))) }, onClick = { onSelect(value); expanded = false }) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(title), Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(stringResource(label(selected)), Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("${tag}_label"),
+                        textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium)
+                    Icon(painterResource(R.drawable.ic_b_chevron_down), null, Modifier.size(16.dp).align(Alignment.CenterEnd))
+                }
+            }
+            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+                choices.forEach { value -> DropdownMenuItem(modifier = Modifier.clip(MaterialTheme.shapes.small).testTag("${tag}_option_$value"),
+                    text = { Text(stringResource(label(value)), Modifier.fillMaxWidth().testTag("${tag}_option_${value}_label"), textAlign = TextAlign.Center) },
+                    onClick = { onSelect(value); expanded = false }) }
+            }
         }
     }
 }
@@ -167,9 +198,14 @@ internal fun domainSortLabel(value: DomainSort) = when (value) {
     DomainSort.ACTIVE -> R.string.ui_active_first; DomainSort.RECENT -> R.string.domains_sort_recent; DomainSort.TRAFFIC -> R.string.domains_sort_traffic
 }
 internal fun activityFilterLabel(value: ActivityFilter) = when (value) {
-    ActivityFilter.ALL -> R.string.ui_all_activity; ActivityFilter.ACTIVE -> R.string.ui_active_only
+    ActivityFilter.ALL -> R.string.ui_all_activity; ActivityFilter.ACTIVE -> R.string.ui_request_pending
     ActivityFilter.BLOCKED -> R.string.ui_rule_blocked; ActivityFilter.FAILED -> R.string.ui_connection_failed
-    ActivityFilter.RELAYED -> R.string.ui_relayed
+    ActivityFilter.ENDED -> R.string.ui_activity_ended; ActivityFilter.UNKNOWN -> R.string.ui_activity_no_details
+}
+internal fun activityRouteLabel(value: ActivityRoute) = when (value) {
+    ActivityRoute.ALL -> R.string.ui_all_routes; ActivityRoute.DIRECT -> R.string.override_direct
+    ActivityRoute.PROXY -> R.string.ui_proxy; ActivityRoute.BLOCKED -> R.string.ui_rule_blocked
+    ActivityRoute.UNKNOWN -> R.string.ui_unknown
 }
 internal fun outcomeLabel(value: RequestOutcome) = when (value) {
     RequestOutcome.PENDING -> R.string.ui_request_pending; RequestOutcome.CONNECTED -> R.string.ui_request_connected
@@ -211,15 +247,21 @@ internal fun DomainTrafficRow(row: DomainActivity, maxBytes: Long, action: RuleA
                 Text(row.protocol.name, style = MaterialTheme.typography.labelMedium)
                 Text(if (row.traffic == null) stringResource(R.string.ui_active_unknown) else stringResource(R.string.ui_active_connections, row.active.toInt()), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                     color = if (row.active > 0) StatusColors.good() else MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!row.aggregate && action != null) Text(stringResource(actionLabel(action)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Preserve the live rule badge (a6d57fc); filtering uses recorded visits separately.
+                if (!row.aggregate && action != null) Text(
+                    if (row.match != null) stringResource(R.string.ui_activity_current_rule, stringResource(actionLabel(action)))
+                    else stringResource(actionLabel(action)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                 Text("↓ ${row.traffic?.downloadBytes?.let(::formatBytes) ?: "—"} · ↑ ${row.traffic?.uploadBytes?.let(::formatBytes) ?: "—"}",
                     Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (row.latest?.outcome in listOf(RequestOutcome.BLOCKED, RequestOutcome.FAILED)) Text(stringResource(outcomeLabel(row.latest!!.outcome)),
+                if (row.displayedState in listOf(ActivityFilter.BLOCKED, ActivityFilter.FAILED)) Text(stringResource(activityFilterLabel(row.displayedState)),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                else Text(activityTime(row.lastSeen), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else Text(activityTime(row.displayedRequest?.startedAt ?: row.lastSeen), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (row.match != null) Text(stringResource(R.string.ui_activity_match,
+                stringResource(activityRouteLabel(row.displayedRoute)), stringResource(activityFilterLabel(row.displayedState))),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             RatioBar(fraction = ((row.bytes ?: 0).toFloat() / maxBytes.coerceAtLeast(1)).coerceIn(0f, 1f),
                 color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth(), height = 3.dp)
         }

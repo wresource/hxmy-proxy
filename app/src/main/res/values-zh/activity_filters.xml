@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_activity_status">状态</string>
+    <string name="ui_activity_route">路由</string>
+    <string name="ui_activity_ended">已结束</string>
+    <string name="ui_activity_no_details">记录不足</string>
+    <string name="ui_all_routes">全部路由</string>
+    <string name="ui_activity_filter_scope">筛选保留的近期访问，流量仍是该域名所有访问与路由的累计值。</string>
+    <string name="ui_activity_match">匹配访问：%1$s · %2$s</string>
+    <string name="ui_activity_sort">排序</string>
+    <string name="ui_activity_current_rule">规则：%1$s</string>
+</resources>

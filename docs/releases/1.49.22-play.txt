@@ -1,0 +1,13 @@
+<en-US>
+• Filter Activity by status and Direct/Proxy/Blocked/Unknown independently of sorting.
+• Keep one row per domain and protocol; both filters match the same retained visit.
+• Center controls and menus, with adaptive large-text layouts.
+• Avoid false Unknown entries from refresh timing or HTTP keep-alive. Missing records remain visible as Unknown.
+</en-US>
+
+<zh-CN>
+• 访问页新增状态和路由筛选，排序独立保留；两个筛选匹配同一次访问。
+• 同一域名＋协议始终一行，多次访问归入详情，保留累计流量。
+• 筛选、排序按钮和菜单文字居中，适配窄屏与大字体。
+• 修正刷新时差和HTTP连接复用导致的Unknown误判，真实缺少记录仍明确提示。
+</zh-CN>

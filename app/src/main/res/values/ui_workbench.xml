@@ -39,7 +39,6 @@
     <string name="ui_about">About</string>
     <string name="ui_active_connections">Active connections: %1$d</string>
     <string name="ui_active_first">Active first</string>
-    <string name="ui_active_only">Active only</string>
     <string name="ui_all_activity">All activity</string>
     <string name="ui_all_devices">All devices</string>
     <string name="ui_allow_proxy">Allow via proxy</string>
@@ -66,7 +65,7 @@
     <string name="ui_explain_blocked">A rule rejected this connection. Allow this host through the proxy to retain the default egress.</string>
     <string name="ui_explain_connected">The upstream connection was established. This does not prove the page loaded successfully.</string>
     <string name="ui_explain_pending">Use the recorded stage and client retry to verify the result. Missing records do not prove no request occurred.</string>
-    <string name="ui_explain_relayed">Proxy traffic was relayed. Confirm the page result on the client.</string>
+    <string name="ui_explain_relayed">This connection closed after transferring data. Confirm the page result on the client.</string>
     <string name="ui_fallback_dns">Fallback DNS</string>
     <string name="ui_full_domain_hint">Search, sort and inspect the complete retained list</string>
     <string name="ui_invalid_domain">Enter a valid domain, URL, IP address or CIDR.</string>
@@ -87,7 +86,7 @@
     <string name="ui_proxy_egress">Outbound</string>
     <string name="ui_recorded_rule">Rule used: %1$s</string>
     <string name="ui_related_logs">View logs</string>
-    <string name="ui_relayed">Transferred</string>
+    <string name="ui_relayed">Closed with traffic</string>
     <string name="ui_remove_override">Remove this override</string>
     <string name="ui_request_closed">Closed</string>
     <string name="ui_request_connected">Connected</string>

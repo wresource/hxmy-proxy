@@ -604,7 +604,7 @@
     <string name="doh_egress_default">System default</string>
     <string name="doh_egress_hint">DoH is a rescue for failed lookups. On system default it shares the same (possibly broken) route it is trying to rescue.</string>
     <string name="domains_sort_recent">Recent</string>
-    <string name="domains_sort_traffic">Traffic</string>
+    <string name="domains_sort_traffic">Most traffic</string>
     <!-- 指定出口连不通时的策略 -->
     <string name="egress_fallback_title">If that exit can\'t connect</string>
     <string name="egress_fallback_sub">What to do when the exit you picked is unreachable</string>

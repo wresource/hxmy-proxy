@@ -147,7 +147,7 @@ private fun DomainDetailContent(state: DomainDetailState, onEdit: () -> Unit, on
         if (row.traffic == null) stringResource(R.string.ui_active_unknown) else stringResource(R.string.ui_active_connections, row.active.toInt()))
     if (row.traffic == null) Text(stringResource(R.string.ui_untracked_counter), style = MaterialTheme.typography.bodySmall)
     if (state.paused) Text(stringResource(R.string.ui_paused_snapshot), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-    row.latest?.let { record ->
+    row.displayedRequest?.let { record ->
         ConnectionStatus(record)
         if (record.outcome in listOf(RequestOutcome.FAILED, RequestOutcome.BLOCKED)) {
             Text(stringResource(requestExplanation(record)), style = MaterialTheme.typography.bodyMedium)
@@ -157,7 +157,7 @@ private fun DomainDetailContent(state: DomainDetailState, onEdit: () -> Unit, on
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         DetailValueRow(stringResource(R.string.ui_rule_label), stringResource(actionLabel(state.action)), onClick = onEdit)
         Text(stringResource(ruleSourceLabel(state.source)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        row.latest?.takeIf { it.action != null && it.action != state.action.name }?.let {
+        row.displayedRequest?.takeIf { it.action != null && it.action != state.action.name }?.let {
             Text(stringResource(R.string.ui_recorded_rule, stringResource(recordedActionLabel(it.action))),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -180,7 +180,7 @@ private fun DomainDetailContent(state: DomainDetailState, onEdit: () -> Unit, on
             }
         }
     }
-    if (hasRecommendedFix(row.latest)) TextButton(onClick = onLogs, contentPadding = PaddingValues(vertical = 8.dp)) {
+    if (hasRecommendedFix(row.displayedRequest)) TextButton(onClick = onLogs, contentPadding = PaddingValues(vertical = 8.dp)) {
         Icon(painterResource(R.drawable.ic_b_doc), null, Modifier.size(18.dp))
         Text(stringResource(R.string.ui_related_logs), Modifier.padding(start = 8.dp))
     }
@@ -193,7 +193,7 @@ private fun hasRecommendedFix(record: RequestActivityRecord?) = record != null &
 @Composable
 private fun DomainDetailActions(state: DomainDetailState, onEdit: () -> Unit, onLogs: () -> Unit,
     onSettings: (String) -> Unit, onApply: (RuleAction?) -> Unit) {
-    val record = state.row.latest
+    val record = state.row.displayedRequest
     val (label, action) = when {
         record?.outcome == RequestOutcome.BLOCKED -> R.string.ui_allow_proxy to { onApply(RuleAction.PROXY) }
         record?.outcome == RequestOutcome.FAILED && record.errorCode == "dns" -> R.string.ui_check_dns to { onSettings("dns") }

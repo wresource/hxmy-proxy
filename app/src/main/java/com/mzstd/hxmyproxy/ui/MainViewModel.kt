@@ -85,30 +85,14 @@ class MainViewModel @Inject constructor(
             MainUiState(share, settings, historyViews(share, settings, history), credentials)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
-    /** Recent request evidence is bounded in Core, sampled only while a UI subscribes. */
-    val requestActivity = kotlinx.coroutines.flow.flow {
-        while (true) {
-            emit(com.mzstd.hxmyproxy.core.proxy.RequestActivity.store.snapshotState())
-            kotlinx.coroutines.delay(1000)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000),
-        com.mzstd.hxmyproxy.core.proxy.RequestActivitySnapshot(0, false, emptyList()))
-
     private val frozenActivity = MutableStateFlow<com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot?>(null)
     val logHostFilter = MutableStateFlow("")
     val activityQuery = MutableStateFlow(com.mzstd.hxmyproxy.ui.monitor.ActivityQuery())
-    val activitySnapshot = combine(uiState, requestActivity, frozenActivity) { ui, evidence, frozen ->
-        if (frozen != null && frozen.session == ui.share.sessionStartedAtMs &&
-            frozen.evidenceGeneration == evidence.generation && ui.settings.logEnabled == evidence.enabled) {
-            frozen.copy(paused = true)
-        } else com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot(
-            session = ui.share.sessionStartedAtMs, evidenceGeneration = evidence.generation,
-            clients = ui.share.clients, domains = ui.share.topDomains,
-            requests = if (ui.share.running && ui.settings.logEnabled) evidence.records else emptyList(),
-            totalBytes = ui.share.totalBytes, downRate = ui.share.downloadRateBps,
-            upRate = ui.share.uploadRateBps, capturedAt = System.currentTimeMillis(),
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot())
+    /** Both UI surfaces share fresh request evidence and the same pause/session boundary. */
+    val activitySnapshot = com.mzstd.hxmyproxy.ui.monitor.activitySnapshots(
+        uiState.map { com.mzstd.hxmyproxy.ui.monitor.ActivityInput(it.share, it.settings.logEnabled) },
+        frozenActivity, com.mzstd.hxmyproxy.core.proxy.RequestActivity.store::snapshotState,
+    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot())
 
     fun toggleActivityPaused() {
         frozenActivity.value = if (activitySnapshot.value.paused) null else activitySnapshot.value.copy(paused = true)
@@ -127,7 +111,8 @@ class MainViewModel @Inject constructor(
             val host = settingsRepository.applyDomainRule(input, action, scope)
             frozenActivity.value = null
             activityQuery.value = activityQuery.value.copy(text = host,
-                filter = com.mzstd.hxmyproxy.ui.monitor.ActivityFilter.ALL)
+                filter = com.mzstd.hxmyproxy.ui.monitor.ActivityFilter.ALL,
+                route = com.mzstd.hxmyproxy.ui.monitor.ActivityRoute.ALL)
             host
         })
     }

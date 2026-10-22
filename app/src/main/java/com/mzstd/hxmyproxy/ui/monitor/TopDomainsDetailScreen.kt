@@ -48,7 +48,7 @@ fun TopDomainsDetailScreen(ui: MainUiState, viewModel: MainViewModel, onBack: ()
         onAdd = { editHost = query.text }, onChanges = onChanges, onSelect = { selectedKey = it.key },
         detail = { row -> DomainActivityPanel(row, snapshot.paused, ui, viewModel,
             onEdit = { editHost = row.host }, onOpenLogs = onOpenLogs, onSettings = onSettings) })
-    domainActivities(snapshot).firstOrNull { it.key == selectedKey }?.let { row ->
+    domainActivities(snapshot, query).firstOrNull { it.key == selectedKey }?.let { row ->
         DomainActivityDialog(row, snapshot.paused, ui, viewModel, { selectedKey = null },
             { selectedKey = null; editHost = row.host }, onOpenLogs, onSettings)
     }
@@ -66,9 +66,10 @@ internal fun TopDomainsDetailContent(
     var localText by rememberSaveable { mutableStateOf("") }
     var localSort by rememberSaveable { mutableStateOf(DomainSort.RECENT) }
     var localFilter by rememberSaveable { mutableStateOf(ActivityFilter.ALL) }
+    var localRoute by rememberSaveable { mutableStateOf(ActivityRoute.ALL) }
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
-    val query = externalQuery ?: ActivityQuery(localText, localSort, localFilter)
-    val update: (ActivityQuery) -> Unit = { if (externalQuery == null) { localText = it.text; localSort = it.sort; localFilter = it.filter }; onQuery(it) }
+    val query = externalQuery ?: ActivityQuery(localText, localSort, localFilter, localRoute)
+    val update: (ActivityQuery) -> Unit = { if (externalQuery == null) { localText = it.text; localSort = it.sort; localFilter = it.filter; localRoute = it.route }; onQuery(it) }
     val rows = remember(domains, requests, query) { domainActivities(ActivitySnapshot(domains = domains, requests = requests), query) }
     val maxBytes = rows.maxOfOrNull { it.bytes ?: 0 }?.coerceAtLeast(1) ?: 1
     DetailScaffold(stringResource(R.string.monitor_top_domains), onBack) { padding ->

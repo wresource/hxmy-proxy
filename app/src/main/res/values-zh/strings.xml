@@ -590,7 +590,7 @@
     <string name="doh_egress_default">系统默认</string>
     <string name="doh_egress_hint">DoH 是解析失败后的救济手段。走系统默认路由时，它与要救的那条链路同路——链路坏了它也一起失效。</string>
     <string name="domains_sort_recent">最近访问</string>
-    <string name="domains_sort_traffic">流量</string>
+    <string name="domains_sort_traffic">流量最多</string>
     <!-- 指定出口连不通时的策略 -->
     <string name="egress_fallback_title">这个出口连不通时</string>
     <string name="egress_fallback_sub">你指定的出口走不了，该怎么办</string>

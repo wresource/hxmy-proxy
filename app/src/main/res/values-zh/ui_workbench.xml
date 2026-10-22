@@ -39,7 +39,6 @@
     <string name="ui_about">关于</string>
     <string name="ui_active_connections">%1$d 条活跃连接</string>
     <string name="ui_active_first">活跃优先</string>
-    <string name="ui_active_only">正在访问</string>
     <string name="ui_all_activity">全部访问</string>
     <string name="ui_all_devices">全部设备</string>
     <string name="ui_allow_proxy">允许访问 · 经代理出口</string>
@@ -66,7 +65,7 @@
     <string name="ui_explain_blocked">规则拒绝了这次连接，可仅为这个域名允许访问，保留当前代理出口。</string>
     <string name="ui_explain_connected">已与上游建立连接，这不代表网页已经成功加载。</string>
     <string name="ui_explain_pending">请结合记录阶段与客户端重试验证结果，缺少记录不代表没有发生请求。</string>
-    <string name="ui_explain_relayed">已观察到代理转发流量，页面结果仍需在客户端确认。</string>
+    <string name="ui_explain_relayed">这条连接已结束，期间有数据传输。页面结果仍需在客户端确认。</string>
     <string name="ui_fallback_dns">备用 DNS</string>
     <string name="ui_full_domain_hint">进入独立页面搜索、排序和查看完整保留列表</string>
     <string name="ui_invalid_domain">请输入有效域名、网址、IP 地址或 CIDR。</string>
@@ -87,7 +86,7 @@
     <string name="ui_proxy_egress">出口网络</string>
     <string name="ui_recorded_rule">当时规则：%1$s</string>
     <string name="ui_related_logs">查看日志</string>
-    <string name="ui_relayed">已转发</string>
+    <string name="ui_relayed">已结束·有流量</string>
     <string name="ui_remove_override">移除此覆盖</string>
     <string name="ui_request_closed">已关闭</string>
     <string name="ui_request_connected">已连接</string>

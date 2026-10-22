@@ -13,16 +13,15 @@ gateway are outside its coverage. VPN app policies and the local network can aff
 
 ## Download and latest update
 
-[**1.49.16 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.16/hxmy-proxy-1.49.16.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.16) ·
-[What's new](docs/releases/1.49.16.md)
+[**1.49.22 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.22/hxmy-proxy-1.49.22.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.22) ·
+[What's new](docs/releases/1.49.22.md)
 
-This release makes large rule lists easier to import, browse and search, fixes the large-TXT
-import crash, and shows whether saved rule changes have actually taken effect. Failed updates
-retain the previous complete rules and offer retry; when new Direct/Block protection cannot load
-and no previous protection is active, sharing stops instead of continuing unprotected. Install
-the APK over the existing app to retain its data. The AAB is for Google Play submission.
-Availability on Play follows its own rollout.
+Activity now has separate status and recorded-route filters alongside sorting. Repeated visits
+stay in one row per domain and protocol; controls and menus are centered and adapt to large text.
+Fresh request sampling prevents known routes from briefly appearing as Unknown, including during
+HTTP connection reuse. Use the APK for a same-certificate update that keeps local data. The AAB is
+for Google Play submission; Play availability follows its own rollout.
 
 | Overview | Device and destination traffic | Inbound and ports | Outbound settings |
 |---|---|---|---|
@@ -50,13 +49,26 @@ if it is no longer needed. A client still pointing to a stopped gateway may be u
 | Area | What you can do |
 |---|---|
 | **Run → Overview** | See IP addresses and HTTP/SOCKS5/PAC ports, copy or scan connection information, select Inbound and edit ports. Use the sharing switch, open client setup, or jump to Activity and Add rule. |
-| **Activity** | See client devices and their upload/download usage, destination traffic, active connections, recent results and the effective rule. Search or sort, open the full domain list from its five-row preview, and inspect a destination without losing context. |
+| **Activity** | See client devices and their upload/download usage, destination traffic, active connections, recent results and the effective rule. Combine status and recorded-route filters, sort independently, and open the full domain list from its five-row preview. Each domain/protocol pair stays in one row. |
 | **Traffic / Health** | Inspect usage by period and outgoing network, service health, latency, protection, history and diagnostic logs. |
 | **Rules** | Add or import domain/IP/CIDR/range rules, preview conflicts, and browse or search large lists page by page. Manage built-in groups, editable copies and subscriptions; review recent changes and the actual application status. |
 | **Settings** | Inbound and ports are directly editable. **Outbound** and **Direct egress** remain separate. Configure protocols, DNS, authentication, performance, appearance, diagnostics and backups. |
 
 The main navigation has Run, Rules and Settings. Overview, Activity, Traffic and Health are sections
 within Run; detailed lists and settings open separate pages or bottom sheets.
+
+## Activity filters
+
+- **Status:** all activity, in progress, ended, failed, blocked or no details. Ended includes visits
+  that finished with or without transferred bytes; a transfer does not prove the page loaded.
+- **Route:** all routes, Direct, Proxy, Blocked or Unknown. Status and route must match the same
+  retained visit. Several matching visits never split one domain/protocol pair into duplicate rows.
+- **Sort:** active first, most recent or most traffic. Sorting changes order, not the selected set.
+
+The current rule stays visible separately from the visit that matched your filters. Domain traffic
+shows the retained cumulative counters; filtering does not recalculate bytes by route. Request
+details retain up to 256 entries and respect the diagnostic-log switch. Missing or evicted details
+can still appear as Unknown; a temporary difference between connection and request counts cannot.
 
 ## Import and manage rules
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_activity_status">Status</string>
+    <string name="ui_activity_route">Route</string>
+    <string name="ui_activity_ended">Ended</string>
+    <string name="ui_activity_no_details">No details</string>
+    <string name="ui_all_routes">All routes</string>
+    <string name="ui_activity_filter_scope">Matches recent retained visits. Traffic totals include all visits and routes.</string>
+    <string name="ui_activity_match">Matched visit: %1$s · %2$s</string>
+    <string name="ui_activity_sort">Sort</string>
+    <string name="ui_activity_current_rule">Rule: %1$s</string>
+</resources>
