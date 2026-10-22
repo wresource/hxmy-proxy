@@ -15,7 +15,10 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.ViewModelProvider
 import com.mzstd.hxmyproxy.service.ProxyForegroundService
+import com.mzstd.hxmyproxy.ui.MainViewModel
+import com.mzstd.hxmyproxy.ui.locale.localizedFor
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,20 +45,27 @@ class ReviewRunUiTest {
             compose.onNodeWithTag("onboarding_skip").performClick()
         }
         compose.waitUntil(15000) { compose.onAllNodesWithTag("nav_run").fetchSemanticsNodes().isNotEmpty() }
+        lateinit var vm: MainViewModel
+        compose.runOnIdle { vm = ViewModelProvider(compose.activity)[MainViewModel::class.java] }
         compose.onNodeWithTag("nav_run").performClick()
         ProxyForegroundService.stop(compose.activity)
         compose.waitUntil(10000) { !sharingOn() && !foregroundServiceRunning() }
         try {
             repeat(2) {
                 compose.onNodeWithTag("sharing_primary_action").performClick()
-                compose.waitUntil(15000) { sharingOn() && foregroundServiceRunning() }
+                // The switch is also On while starting, and the FGS exists before rule loading.
+                // Clicking then correctly cancels preparation instead of opening the stop dialog.
+                compose.waitUntil(15000) {
+                    val state = vm.uiState.value.share
+                    state.running && !state.starting && sharingOn() && foregroundServiceRunning()
+                }
                 val actionBounds=compose.onNodeWithTag("sharing_primary_action").fetchSemanticsNode().boundsInRoot
                 val navBounds=compose.onNodeWithTag("nav_rules").fetchSemanticsNode().boundsInRoot
                 org.junit.Assert.assertTrue("button=$actionBounds must be above navigation=$navBounds",
                     actionBounds.height > 0 && actionBounds.bottom <= navBounds.top)
                 compose.onNodeWithTag("sharing_primary_action").performClick()
                 if (it == 0) {
-                    compose.onNodeWithText(compose.activity.getString(R.string.cancel)).performClick()
+                    compose.onNodeWithText(compose.activity.localizedFor(vm.uiState.value.settings.language).getString(R.string.cancel)).performClick()
                     org.junit.Assert.assertTrue(foregroundServiceRunning())
                     compose.onNodeWithTag("sharing_primary_action").performClick()
                 }

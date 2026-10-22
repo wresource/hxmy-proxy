@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rule_apply_saved">规则设置已保存</string>
+    <string name="rule_apply_saved_detail">启动共享时才会应用规则。</string>
+    <string name="rule_apply_loading">正在应用规则…</string>
+    <string name="rule_apply_ready">规则已生效</string>
+    <string name="rule_apply_pending_detail">修改已保存，当前流量仍按上次生效的配置处理。</string>
+    <string name="rule_apply_starting_detail">规则准备就绪后才会开始共享。</string>
+    <string name="rule_apply_failed">规则修改尚未生效</string>
+    <string name="rule_apply_failed_detail">修改已保存，但未能应用。共享仍使用上次成功生效的配置。</string>
+    <string name="rule_apply_stopped">规则加载失败，共享已停止</string>
+    <string name="rule_apply_stopped_detail">共享已停止，避免按未生效的规则转发。设置已保留，请在运行页重试启动。</string>
+    <string name="rule_apply_asset_error">无法读取规则文件。</string>
+    <string name="rule_apply_validation_error">规则校验未通过。</string>
+    <string name="rule_apply_storage_error">无法加载保存的规则数据。</string>
+    <string name="rule_apply_retry_scheduled">稍后将自动重试。</string>
+    <string name="rule_apply_retry">立即重试</string>
+    <string name="rule_apply_retry_start">重试启动</string>
+    <string name="rule_apply_open_run">前往运行页</string>
+    <string name="rule_apply_logs">查看日志</string>
+    <string name="rule_apply_previous_short">仍使用上次生效的规则。</string>
+    <string name="rule_apply_saved_short">设置已保留。</string>
+</resources>

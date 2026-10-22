@@ -10,6 +10,11 @@ import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.model.ProxySettings
 import com.mzstd.hxmyproxy.core.model.ShareInterface
 import com.mzstd.hxmyproxy.core.model.ShareState
+import com.mzstd.hxmyproxy.core.rules.RuleApplySession
+import com.mzstd.hxmyproxy.core.rules.RuleApplicationState
+import com.mzstd.hxmyproxy.core.rules.RuleApplyPhase
+import com.mzstd.hxmyproxy.core.rules.RuleBuildResult
+import com.mzstd.hxmyproxy.core.rules.RuleCounts
 import com.mzstd.hxmyproxy.core.model.visibleUnderIpv6Pref
 import com.mzstd.hxmyproxy.core.network.ConnectivityObserver
 import com.mzstd.hxmyproxy.core.network.InterfaceScanner
@@ -127,6 +132,7 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var engineScope: CoroutineScope? = null
     // 本次会话的子 scope：所有会话内协程（监听/收集器/ticker）都挂这里，stop() 一次性取消，避免停后残留重启。
     @Volatile private var sessionScope: CoroutineScope? = null
+    @Volatile private var ruleSession: RuleApplySession? = null
     @Volatile private var serverObservers: Job? = null
     // accept 握手 / relay 搬字节各自的有界线程池：硬限阻塞线程数，杜绝用户把连接数/并行度「拉满」时
     // limitedParallelism 弹性视图导致的线程爆炸 → native OOM。会话级，stop()/热重启时 shutdownNow。
@@ -192,7 +198,9 @@ class ProxyServerRepository @Inject constructor(
             CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job])).also {
                 sessionScope = it
                 engineScope = it
-                _state.update { st -> st.copy(starting = true, startupFailed = false) }
+                _state.update { st -> st.copy(starting = true, startupFailed = false,
+                    ruleApplication = RuleApplicationState(phase = RuleApplyPhase.APPLYING,
+                        appliedVersion = ruleEngine.version.value, counts = RuleCounts.of(ruleEngine.snapshot))) }
             }
         }
         try {
@@ -204,7 +212,7 @@ class ProxyServerRepository @Inject constructor(
             Ev.e(LogCat.SVC, "start.failed", e)
             synchronized(lifecycleLock) {
                 if (sessionScope === session) {
-                    stop()
+                    stop(preserveStartupFailure = true)
                     _state.update { it.copy(startupFailed = true) }
                 }
             }
@@ -212,7 +220,6 @@ class ProxyServerRepository @Inject constructor(
     }
 
     private suspend fun startSession(session: CoroutineScope) {
-        val rebuildRequests = kotlinx.coroutines.channels.Channel<ProxySettings>(kotlinx.coroutines.channels.Channel.CONFLATED)
         val rememberedClients = RecentClients.load(appContext).keys
             .mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
         val s = settingsRepository.settings.first()
@@ -228,15 +235,41 @@ class ProxyServerRepository @Inject constructor(
             connectivityObserver.start()
             underlyingNetworkProvider.start()
         }
-        // IO 构建完整快照；任何加载失败都不开放监听。
+        // Initial failure must never open listeners, even if a previous session left a good snapshot.
         val ready = withContext(Dispatchers.IO) {
-            ruleRepository.rebuild(s) { sessionScope === session && session.isActive }
+            ruleRepository.rebuildResult(s, { sessionScope === session && session.isActive }) { commit ->
+                synchronized(lifecycleLock) {
+                    if (sessionScope !== session || !session.isActive) false else { commit(); true }
+                }
+            }
         }
-        check(ready) { "Initial rule snapshot could not be loaded" }
+        when (ready) {
+            RuleBuildResult.Superseded -> throw CancellationException("Rule preparation superseded")
+            is RuleBuildResult.Failed -> {
+                synchronized(lifecycleLock) {
+                    if (sessionScope === session && session.isActive) publishRuleApplication(RuleApplicationState(
+                        phase = RuleApplyPhase.FAILED, appliedVersion = ready.previousVersion,
+                        counts = ready.previousCounts, failure = ready.reason, failureDetail = ready.detail,
+                        stoppedForFailure = true))
+                }
+                error("Initial rule snapshot could not be loaded: ${ready.reason}")
+            }
+            is RuleBuildResult.Ready -> Unit
+        }
         underlyingNetworkProvider.awaitInitialNetwork(false)
         currentCoroutineContext().ensureActive()
         synchronized(lifecycleLock) {
             if (sessionScope !== session || !session.isActive) throw CancellationException("Stopped before listening")
+            ruleSession = RuleApplySession(session, lifecycleLock,
+                { sessionScope === session && session.isActive }, s, ready,
+                build = ruleRepository::rebuildResult,
+                onState = ::publishRuleApplication,
+                onUnsafeFailure = {
+                    // No old rules to protect traffic: save intent, close all listeners/relays,
+                    // and require an explicit start/retry. Cancelling this session cancels retries.
+                    com.mzstd.hxmyproxy.service.ServiceState.setWasSharing(appContext, false)
+                    stop(preserveStartupFailure = true)
+                })
             running = true
             trafficHistory.noteSessionStart()
             _state.update { it.copy(starting = false) }
@@ -255,18 +288,12 @@ class ProxyServerRepository @Inject constructor(
                 _state.update { it.copy(vpn = vpn, diagnostics = it.diagnostics.copy(vpnDetected = vpn.detected)) }
             }
         }
-        // 规则重建 worker：串行消费 + CONFLATED 取最新设置 —— 快速开关（如广告表开/关）时只会重建到最终状态，
-        // 不会出现「关掉后慢的『开』重建后完成、把规则覆盖回开状态」的残留 bug。
         session.launch(Dispatchers.IO) {
-            for (s in rebuildRequests) ruleRepository.rebuild(s) { sessionScope === session && session.isActive }
-        }
-        session.launch {
             settingsRepository.settings.collect { ns ->
                 synchronized(lifecycleLock) {
                     if (sessionScope !== session || !session.isActive) return@collect
                     currentSettings = ns
                     applyTunables(ns)
-                    rebuildRequests.trySend(ns)
                     if (running && serverKey(ns) != lastServerKey) {
                         // 端口 / 协议开关 / 并行度变更 → 热重启监听，即时生效（无需手动保存）
                         stopServers()
@@ -278,6 +305,9 @@ class ProxyServerRepository @Inject constructor(
                     }
                     refresh()
                 }
+                // Equality may read disk collections; never compare rule inputs under the lifecycle lock.
+                val rules = ruleSession
+                if (sessionScope === session && session.isActive) rules?.submit(ns)
             }
         }
         // 凭据变更即时推入认证器（与 server 生命周期解耦，无需重启）。
@@ -808,6 +838,13 @@ class ProxyServerRepository @Inject constructor(
 
     fun stop(preserveStartupFailure: Boolean = false) = synchronized(lifecycleLock) {
         val failed = preserveStartupFailure && _state.value.startupFailed
+        // Preserve only an explicit rule-safety stop. An unrelated service destruction while
+        // old rules are still active must not be relabelled as a safety stop and clear restart intent.
+        val rules = _state.value.ruleApplication.takeIf {
+            preserveStartupFailure && it.phase == RuleApplyPhase.FAILED && it.stoppedForFailure
+        }?.copy(retryScheduled = false) ?: RuleApplicationState()
+        ruleSession?.close()
+        ruleSession = null
         running = false
         connector.cancelPendingDns()
         stopServers()
@@ -843,7 +880,20 @@ class ProxyServerRepository @Inject constructor(
         scanEmptyLogged = false
         lastSelfProbe = "-"
         lastSelfProbeLogged = null   // 下个会话第一次自探必落一条基线（"-->ok/ok"）
-        _state.value = ShareState(startupFailed = failed)
+        _state.value = ShareState(startupFailed = failed, ruleApplication = rules)
+    }
+
+    /** Running-only retry. A stopped service is restarted only through the normal explicit start flow. */
+    fun retryRules() { ruleSession?.retry() }
+
+    private fun publishRuleApplication(value: RuleApplicationState) {
+        _state.update { it.copy(ruleApplication = value) }
+        Ev.k(LogCat.RULE, "rules.applyState", "phase" to value.phase, "request" to value.requestId,
+            "appliedVersion" to value.appliedVersion, "rules" to value.counts.total,
+            "reject" to value.counts.reject, "direct" to value.counts.direct,
+            "userDirect" to value.counts.userDirect, "userReject" to value.counts.userReject,
+            "attempt" to value.attempt, "retry" to value.retryScheduled,
+            "stopped" to value.stoppedForFailure, "reason" to value.failure)
     }
 
     /** 只启动用户开启的协议监听（关掉的不占端口）。 */

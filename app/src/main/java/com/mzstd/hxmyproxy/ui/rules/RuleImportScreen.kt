@@ -138,6 +138,7 @@ fun RuleImportScreen(ui: MainUiState, vm: RuleLibraryViewModel, onBack: () -> Un
         }
     }) {
         LazyColumn(Modifier.fillMaxSize().testTag("rule_import_page"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { com.mzstd.hxmyproxy.ui.components.RuleApplicationNotice(ui.share) }
             if (refError) item { RuleQueryError(vm) }
             if (job != null) item { Text(job.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when (state.step) {

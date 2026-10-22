@@ -144,6 +144,8 @@ fun RunScreen(ui: MainUiState, viewModel: MainViewModel, onOpenConfig: () -> Uni
         }
         SegTabs(listOf(stringResource(R.string.seg_overview), stringResource(R.string.ui_activity), stringResource(R.string.seg_traffic), stringResource(R.string.ui_health)),
             seg, { seg = it }, Modifier.padding(horizontal = 16.dp))
+        com.mzstd.hxmyproxy.ui.components.RuleApplicationNotice(ui.share, onRetry = viewModel::retryRules,
+            onRetryStopped = start, retryStartsSharing = true, onLogs = onOpenLogs, compact = true, modifier = Modifier.padding(horizontal = 16.dp))
         val innerPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding())
         when (seg) {
             0 -> BoxWithConstraints(Modifier.weight(1f)) {

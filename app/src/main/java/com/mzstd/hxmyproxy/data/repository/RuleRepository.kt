@@ -12,6 +12,11 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleCatalog
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.rules.RuleGroupKind
+import com.mzstd.hxmyproxy.core.rules.RuleInputs
+import com.mzstd.hxmyproxy.core.rules.RuleBuildResult
+import com.mzstd.hxmyproxy.core.rules.RuleCounts
+import com.mzstd.hxmyproxy.core.rules.RuleLoadFailure
+import kotlinx.coroutines.CancellationException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
@@ -46,22 +51,32 @@ class RuleRepository @Inject constructor(
      * （RuleEngine 与本类都是 @Singleton，快照跨会话存活）；顺带白赚一条：规则没改时重开共享
      * 不再花那 1.1 秒。
      */
+    /** Compatibility helper for isolated matching tests; the service consumes the typed result. */
+    fun rebuild(settings: ProxySettings, canApply: () -> Boolean = { true }): Boolean =
+        rebuildResult(settings, canApply) { action ->
+            if (!canApply()) false else { action(); true }
+        } is RuleBuildResult.Ready
+
     @Synchronized
-    fun rebuild(settings: ProxySettings, canApply: () -> Boolean = { true }): Boolean {
-        return try {
-            rebuildSnapshot(settings, canApply)
-        } catch (error: Exception) {
-            // A missing/corrupt rule collection must not publish a partly loaded snapshot.
-            lastBuilt = null
-            Ev.e(LogCat.RULE, "rules.rebuildFailed", error, "source" to "rule-content")
-            false
+    fun rebuildResult(
+        settings: ProxySettings,
+        canApply: () -> Boolean = { true },
+        commit: ((() -> Unit) -> Boolean) = { action -> if (!canApply()) false else { action(); true } },
+    ): RuleBuildResult {
+        if (!canApply()) return RuleBuildResult.Superseded
+        assetFailures = 0
+        assetFailureDetails.clear()
+        assetFailureCause = null
+        return try { buildSnapshot(settings, canApply, commit) }
+        catch (_: CancellationException) { RuleBuildResult.Superseded }
+        catch (error: Exception) {
+            if (!canApply()) RuleBuildResult.Superseded
+            else failed(settings, RuleLoadFailure.STORAGE, error.toString(), error = error)
         }
     }
 
-    private fun rebuildSnapshot(settings: ProxySettings, canApply: () -> Boolean): Boolean {
-        // A cancelled session may have been waiting on this monitor when a newer session
-        // loaded its rules. Monitor acquisition is not FIFO; never publish that old request.
-        if (!canApply()) return false
+    private fun buildSnapshot(settings: ProxySettings, canApply: () -> Boolean,
+        commit: ((() -> Unit) -> Boolean)): RuleBuildResult {
         val key = RuleInputs.of(settings)
         if (key == lastBuilt) {
             // 跳过也要留痕，而且**必须带各表规模**：rules.rebuilt 是全仓唯一记录规则表条数的地方
@@ -74,10 +89,9 @@ class RuleRepository @Inject constructor(
                 "userDirect" to s.userDirect.size, "userReject" to s.userReject.size,
                 "adsAllow" to s.adsAllow.size,
             )
-            return true
+            return if (commit { }) ready(changed = false) else RuleBuildResult.Superseded
         }
         val t0 = System.currentTimeMillis()
-        assetFailures = 0
         val probes = ArrayList<String>(PROBE_MAX)
         val reject = RuleMatcher()
         val direct = RuleMatcher()
@@ -124,23 +138,24 @@ class RuleRepository @Inject constructor(
         // 平手裁决用:两张用户表各自最近一条的添加时间(停用条目不算,它们不参与判定)。
         val newestAllow = settings.userDirectRules.asSequence().filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
         val newestBlock = settings.userRejectRules.asSequence().filter { it.enabled }.maxOfOrNull { it.addedAt } ?: 0L
-        // Reading assets is blocking: cancellation can arrive while it is in progress.
-        if (!canApply()) return false
-        // 不发布缺失 assets 的部分快照。冷启动保持关闭，热更新保留上一份完整快照。
-        if (assetFailures > 0 || !selfCheck(reject, probes)) {
-            Ev.kw(LogCat.RULE, "rules.rebuildFailed", "assetFail" to assetFailures)
-            lastBuilt = null
-            return false
-        }
-        ruleEngine.update(
-            RuleEngine.Snapshot(
-                ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
-                userDirect = userDirect, userReject = userReject,
-                userDirectNewer = newestAllow >= newestBlock,
-                adsAllow = adsAllow,
-                reject = reject, direct = direct, proxy = proxy,
-            ),
+        // Building is blocking. Commit is fenced by the service's lifecycle/request gate.
+        if (!canApply()) return RuleBuildResult.Superseded
+        val snapshot = RuleEngine.Snapshot(
+            ovrDirect = ovrDirect, ovrReject = ovrReject, ovrProxy = ovrProxy,
+            userDirect = userDirect, userReject = userReject,
+            userDirectNewer = newestAllow >= newestBlock,
+            adsAllow = adsAllow, reject = reject, direct = direct, proxy = proxy,
         )
+        val valid = assetFailures == 0 && selfCheck(reject, probes)
+        if (!valid) return failed(settings,
+            if (assetFailures > 0) RuleLoadFailure.ASSET_READ else RuleLoadFailure.VALIDATION,
+            if (assetFailures > 0) assetFailureDetails.joinToString("; ").take(512) else "Built-in rule self-check failed",
+            RuleCounts.of(snapshot), assetFailureCause)
+        if (!commit {
+            ruleEngine.update(snapshot)
+            // Memo and snapshot change together; an obsolete request cannot change either.
+            lastBuilt = key
+        }) return RuleBuildResult.Superseded
         // 规则表规模落盘：防护突然失灵时，「表里到底有多少条」是第一个要看的数字——
         // 6.6 万条变成 3 条与「规则没生效」在 UI 上完全同形，只有这里能区分。
         // 同时带 assetFail：任一内置组装载失败都会让它静默变空（见 loadAsset）。
@@ -152,61 +167,43 @@ class RuleRepository @Inject constructor(
             "assetFail" to assetFailures.takeIf { it > 0 },
             // 自检：抽样验证「刚装进去的条目能被匹配出来」，含子域（全层级语义）。
             // 条数正常但个别条目丢失时，只有这个字段会变红。
-            "probe" to if (selfCheck(reject, probes)) "ok:${probes.size}" else "FAIL",
+            "probe" to "ok:${probes.size}",
             "ms" to (System.currentTimeMillis() - t0),
         )
-        // 装载失败过就**不**记忆化：留住「下次设置变更时顺带重试」的机会。
-        // 否则一次 assets 读失败（见 loadAsset 的注释：这是静默失败最危险的一处）
-        // 会被永久固化成空表，而 UI 上开关仍显示「已启用」。
-        lastBuilt = key
-        return true
+        return ready(changed = true)
     }
 
-    /** 本轮 [rebuild] 中装载失败的 assets 数量（喂给 rules.rebuilt 的 assetFail 字段）。 */
     private var assetFailures = 0
-
-    /** 引擎里当前装的是哪一份规则输入；null=未知/需重建。仅在 [rebuild] 的锁内读写。 */
+    private val assetFailureDetails = ArrayList<String>()
+    private var assetFailureCause: Exception? = null
     private var lastBuilt: RuleInputs? = null
 
-    /**
-     * [rebuild] 真正读到的字段，一个不多一个不少。
-     *
-     * 多一个：无关变更也会触发重建，白白付掉那 1.1 秒。
-     * 少一个：改了规则却不重建 —— **静默失效**，UI 上开关一切正常，用户只会发现「我明明改了却没生效」。
-     * 所以这份清单必须对着 [rebuild] 正文逐行核，不能凭印象。
-     *
-     * 两张用户表存**整条 [RuleEntry]** 而不是 List<String>：`addedAt` 参与 userDirectNewer 的
-     * 平手裁决、`enabled` 决定是否装载，只比对 value 会漏掉这两类变更。
-     */
-    private data class RuleInputs(
-        val groups: Set<String>,
-        val rejectedGroups: Set<String>,
-        val overrides: Map<String, List<String>>,
-        val hostOverrides: Map<String, RuleAction>,
-        val userDirectEnabled: Boolean,
-        val userRejectEnabled: Boolean,
-        val userDirect: List<RuleEntry>,
-        val userReject: List<RuleEntry>,
-        val sets: List<NamedInput>,
-    ) {
-        companion object {
-            fun of(s: ProxySettings) = RuleInputs(
-                groups = s.enabledRuleGroups,
-                rejectedGroups = s.rejectedGroups,
-                overrides = s.ruleSetOverrides,
-                hostOverrides = s.hostOverrides,
-                userDirectEnabled = s.userDirectEnabled,
-                userRejectEnabled = s.userRejectEnabled,
-                userDirect = s.userDirectRules,
-                userReject = s.userRejectRules,
-                // Inactive named sets do not affect matching or tie timestamps; editing them needs no rebuild.
-                sets = s.userRuleSets.filter { it.enabled }.map { NamedInput(it.id, it.action, it.domains, true) },
-            )
-        }
-    }
+    private fun ready(changed: Boolean) = RuleBuildResult.Ready(ruleEngine.version.value,
+        RuleCounts.of(ruleEngine.snapshot), changed)
 
-    /** Subscription status/name changes do not change the immutable routing inputs. */
-    private data class NamedInput(val id: String, val action: RuleAction, val domains: List<String>, val enabled: Boolean)
+    private fun failed(settings: ProxySettings, reason: RuleLoadFailure, detail: String,
+        candidate: RuleCounts? = null, error: Throwable? = null): RuleBuildResult.Failed {
+        lastBuilt = null // Retain the complete snapshot, but permit a real retry of these inputs.
+        val old = ready(false)
+        val needsProtection = try {
+            settings.enabledRuleGroups.any { id ->
+                RuleCatalog.byId(id)?.kind?.let { it != RuleGroupKind.PROXY } == true &&
+                    settings.ruleSetOverrides[id]?.isEmpty() != true
+            } || settings.userDirectEnabled && settings.userDirectRules.any { it.enabled } ||
+                settings.userRejectEnabled && settings.userRejectRules.any { it.enabled } ||
+                settings.userRuleSets.any { it.enabled && it.domains.isNotEmpty() } ||
+                settings.hostOverrides.values.any { it != RuleAction.PROXY }
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { true } // A storage error is not proof that protection is unnecessary.
+        Ev.e(LogCat.RULE, "rules.rebuildFailed", error, "reason" to reason, "detail" to detail.take(512),
+            "source" to if (reason == RuleLoadFailure.STORAGE) "rule-content" else "assets",
+            "assetFail" to assetFailures, "appliedVersion" to old.version,
+            "previousRules" to old.counts.total, "previousReject" to old.counts.reject,
+            "previousUserDirect" to old.counts.userDirect,
+            "candidateRules" to candidate?.total, "candidateReject" to candidate?.reject,
+            "candidateUserDirect" to candidate?.userDirect, "requestedProtection" to needsProtection)
+        return RuleBuildResult.Failed(reason, detail.take(512), old.version, old.counts, needsProtection)
+    }
 
     private fun loadAsset(path: String, into: RuleMatcher, sampleInto: MutableList<String>? = null) {
         try {
@@ -229,11 +226,14 @@ class RuleRepository @Inject constructor(
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (e: Exception) {
             // **静默失败最危险的一处**：某个规则集变成空表，广告照进、直连组失效，而 UI 上
             // 开关仍显示「已启用」。此前只有 Log.w（release 下 logcat 还被剥离），导出日志里
             // 一个字都没有。进 key.log。
             assetFailures++
+            if (assetFailureCause == null) assetFailureCause = e
+            assetFailureDetails.add("$path: ${e.message ?: e.javaClass.simpleName}")
             Ev.kw(LogCat.RULE, "rules.assetFailed", "path" to path, "err" to e.toString())
         }
     }

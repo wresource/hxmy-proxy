@@ -24,6 +24,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -43,6 +45,10 @@ class ProxyForegroundService : Service() {
     @Volatile private var started = false
     @Volatile private var language = AppLanguage.SYSTEM
     @Volatile private var lastState = ShareState()
+    private var latestStartId = 0
+    private var acceptingStart = false
+    private var stateObserver: Job? = null
+    private var languageObserver: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -50,11 +56,13 @@ class ProxyForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         if (intent?.action == ACTION_STOP) {
             Ev.k(LogCat.SVC, "fgs.stop", "by" to "user", "startId" to startId)
             shutdown(startId)
             return START_NOT_STICKY
         }
+        acceptingStart = true
         startForeground(
             NOTIF_ID,
             buildNotification(localized().getString(R.string.notif_starting)),
@@ -63,8 +71,25 @@ class ProxyForegroundService : Service() {
         // 收集器只随服务实例启动一次（重复 collect 会叠加通知推送）。
         if (!started) {
             started = true
-            scope.launch { repository.state.collect { lastState = it; pushNotification() } }
-            scope.launch { settingsRepository.settings.collect { language = it.language; pushNotification() } }
+            stateObserver?.cancel()
+            languageObserver?.cancel()
+            // Lifecycle decisions run on Main, ordered with onStartCommand. An old failure
+            // cannot clear the restart flag/notification of a newer start request.
+            stateObserver = scope.launch(Dispatchers.Main.immediate) {
+                repository.state.collect { state ->
+                    lastState = state
+                    if (!acceptingStart && repository.state.value === state && !state.running && !state.starting &&
+                        (state.startupFailed || state.ruleApplication.stoppedForFailure)) {
+                        ServiceState.setWasSharing(this@ProxyForegroundService, false)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf(latestStartId)
+                    } else if (state.running || state.starting) pushNotification()
+                }
+            }
+            languageObserver = scope.launch { settingsRepository.settings.collect {
+                language = it.language
+                if (lastState.running || lastState.starting) pushNotification()
+            } }
         }
         // 引擎是否启动**看引擎自己的真实状态**，不只看 started 标志：标志是服务级的，曾经出过残留
         // （stopSelf→onDestroy 窗口），一旦残留就会整段跳过 repository.start()，连带跳过其中的
@@ -77,15 +102,13 @@ class ProxyForegroundService : Service() {
             // 记「共享中」：开机 / app 更新后由 RestartReceiver 据此自动恢复。**同步写独立 SharedPreferences**，
             // 绝不走 settings flow —— 那会触发 applyTunables/规则重建/serverKey 热重启/refresh，与引擎启动并发。
             ServiceState.setWasSharing(this, true)
-            scope.launch {
+            // Set starting/clear an old failure synchronously, before a queued state observer
+            // can mistake that old failure for this request. The actual build remains on IO.
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 repository.start(scope)
-                if (repository.state.value.startupFailed) {
-                    ServiceState.setWasSharing(this@ProxyForegroundService, false)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf(startId)
-                }
             }
         }
+        acceptingStart = false
         return START_STICKY
     }
 
@@ -94,6 +117,8 @@ class ProxyForegroundService : Service() {
         // 仍为 true 而跳过 repository.start()——startForeground 已执行、通知在、UI 却停在未共享，
         // 正是「开关共享开关也没用」的一种真实成因。
         started = false
+        stateObserver?.cancel()
+        languageObserver?.cancel()
         // 用户**主动**停止 → 清标记，开机/更新后不再自动恢复（绝不擅自开启共享）。同步写，不留悬挂协程。
         ServiceState.setWasSharing(this, false)
         repository.stop()
@@ -131,6 +156,8 @@ class ProxyForegroundService : Service() {
             state.starting -> loc.getString(R.string.notif_starting)
             state.startupFailed -> loc.getString(R.string.startup_failed)
             !state.running -> loc.getString(R.string.notif_stopped)
+            state.ruleApplication.phase == com.mzstd.hxmyproxy.core.rules.RuleApplyPhase.FAILED ->
+                loc.getString(R.string.rule_apply_failed)
             // 失联告警借用常驻通知（不新弹）：客户端曾在、现探测不可达且无真实入站——
             // 用户不用等自己发现断网,瞥一眼通知即知,点开 app 可手动刷新/看指引。
             state.unreachableClients.isNotEmpty() ->

@@ -63,7 +63,7 @@ import com.mzstd.hxmyproxy.ui.theme.LocalDarkTheme
 internal fun WarnBanners(ui: MainUiState, onSettings: ((String) -> Unit)? = null) {
     val share = ui.share
     val actions = linkedMapOf<String, Int>()
-    if (share.startupFailed) WarnBanner(stringResource(R.string.startup_failed))
+    if (share.startupFailed && !share.ruleApplication.stoppedForFailure) WarnBanner(stringResource(R.string.startup_failed))
     if (!share.running) return
     if (share.directEgressUnavailable) {
         val label = when (ui.settings.directEgressChoice) {

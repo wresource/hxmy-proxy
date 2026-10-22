@@ -72,6 +72,7 @@ data class ShareState(
     val running: Boolean = false,
     val starting: Boolean = false,
     val startupFailed: Boolean = false,
+    val ruleApplication: com.mzstd.hxmyproxy.core.rules.RuleApplicationState = com.mzstd.hxmyproxy.core.rules.RuleApplicationState(),
     /** 本次共享会话开始时刻(epoch ms);0=未在运行。UI 据此显示「已运行」。 */
     val sessionStartedAtMs: Long = 0,
     val vpn: VpnState = VpnState(),

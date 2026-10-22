@@ -28,7 +28,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun RuleWorkbenchScreen(ui: MainUiState, main: MainViewModel, vm: RuleLibraryViewModel,
     onImport: (String?) -> Unit, onSource: (String, String) -> Unit, onManual: (String, RuleAction?) -> Unit,
-    onManager: (String) -> Unit, onChanges: () -> Unit, contentPadding: PaddingValues) {
+    onManager: (String) -> Unit, onChanges: () -> Unit, contentPadding: PaddingValues,
+    onOpenRun: (() -> Unit)? = null, onLogs: (() -> Unit)? = null) {
     LaunchedEffect(vm) { vm.activate() }
     val sources by vm.sources.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
@@ -67,6 +68,7 @@ fun RuleWorkbenchScreen(ui: MainUiState, main: MainViewModel, vm: RuleLibraryVie
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().imePadding().testTag("rule_workbench"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item { RuleApplicationNotice(ui.share, onRetry = main::retryRules, onRetryStopped = onOpenRun, onLogs = onLogs, showSettled = true) }
             item {
                 RuleCard {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

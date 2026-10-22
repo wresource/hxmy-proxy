@@ -13,15 +13,16 @@ gateway are outside its coverage. VPN app policies and the local network can aff
 
 ## Download and latest update
 
-[**1.48.76 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.48.76/hxmy-proxy-1.48.76.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.48.76) ·
-[What's new](docs/releases/1.48.76.md)
+[**1.49.16 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.16/hxmy-proxy-1.49.16.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.16) ·
+[What's new](docs/releases/1.49.16.md)
 
-This release brings a clearer workbench, persistent recent rule changes with safe restore, fixes
-for traffic-list crashes, and improvements to DNS and network recovery. IPs, ports and Inbound
-controls stay close at hand. Inbound lists IPv4 before IPv6; rounded feedback, alignment and
-large-text layouts are consistent across the interface. Install the APK over the existing app
-to retain its data. The AAB is for Google Play submission. Availability on Play follows its own rollout.
+This release makes large rule lists easier to import, browse and search, fixes the large-TXT
+import crash, and shows whether saved rule changes have actually taken effect. Failed updates
+retain the previous complete rules and offer retry; when new Direct/Block protection cannot load
+and no previous protection is active, sharing stops instead of continuing unprotected. Install
+the APK over the existing app to retain its data. The AAB is for Google Play submission.
+Availability on Play follows its own rollout.
 
 | Overview | Device and destination traffic | Inbound and ports | Outbound settings |
 |---|---|---|---|
@@ -51,11 +52,24 @@ if it is no longer needed. A client still pointing to a stopped gateway may be u
 | **Run → Overview** | See IP addresses and HTTP/SOCKS5/PAC ports, copy or scan connection information, select Inbound and edit ports. Use the sharing switch, open client setup, or jump to Activity and Add rule. |
 | **Activity** | See client devices and their upload/download usage, destination traffic, active connections, recent results and the effective rule. Search or sort, open the full domain list from its five-row preview, and inspect a destination without losing context. |
 | **Traffic / Health** | Inspect usage by period and outgoing network, service health, latency, protection, history and diagnostic logs. |
-| **Rules** | Add, edit or disable domain/IP/CIDR rules; choose Proxy, Direct or Block; manage built-in groups and subscriptions. Review recent quick changes and restore a previous rule safely. |
+| **Rules** | Add or import domain/IP/CIDR/range rules, preview conflicts, and browse or search large lists page by page. Manage built-in groups, editable copies and subscriptions; review recent changes and the actual application status. |
 | **Settings** | Inbound and ports are directly editable. **Outbound** and **Direct egress** remain separate. Configure protocols, DNS, authentication, performance, appearance, diagnostics and backups. |
 
 The main navigation has Run, Rules and Settings. Overview, Activity, Traffic and Health are sections
 within Run; detailed lists and settings open separate pages or bottom sheets.
+
+## Import and manage rules
+
+Open **Rules → Import** to select a TXT file or paste entries. Check the preview and invalid
+lines before appending to a list or confirming replacement. IPv4, IPv6, CIDR and same-family
+address ranges are supported: `1.2.3.4-1.2.3.255` and `1.2.3.4 1.2.3.255` both mean a range.
+Ranges become equivalent CIDR blocks without expanding every address.
+
+List previews show five entries; the full page loads and searches 50 at a time. Built-in lists
+can be browsed, searched, exported or copied into an editable list. Overlap warnings identify
+the relevant rule or group, with options to inspect, disable it or keep the new rule. IP/CIDR
+rules match IP-address requests; they do not automatically reroute hostname requests by their
+resolved IP. Any related-IP hint uses an observed connection, not an assumed DNS result.
 
 ## Routing and troubleshooting
 
@@ -70,6 +84,11 @@ within Run; detailed lists and settings open separate pages or bottom sheets.
 - When a site fails, search Activity, inspect the recorded result and effective rule, and make the
   smallest appropriate change. **Proxy** and **Direct** have different effects. DNS or an unavailable
   network may need a network setting change instead of a new rule.
+- Check the rule application status after editing. Saved settings and active rules are distinct.
+  On a failed update, a complete previous rule table stays active and the app offers retry and
+  logs. If new Direct/Block protection fails with no previous protection, sharing stops and
+  existing connections close. Resolve the error and explicitly start sharing again. A deliberate
+  empty configuration remains valid; incomplete startup rules never open proxy listeners.
 - Retry on the client and observe a **new** connection. Saving a rule does not rewrite old records
   or prove that the website works. The latest 20 quick rule changes are retained locally across
   restarts; restore is blocked if later edits changed the same host, even if it was changed back.
@@ -79,7 +98,7 @@ Other capabilities include per-entry rule switches, built-in app/service groups,
 lists, HTTP/SOCKS authentication, IPv4/IPv6 ingress, DNS fallback, adjustable connection limits,
 cross-session traffic totals, link probes and a non-blocking TCP relay. Sharing can resume after
 an update or reboot when it was previously active, subject to Android's background restrictions.
-An intentional stop keeps it off.
+An intentional stop or a rule-protection safety stop keeps it off.
 
 ## Privacy and local data
 

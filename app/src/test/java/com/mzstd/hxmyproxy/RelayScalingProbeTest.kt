@@ -14,6 +14,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLongArray
 import kotlin.concurrent.thread
 
@@ -165,18 +166,36 @@ class RelayScalingProbeTest {
         bytes: Long,
         cleanup: () -> Unit,
     ): Double {
-        barrier.await()
-        val t0 = System.nanoTime()
-        threads.forEach { it.join(180_000) }
-        val elapsed = (System.nanoTime() - t0) / 1e9
-        var total = 0L
-        for (i in 0 until n) {
-            val v = got.get(i)
-            check(v == bytes) { "第 $i 条只收到 $v 字节（期望 $bytes）" }
-            total += v
+        try {
+            barrier.await(180, TimeUnit.SECONDS)
+            val t0 = System.nanoTime()
+            // One workload deadline, not three minutes per reader. Keep the original byte
+            // assertions: a stalled/partial transfer is a failure, never a throughput sample.
+            val deadline = t0 + TimeUnit.SECONDS.toNanos(180)
+            for (worker in threads) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) break
+                TimeUnit.NANOSECONDS.timedJoin(worker, remaining)
+            }
+            val elapsed = (System.nanoTime() - t0) / 1e9
+            check(threads.none { it.isAlive }) { "relay probe timed out: ${threads.filter { it.isAlive }.map { it.name }}" }
+            var total = 0L
+            for (i in 0 until n) {
+                val v = got.get(i)
+                check(v == bytes) { "第 $i 条只收到 $v 字节（期望 $bytes）" }
+                total += v
+            }
+            return total / 1024.0 / 1024.0 / elapsed
+        } finally {
+            cleanup()
+            threads.filter { it.isAlive }.forEach { it.interrupt() }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            for (worker in threads) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) break
+                TimeUnit.NANOSECONDS.timedJoin(worker, remaining)
+            }
         }
-        cleanup()
-        return total / 1024.0 / 1024.0 / elapsed
     }
 
     private fun writerThread(ch: SocketChannel, bytes: Long, barrier: CyclicBarrier): Thread =

@@ -178,6 +178,8 @@ class MainViewModel @Inject constructor(
     fun manualReset() = proxyServerRepository.manualReset()
     fun ackManualReset() = proxyServerRepository.ackManualReset()
 
+    fun retryRules() = proxyServerRepository.retryRules()
+
     /** 速率历史（最近 60 个 1s 样本，字节/秒），监控/首页 sparkline 用；停止即清空。 */
     data class RateHistory(val down: List<Float> = emptyList(), val up: List<Float> = emptyList())
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rule_apply_saved">Rule settings saved</string>
+    <string name="rule_apply_saved_detail">Rules will be applied when sharing starts.</string>
+    <string name="rule_apply_loading">Applying rules…</string>
+    <string name="rule_apply_ready">Rules applied</string>
+    <string name="rule_apply_pending_detail">Changes are saved. Traffic still follows the last applied configuration.</string>
+    <string name="rule_apply_starting_detail">Sharing will start after the rules are ready.</string>
+    <string name="rule_apply_failed">Rule changes are not active</string>
+    <string name="rule_apply_failed_detail">Changes are saved, but could not be applied. Sharing still uses the last successful configuration.</string>
+    <string name="rule_apply_stopped">Rules failed to load · Sharing stopped</string>
+    <string name="rule_apply_stopped_detail">Sharing has stopped to avoid forwarding with unapplied rules. Your settings are saved. Retry from Run.</string>
+    <string name="rule_apply_asset_error">A rule file could not be read.</string>
+    <string name="rule_apply_validation_error">Rule validation failed.</string>
+    <string name="rule_apply_storage_error">Saved rule data could not be loaded.</string>
+    <string name="rule_apply_retry_scheduled">An automatic retry is scheduled.</string>
+    <string name="rule_apply_retry">Retry now</string>
+    <string name="rule_apply_retry_start">Retry start</string>
+    <string name="rule_apply_open_run">Open Run</string>
+    <string name="rule_apply_logs">View logs</string>
+    <string name="rule_apply_previous_short">Using the last applied rules.</string>
+    <string name="rule_apply_saved_short">Your settings are saved.</string>
+</resources>

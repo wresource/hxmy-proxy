@@ -234,7 +234,8 @@ fun AppRoot(viewModel: MainViewModel) {
                     composable(NavTab.RULES.route) {
                         RuleWorkbenchScreen(ui, viewModel, ruleLibrary, openRuleImport, openRuleSource,
                             onManual = { query, action -> navController.navigate("rule_manual?query=${android.net.Uri.encode(query)}&action=${action?.name.orEmpty()}") },
-                            onManager = { mode -> navController.navigate("rule_sources/$mode") }, onChanges = openChanges, contentPadding = pagePadding)
+                            onManager = { mode -> navController.navigate("rule_sources/$mode") }, onChanges = openChanges, contentPadding = pagePadding,
+                            onOpenRun = { navController.switchTo(NavTab.RUN) }, onLogs = { openLogs("") })
                     }
                     composable("quick_rules_reject") {
                         RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, initialAction = com.mzstd.hxmyproxy.core.rules.RuleAction.REJECT)
@@ -303,7 +304,8 @@ fun AppRoot(viewModel: MainViewModel) {
                     }
                     composable("help") { HelpScreen(onBack = { navController.popBackStack() }) }
                     composable("ruleset_manager") {
-                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport)
+                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport,
+                            share = ui.share, onRetryRules = viewModel::retryRules)
                     }
                     composable("ruleset_edit/{kind}/{id}") { entry ->
                         val id = "${entry.arguments?.getString("kind") ?: "user"}:${entry.arguments?.getString("id").orEmpty()}"
@@ -314,7 +316,8 @@ fun AppRoot(viewModel: MainViewModel) {
                             ui, viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource, openChanges)
                     }
                     composable("rule_sources/{mode}") { entry ->
-                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport, entry.arguments?.getString("mode") ?: "builtin")
+                        RuleSourcesScreen(ruleLibrary, { navController.popBackStack() }, openRuleSource, openRuleImport, entry.arguments?.getString("mode") ?: "builtin",
+                            share = ui.share, onRetryRules = viewModel::retryRules)
                     }
                     composable("rule_manual?query={query}&action={action}", arguments = listOf(navArgument("query") { defaultValue = "" }, navArgument("action") { defaultValue = "" })) { entry ->
                         RuleManualScreen(viewModel, ruleLibrary, { navController.popBackStack() }, openRuleImport, openRuleSource,

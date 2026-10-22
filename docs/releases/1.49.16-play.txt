@@ -1,0 +1,13 @@
+<en-US>
+• Import TXT rules directly with previews, conflict actions and paged browsing/search.
+• Fix large-file import crashes; support IPv4/IPv6, CIDR and IP ranges.
+• Show whether saved rules are active, with retry and logs on failure. If new protection cannot load and no previous protection exists, sharing stops safely.
+• Improve error-log filtering and large-text layouts.
+</en-US>
+
+<zh-CN>
+• 规则首页直接导入TXT，支持预检、冲突处理、追加/替换与撤销；大规则集分页浏览搜索。
+• 修复大文件导入闪退，支持IPv4/IPv6、CIDR和IP范围。
+• 明确显示规则生效状态，失败可重试和查看日志；无旧保护且新保护加载失败时停止共享。
+• 改善错误日志筛选及大字体布局。
+</zh-CN>

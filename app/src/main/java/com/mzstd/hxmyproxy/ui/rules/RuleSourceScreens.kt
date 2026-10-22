@@ -32,6 +32,7 @@ fun RuleManualScreen(main: MainViewModel, vm: RuleLibraryViewModel, onBack: () -
     onImport: (String?) -> Unit, onSource: (String, String) -> Unit, initialAction: RuleAction? = null, overridesOnly: Boolean = false,
     initialQuery: String = "") {
     LaunchedEffect(vm) { vm.activate() }
+    val runtime by main.uiState.collectAsStateWithLifecycle()
     val all by vm.sources.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -51,6 +52,7 @@ fun RuleManualScreen(main: MainViewModel, vm: RuleLibraryViewModel, onBack: () -
         actions = { IconButton(onClick = { history = true }) { Icon(painterResource(R.drawable.ic_b_history), stringResource(R.string.rules_add_from_history)) } },
         footer = { result.page?.let { RulePager(it, { offset = it }) } }) {
         LazyColumn(Modifier.fillMaxSize().testTag("manual_rules_page"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { RuleApplicationNotice(runtime.share, onRetry = main::retryRules) }
             item { AdaptiveActionPair(stringResource(R.string.ui_add_rule), stringResource(R.string.rl_import_file)) { button ->
                 Button(onClick = { adding = true }, modifier = button, shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.ui_add_rule)) }
                 FilledTonalButton(onClick = { onImport(null) }, modifier = button, shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.rl_import_file)) }
@@ -75,7 +77,8 @@ fun RuleManualScreen(main: MainViewModel, vm: RuleLibraryViewModel, onBack: () -
 
 @Composable
 fun RuleSourcesScreen(vm: RuleLibraryViewModel, onBack: () -> Unit, onSource: (String, String) -> Unit,
-    onImport: (String?) -> Unit, initialMode: String = "builtin") {
+    onImport: (String?) -> Unit, initialMode: String = "builtin",
+    share: com.mzstd.hxmyproxy.core.model.ShareState = com.mzstd.hxmyproxy.core.model.ShareState(), onRetryRules: (() -> Unit)? = null) {
     LaunchedEffect(vm) { vm.activate() }
     val all by vm.sources.collectAsStateWithLifecycle()
     val notice by vm.notice.collectAsStateWithLifecycle()
@@ -111,6 +114,7 @@ fun RuleSourcesScreen(vm: RuleLibraryViewModel, onBack: () -> Unit, onSource: (S
             }
         }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { RuleApplicationNotice(share, onRetry = onRetryRules) }
             item { AdaptiveActionPair(stringResource(if (mode == 2) R.string.rl_add_subscription else R.string.rl_new_set), stringResource(R.string.rl_import_file)) { button ->
                 Button(onClick = { creating = true }, modifier = button, shape = MaterialTheme.shapes.medium) { Text(stringResource(if (mode == 2) R.string.rl_add_subscription else R.string.rl_new_set)) }
                 FilledTonalButton(onClick = { onImport(null) }, modifier = button, shape = MaterialTheme.shapes.medium) { Text(stringResource(R.string.rl_import_file)) }
@@ -188,6 +192,7 @@ fun RuleSourceScreen(id: String, initialQuery: String, ui: MainUiState, main: Ma
         IconButton(onClick = { more = true }, enabled = source != null) { Icon(painterResource(R.drawable.ic_ui_more), stringResource(R.string.ui_more_actions)) }
     }, footer = { result.page?.let { RulePager(it, { offset = it }) } }) {
         LazyColumn(Modifier.fillMaxSize().testTag("rule_source_page"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { RuleApplicationNotice(ui.share, onRetry = main::retryRules, showSettled = true) }
             if (source == null) item { Text(stringResource(if (loading || all.isEmpty()) R.string.rl_loading else R.string.rl_missing_set)) }
             else {
                 item { RuleCard {
