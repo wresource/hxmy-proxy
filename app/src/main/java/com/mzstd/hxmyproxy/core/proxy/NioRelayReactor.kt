@@ -185,13 +185,17 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     ) = suspendCancellableCoroutine<Unit> { cont ->
         val tunnel = Tunnel(client, upstream, bufferBytes, idleMs, host, trace, onTraffic, cont)
         // 取消（协程取消 / ProxyServer.stop 级联）→ 投递到 selector 线程拆隧道。
-        cont.invokeOnCancellation { enqueue { tunnel.close(this) } }
+        cont.invokeOnCancellation {
+            tunnel.markClosing("cancelled")
+            enqueue { tunnel.close(this) }
+        }
         // 注册必须在 selector 线程（register 与 select 互斥，跨线程直接 register 会卡死）。
         enqueue {
             try {
                 tunnel.register(selector)
                 tunnels.add(tunnel)
             } catch (e: Throwable) {
+                tunnel.failure("register-error", "register", null, e)
                 tunnel.close(this)
             }
         }
@@ -219,6 +223,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     }
 
     private fun loop() {
+        var workerFailure: Throwable? = null
         try {
             var lastSweep = System.nanoTime()
             while (running) {
@@ -235,6 +240,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
                         if (key.isReadable) ctx.tunnel.onReadable(ctx, this)
                         if (key.isValid && key.isWritable) ctx.tunnel.onWritable(ctx, this)
                     } catch (e: Throwable) {
+                        ctx.tunnel.failure("io-error", "selector", null, e)
                         ctx.tunnel.close(this)       // 对端 reset / 写错等 → 拆隧道
                     }
                 }
@@ -245,6 +251,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
                 }
             }
         } catch (e: Throwable) {
+            workerFailure = e
             // 意外崩溃（select 抛系统错误 / sweep 里 resume 抛等）。此前这里**零日志、零恢复**：
             // 线程静默死亡后新隧道全部永久挂起、idle sweep 一并失效——正是「服务挂了但没有任何痕迹」
             // 的完美形态（7-26 排障教训）。落 key.log；复活由 aliveWorkerAt 在下次 relay 时按槽位换新。
@@ -262,7 +269,11 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         } finally {
             // 每条单独兜底：一条隧道 close/resume 抛错（如 dispatcher 已关）不能中断其余隧道的收尾——
             // 否则剩余协程永不 resume（连接与 registry 计数一起泄漏）。
-            tunnels.toList().forEach { runCatching { it.close(this) } }
+            tunnels.toList().forEach { tunnel -> runCatching {
+                if (workerFailure != null) tunnel.failure("worker-error", "select", null, workerFailure)
+                else tunnel.markClosing("worker-stop")
+                tunnel.close(this)
+            } }
             runCatching { selector.close() }
             // 顺序关键：先关 selector 再立 flag 再最终 drain——晚到任务两种结局都安全：
             // 被这次 drain 消费（register 对已关 selector 抛 → close → resume），
@@ -387,9 +398,15 @@ private class Tunnel(
      * sweep 的两条回收路径各自在 close 前 [markClosing]，于是 `req.closed` 的 `why=`
      * 直接分开「正常结束」「空闲老化」「对端已关」。
      */
-    @Volatile private var closeReason = "eof"
+    private val evidence = RelayCloseEvidence()
 
-    fun markClosing(reason: String) { closeReason = reason }
+    fun markClosing(reason: String) { evidence.terminate(reason) }
+    fun failure(reason: String, operation: String, side: String?, error: Throwable) {
+        evidence.terminate(reason, operation, side, error)
+    }
+    private fun side(ctx: ChannelCtx) = if (ctx === cCtx) "client" else "upstream"
+    private inline fun <T> io(ctx: ChannelCtx, operation: String, block: () -> T): T = try { block() }
+        catch (e: Throwable) { failure("io-error", operation, side(ctx), e); throw e }
 
     /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
     private val startNs = System.nanoTime()
@@ -402,6 +419,7 @@ private class Tunnel(
 
     /** 在 selector 线程注册两 channel（初始都想读）。 */
     fun register(selector: Selector) {
+        runCatching { trace?.relayStarted(cCtx.channel.socket(), uCtx.channel.socket()) }
         cCtx.key = cCtx.channel.register(selector, SelectionKey.OP_READ, cCtx)
         uCtx.key = uCtx.channel.register(selector, SelectionKey.OP_READ, uCtx)
     }
@@ -409,9 +427,9 @@ private class Tunnel(
     fun onReadable(ctx: ChannelCtx, w: SelectorWorker) {
         val pipe = ctx.asSrc
         if (pipe.draining || pipe.srcEof) return        // 背压中/已 EOF（理论不应就绪），防御
-        val n = ctx.channel.read(pipe.buf)
+        val n = io(ctx, "read") { ctx.channel.read(pipe.buf) }
         when {
-            n == -1 -> { pipe.srcEof = true; finishIfDrained(pipe, w) }
+            n == -1 -> { evidence.observedEof(side(ctx)); pipe.srcEof = true; finishIfDrained(pipe, w) }
             n > 0 -> {
                 touch()
                 pipe.buf.flip()
@@ -429,8 +447,12 @@ private class Tunnel(
 
     /** 把 [pipe].buf 写入 dst；写满→保持背压，排空→解背压（并在 src 已 EOF 时半关）。 */
     private fun drain(pipe: Pipe, w: SelectorWorker) {
-        val wrote = pipe.dst.channel.write(pipe.buf)
-        if (wrote > 0) { touch(); pipe.onBytes(wrote.toLong()) }
+        val wrote = io(pipe.dst, "write") { pipe.dst.channel.write(pipe.buf) }
+        if (wrote > 0) {
+            touch()
+            try { pipe.onBytes(wrote.toLong()) }
+            catch (e: Throwable) { failure("relay-error", "accounting", null, e); throw e }
+        }
         if (pipe.buf.hasRemaining()) {
             // 没写完：dst 发送缓冲满 → 保持 draining（dst OP_WRITE on、src OP_READ off）。
             // 这就是背压的定义时刻：**dst 那一端堵了**。哪个方向堵，直接指认哪一段是瓶颈
@@ -454,10 +476,11 @@ private class Tunnel(
     private fun finishIfDrained(pipe: Pipe, w: SelectorWorker) {
         if (!pipe.srcEof || pipe.draining || pipe.done) return
         runCatching { pipe.dst.channel.shutdownOutput() }
+            .onFailure { evidence.cleanupFailure("shutdownOutput", side(pipe.dst), it) }
         pipe.done = true
         w.rebuildInterest(pipe.src)
         w.rebuildInterest(pipe.dst)
-        if (up.done && down.done) close(w)
+        if (up.done && down.done) { markClosing("eof"); close(w) }
     }
 
     fun idleExpired(now: Long): Boolean = idleMs > 0 && (now - lastActivity) > idleMs * 1_000_000L
@@ -476,13 +499,17 @@ private class Tunnel(
         up.exitStall(endNs)
         down.exitStall(endNs)
         // up=client→upstream(写上游=出口段)，down=upstream→client(写客户端=入口段)。
-        RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs)
+        runCatching { RelayStallStats.record(endNs - startNs, stallInNanos = down.stallTotalNs, stallOutNanos = up.stallTotalNs) }
         // 隧道终局落盘。此前 RequestTrace.tunnelClosed 只有定义、**全仓零调用点**——
         // 于是「跑一天再看 req.closed」这个排查计划从一开始就取不到数据。
-        trace?.tunnelClosed(host, closeReason, upBytes, downBytes)
-        cCtx.key?.cancel(); uCtx.key?.cancel()
-        cCtx.channel.closeQuietly(); uCtx.channel.closeQuietly()
-        w.untrack(this)
-        if (cont.isActive) cont.resume(Unit)
+        listOf(cCtx, uCtx).forEach { ctx ->
+            runCatching { ctx.key?.cancel() }.onFailure { evidence.cleanupFailure("cancelKey", side(ctx), it) }
+            runCatching { ctx.channel.close() }.onFailure { evidence.cleanupFailure("close", side(ctx), it) }
+        }
+        try { runCatching { trace?.tunnelClosed(host, evidence, upBytes, downBytes) } }
+        finally {
+            w.untrack(this)
+            if (cont.isActive) cont.resume(Unit)
+        }
     }
 }

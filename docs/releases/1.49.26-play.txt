@@ -1,0 +1,15 @@
+<en-US>
+• Easier TXT rule imports with previews, conflict checks and IP/CIDR/range support. Large lists load by page; fixed import crashes.
+• Clear rule-application status and retry on failure.
+• Filter visits by status and route, with separate sorting. Fixed false Unknown entries and improved alignment.
+• Improved DNS recovery and backup-query scheduling.
+• Fixed stalled replies in Android fallback forwarding; improved connection-error and stop diagnostics.
+</en-US>
+
+<zh-CN>
+• 简化TXT规则导入，支持预检、冲突处理及IP/CIDR/范围；大规则集分页加载，修复导入闪退。
+• 显示规则实际生效状态，失败可重试。
+• 访问页支持状态、路由筛选与独立排序，修复Unknown误判并改善对齐。
+• 改善DNS故障恢复与备用查询调度。
+• 修复Android回退转发中已连接却收不到回复的问题，完善连接异常与主动停止诊断。
+</zh-CN>

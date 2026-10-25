@@ -46,6 +46,7 @@ class ControlledVpnService : VpnService() {
             packets.set(0); echoedBytes.set(0)
             worker = thread(isDaemon = true, name = "controlled-vpn") {
                 val peer = TcpEchoPeer()
+                val blackhole = intent?.getIntExtra(EXTRA_BLACKHOLE_LAST_OCTET, -1) ?: -1
                 val buffer = ByteArray(65535)
                 val poll = StructPollfd().apply { this.fd = fd.fileDescriptor; events = OsConstants.POLLIN.toShort() }
                 try {
@@ -56,6 +57,9 @@ class ControlledVpnService : VpnService() {
                         catch (error: ErrnoException) { if (error.errno == OsConstants.EAGAIN) continue else throw error }
                         if (count <= 0) continue
                         packets.incrementAndGet()
+                        // Explicit local fault injection only; default echo fixture is unchanged.
+                        if (count >= 20 && buffer[16] == 203.toByte() && buffer[17] == 0.toByte() &&
+                            buffer[18] == 113.toByte() && (buffer[19].toInt() and 255) == blackhole) continue
                         peer.reply(buffer.copyOf(count))?.let { response ->
                             check(Os.write(fd.fileDescriptor, response, 0, response.size) == response.size)
                         }
@@ -80,6 +84,7 @@ class ControlledVpnService : VpnService() {
     }
     companion object {
         const val ACTION_STOP = "com.mzstd.hxmyproxy.test.STOP_VPN"
+        const val EXTRA_BLACKHOLE_LAST_OCTET = "blackholeLastOctet"
         @Volatile var active = false
         @Volatile var lastFailure: String? = null
         val packets = AtomicLong()

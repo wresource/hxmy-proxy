@@ -74,6 +74,17 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         )
     }
 
+    internal fun dnsRecovery(host: String, entry: Long?, source: DnsSource, outcome: String, elapsed: Long) {
+        Ev.i(LogCat.DNS, "req.dnsRecovery", "id" to id, "host" to host, "entry" to entry,
+            "source" to source.code, "outcome" to outcome, "recheckMs" to elapsed,
+            "ms" to elapsedMs(), "rt" to realtimeMs())
+    }
+
+    internal fun dialCandidates(host: String, attempt: Int, entry: Long?, network: Long?, addresses: List<String>) {
+        Ev.i(LogCat.EGRESS, "req.dial", "id" to id, "host" to host, "attempt" to attempt,
+            "entry" to entry, "netId" to network, "resolved" to addresses.joinToString(","), "ms" to elapsedMs())
+    }
+
     /** 建连成功：**记下真正连上的那个地址**，此前完全不可见。 */
     fun connected(host: String, ip: String?, port: Int, netId: Long?) {
         RequestActivity.store.connected(activity, ip)
@@ -113,6 +124,29 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         )
     }
 
+    /** Numeric socket metadata only: no reverse DNS, headers or payload on the relay thread. */
+    internal fun relayStarted(client: java.net.Socket, upstream: java.net.Socket) {
+        fun endpoint(value: java.net.SocketAddress?): String? = (value as? java.net.InetSocketAddress)?.let {
+            "${it.address?.hostAddress}:${it.port}"
+        }
+        Ev.i(LogCat.RELAY, "req.relay", "id" to id,
+            "clientPeer" to endpoint(client.remoteSocketAddress), "clientLocal" to endpoint(client.localSocketAddress),
+            "upstreamLocal" to endpoint(upstream.localSocketAddress), "upstreamPeer" to endpoint(upstream.remoteSocketAddress))
+    }
+
+    internal fun tunnelClosed(host: String?, evidence: RelayCloseEvidence, up: Long, down: Long) {
+        val cause = evidence.cause()
+        val stage = listOfNotNull(cause.reason, cause.operation, cause.side).joinToString(":")
+        if (cause.failed) RequestActivity.store.failed(activity, stage, cause.errorType, "other")
+        RequestActivity.store.closed(activity, cause.reason, up, down)
+        val fields = arrayOf("id" to id, "host" to host, "why" to cause.reason,
+            "op" to cause.operation, "side" to cause.side, "err" to cause.errorType, "errno" to cause.errno,
+            "firstEof" to evidence.firstEof, "cleanup" to evidence.cleanup,
+            "up" to up, "down" to down, "ms" to elapsedMs(), "rt" to realtimeMs())
+        if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
+        else Ev.i(LogCat.RELAY, "req.closed", *fields)
+    }
+
     companion object {
         private val seq = AtomicInteger(0)
 
@@ -120,8 +154,8 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
          * 每条客户端连接开一个。id 只需进程内唯一，用自增而非 UUID：日志里短、好 grep。
          *
          * @param clientPort 客户端源端口。**用于和外层中间层代理的日志对齐**——
-         * 若上游是本机 shim（proxyshim 之类），它日志里的 `(127.0.0.1:57725)` 就是这个值，
-         * 有了它才能把一次失败在两层的经过拼成一条完整链路。
+         * 若客户端是 shim，应与它真正连接手机的 socket 本地端口关联。
+         * shim 前端监听收到的 localhost 源端口属于另一条 socket，不能直接当作这个值。
          */
         fun open(proto: String, clientPort: Int): RequestTrace =
             RequestTrace(seq.incrementAndGet(), proto, clientPort)

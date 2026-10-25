@@ -3,6 +3,10 @@ package com.mzstd.hxmyproxy.core.proxy
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import java.util.concurrent.atomic.AtomicLong
 import java.net.Socket
 import java.net.SocketTimeoutException
 
@@ -29,53 +33,103 @@ class RelayEngine(
         idleMillis: Int,
         relayDispatcher: CoroutineDispatcher,
         onTraffic: (Long, Long) -> Unit = this.onTraffic,
-    ) = coroutineScope {
-        val to = if (idleMillis > 0) idleMillis else 0
-        client.soTimeout = to
-        upstream.soTimeout = to
-        val closeAll = {
-            client.closeQuietly()
-            upstream.closeQuietly()
+        host: String? = null,
+        trace: RequestTrace? = null,
+    ) {
+        val evidence = RelayCloseEvidence()
+        val up = AtomicLong(); val down = AtomicLong()
+        var clientStreams: DuplexSocketStreams? = null
+        var upstreamStreams: DuplexSocketStreams? = null
+        val closeAll: () -> Unit = {
+            clientStreams?.close(); upstreamStreams?.close()
+            runCatching { client.close() }.onFailure { evidence.cleanupFailure("close", "client", it) }
+            runCatching { upstream.close() }.onFailure { evidence.cleanupFailure("close", "upstream", it) }
         }
-        // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。
-        // 与 handle 的建连派发器分离：新连接的握手/建连不会被搬字节占满线程而饿死（队头阻塞）。
-        val upJob = launch(relayDispatcher) {
-            pump(client, upstream, bufferBytes, closeAll) { onTraffic(it, 0) }
+        try {
+            coroutineScope {
+                runCatching { trace?.relayStarted(client, upstream) }
+                val to = if (idleMillis > 0) idleMillis else 0
+                client.soTimeout = to
+                upstream.soTimeout = to
+                val cStreams = DuplexSocketStreams(client, to).also { clientStreams = it }
+                val uStreams = DuplexSocketStreams(upstream, to).also { upstreamStreams = it }
+                // stop() cancels the parent before externally closing accepted sockets. A pump
+                // may observe that close before this scope's join-finally gets CPU time.
+                val relayJob = coroutineContext[Job]
+                val cancelled = { relayJob?.isCancelled == true }
+                // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。
+                // 与 handle 的建连派发器分离：新连接的握手/建连不会被搬字节占满线程而饿死（队头阻塞）。
+                val upJob = launch(relayDispatcher) {
+                    pump(cStreams, uStreams, upstream, "client", "upstream", bufferBytes, evidence, cancelled, closeAll) { up.addAndGet(it); onTraffic(it, 0) }
+                }
+                val downJob = launch(relayDispatcher) {
+                    pump(uStreams, cStreams, client, "upstream", "client", bufferBytes, evidence, cancelled, closeAll) { down.addAndGet(it); onTraffic(0, it) }
+                }
+                try {
+                    upJob.join()
+                    downJob.join()
+                    evidence.terminate("eof") // both pumps finished; earlier errors keep precedence
+                } finally {
+                    // Close before coroutineScope joins blocking children on cancellation.
+                    if (!isActive) evidence.terminate("cancelled")
+                    closeAll()
+                }
+            }
+        } catch (e: CancellationException) {
+            evidence.terminate("cancelled")
+            throw e
+        } catch (e: Throwable) {
+            evidence.terminate("relay-error", "setup", null, e)
+            throw e
+        } finally {
+            closeAll()
+            runCatching { trace?.tunnelClosed(host, evidence, up.get(), down.get()) }
         }
-        val downJob = launch(relayDispatcher) {
-            pump(upstream, client, bufferBytes, closeAll) { onTraffic(0, it) }
-        }
-        upJob.join()
-        downJob.join()
-        closeAll()
     }
 
     private fun pump(
-        from: Socket,
+        from: DuplexSocketStreams,
+        destination: DuplexSocketStreams,
         to: Socket,
+        fromSide: String,
+        toSide: String,
         bufferBytes: Int,
+        evidence: RelayCloseEvidence,
+        cancelled: () -> Boolean,
         closeAll: () -> Unit,
         onBytes: (Long) -> Unit,
     ) {
         val buf = ByteArray(bufferBytes)
+        var operation = "stream-open"
+        var side = fromSide
         try {
-            val input = from.getInputStream()
-            val output = to.getOutputStream()
+            val input = from.input
+            side = toSide
+            val output = destination.output
             while (true) {
+                operation = "read"; side = fromSide
                 val n = try {
                     input.read(buf)
                 } catch (e: SocketTimeoutException) {
+                    if (cancelled()) evidence.terminate("cancelled")
+                    else evidence.terminate("idle", "read", fromSide)
                     closeAll(); break       // 空闲超时 → 拆除整条连接
                 }
                 if (n < 0) {                 // EOF：半关闭对端写端
-                    runCatching { to.shutdownOutput() }
+                    evidence.observedEof(fromSide)
+                    runCatching { to.shutdownOutput() }.onFailure { evidence.cleanupFailure("shutdownOutput", toSide, it) }
                     break
                 }
+                operation = "write"; side = toSide
                 output.write(buf, 0, n)
                 output.flush()
+                operation = "accounting"
                 onBytes(n.toLong())
             }
         } catch (e: Throwable) {
+            if (operation != "accounting" && cancelled()) evidence.terminate("cancelled")
+            else evidence.terminate(if (operation == "accounting") "relay-error" else "io-error", operation,
+                if (operation == "accounting") null else side, e)
             closeAll()                       // 对端被关/重置等 → 结束本方向
         }
     }

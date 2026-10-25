@@ -114,4 +114,6 @@ class ProxyException(
     val error: ProxyError,
     val stage: String? = null,
     val retryAfterSeconds: Int? = null,
+    /** Whole eligible address group actually dialed and exhausted with timeout/unreachable only. */
+    internal val dnsRecoveryEligible: Boolean = false,
 ) : Exception(error.label)

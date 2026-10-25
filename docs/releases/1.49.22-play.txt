@@ -1,13 +1,15 @@
 <en-US>
-• Filter Activity by status and Direct/Proxy/Blocked/Unknown independently of sorting.
-• Keep one row per domain and protocol; both filters match the same retained visit.
-• Center controls and menus, with adaptive large-text layouts.
-• Avoid false Unknown entries from refresh timing or HTTP keep-alive. Missing records remain visible as Unknown.
+• Easier TXT imports with previews, append/replace, conflict checks and undo. Supports IPv4/IPv6, CIDR and IP ranges.
+• Browse and search large lists by page. Fixed large-file import crashes.
+• See whether saved rules are active, with failure notices and retry.
+• Filter visits by status and route, with separate sorting and one row per domain/protocol.
+• Fixed false Unknown entries; improved error-log filtering, alignment and large-text layouts.
 </en-US>
 
 <zh-CN>
-• 访问页新增状态和路由筛选，排序独立保留；两个筛选匹配同一次访问。
-• 同一域名＋协议始终一行，多次访问归入详情，保留累计流量。
-• 筛选、排序按钮和菜单文字居中，适配窄屏与大字体。
-• 修正刷新时差和HTTP连接复用导致的Unknown误判，真实缺少记录仍明确提示。
+• 改善规则添加与TXT导入，支持预检、追加/替换、冲突处理和撤销，可导入IPv4/IPv6、CIDR及IP范围。
+• 大规则集支持分页浏览、搜索和导出，修复大文件导入闪退。
+• 明确区分规则“已保存”和“已生效”，失败有提示、日志与重试。
+• 访问页新增状态和路由筛选，排序独立；同一域名＋协议合并显示。
+• 修复Unknown误判，改善错误日志筛选、文字居中及大字体布局。
 </zh-CN>

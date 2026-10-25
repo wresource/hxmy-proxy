@@ -11,12 +11,12 @@ Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开�
 
 ## 下载与本次更新
 
-[**1.49.22 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.22/hxmy-proxy-1.49.22.apk) ·
-[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.22) ·
-[完整更新内容](docs/releases/1.49.22.md)
+[**1.49.26 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.26/hxmy-proxy-1.49.26.apk) ·
+[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.26) ·
+[完整更新内容](docs/releases/1.49.26.md)
 
-本版为“访问”增加独立的状态与路由筛选，排序单独保留。同一域名与协议只显示一行，控件和菜单
-文字居中，并适配大字体。修正采样时差及 HTTP 连接复用造成的 Unknown 误判，真实缺少记录时仍明确提示。
+本版改善不可用备用DNS结果的恢复，避免慢DoH服务耗尽后备查询机会；恢复仍遵守所选出口与原连接预算。
+修复Android阻塞回退路径中读取等待挡住反向写入的问题，完善读写异常、半关闭和主动停止的诊断记录。
 同签名 APK 可覆盖更新并保留数据，AAB 用于 Google Play 提交；Play 上线时间以商店为准。
 
 | 运行概览 | 设备与域名流量 | 接入网络与端口 | 出口设置 |

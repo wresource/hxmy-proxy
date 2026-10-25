@@ -18,6 +18,20 @@ import java.net.*
 import java.nio.channels.SocketChannel
 
 class ReviewResourcesRegressionTest {
+    @Test(timeout=5000) fun nioFallbackReceivesOnlyTheOriginalDeadlineRemainder() = runBlocking {
+        val deadline = ConnectDeadline(120)
+        try {
+            acquireUpstream(deadline.remainingMs()) { delay(80); throw IOException("binding unavailable") }
+        } catch (_: IOException) { }
+        val socket = Socket()
+        val result = acquireUpstream(deadline.remainingMs()) {
+            withContext(NonCancellable) { delay(80) }
+            socket
+        }
+        assertNull("fallback must not receive another full budget", result)
+        assertTrue("discarded fallback winner remains owned until closed", socket.isClosed)
+    }
+
     @Test(timeout=5000) fun timeoutDuringAcquisitionClosesDiscardedSocket() = runBlocking {
         val socket=Socket()
         val result=acquireUpstream(30) {

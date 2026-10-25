@@ -4,6 +4,9 @@ import com.mzstd.hxmyproxy.core.proxy.BoundedBlockingExecutor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -11,6 +14,28 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
 class BoundedBlockingExecutorTest {
+    @Test(timeout = 10000) fun closingExecutorCompletesQueuedWaiterWithoutStartingIt() = runBlocking {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val pool = BoundedBlockingExecutor(1, "queued-close", queueCapacity = 1)
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            pool.execute {
+                entered.countDown()
+                while (release.count != 0L) try { release.await() } catch (_: InterruptedException) { }
+            }
+        }
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+        val queued = async(start = CoroutineStart.UNDISPATCHED) { pool.execute { fail("queued work must not start") } }
+        try {
+            pool.close()
+            val failure = runCatching { withTimeout(500) { queued.await() } }.exceptionOrNull()
+            assertTrue(failure is CancellationException && queued.isCancelled)
+        } finally {
+            release.countDown()
+            withTimeout(2000) { first.await() }
+            pool.close()
+        }
+    }
+
     @Test(timeout = 10000) fun cancellationReturnsWhileUninterruptibleWorkerStillOccupiesItsSlot() = runBlocking {
         val started = CountDownLatch(1)
         val finish = CountDownLatch(1)

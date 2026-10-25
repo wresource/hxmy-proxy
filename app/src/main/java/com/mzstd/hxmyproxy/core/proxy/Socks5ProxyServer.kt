@@ -108,6 +108,7 @@ class Socks5ProxyServer(
         val onEgress = tracker?.let { it::bindEgress }
 
         // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
+        val connectDeadline = ConnectDeadline()
         if (useNioRelay && nioReactor != null) {
             // **失败必须落盘**：此前这条路径一次 trace.failed 都不调，0814 日志里 500 个
             // SOCKS5 请求只有 evt=req.rule、之后什么都没有——排障时它和「请求压根没到手机」同形。
@@ -117,7 +118,7 @@ class Socks5ProxyServer(
             val upstreamCh = try {
                 // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
                 // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
-                acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                acquireUpstream(connectDeadline.remainingMs()) {
                     if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                     else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
@@ -145,7 +146,7 @@ class Socks5ProxyServer(
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
         var timedOutBlocking = false
         val upstream = try {
-            acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+            acquireUpstream(connectDeadline.remainingMs()) {
                 if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
             } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
@@ -163,7 +164,8 @@ class Socks5ProxyServer(
         upstream.use {
             reply(output, 0x00)
             client.soTimeout = 0
-            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes,
+                host = ruleHost, trace = trace)
         }
     }
 

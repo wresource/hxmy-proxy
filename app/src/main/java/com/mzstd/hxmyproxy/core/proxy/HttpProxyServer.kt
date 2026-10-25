@@ -113,7 +113,8 @@ class HttpProxyServer(
         // 实际出口由建连层回填（含降级后的真实网络），历史流量统计据此分类累加。
         val onEgress = tracker?.let { it::bindEgress }
 
-        // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
+        val connectDeadline = ConnectDeadline()
+        // NIO binding fallback shares this same budget, including any DNS recovery.
         if (useNioRelay && nioReactor != null) {
             // 阶段名只在**唯一的 catch** 里落一次。此前是「抛出点 .also 记一次 + catch 再记一次」，
             // 0814 实测 750 行 req.failed 只对应 432 次失败（318 个 id 落两行）。
@@ -122,7 +123,7 @@ class HttpProxyServer(
                 // 建连阶段的硬上限（不含之后的 relay，隧道本身必须能长期存在）。
                 // 超时折成 RemoteTimeout 抛出，复用下面既有的错误路径回 504——
                 // 代理**先于客户端放弃**并给出状态码，好过让客户端干等到自己超时（见 CONNECT_PHASE_TIMEOUT_MS）。
-                acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                acquireUpstream(connectDeadline.remainingMs()) {
                     connector.connectChannel(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
                 } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
             } catch (e: ProxyException) {
@@ -159,7 +160,7 @@ class HttpProxyServer(
         // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍是 blocking，用 channel.socket() 走旧引擎。
         var timedOutBlocking = false
         val upstream = try {
-            acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+            acquireUpstream(connectDeadline.remainingMs()) {
                 connector.connect(hp.first, hp.second, bypassVpn = bypass, onEgress = onEgress, trace = trace)
             } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
         } catch (e: ProxyException) {
@@ -196,7 +197,8 @@ class HttpProxyServer(
             output.flush()
             val client = channel.socket()
             client.soTimeout = 0
-            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes)
+            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes,
+                host = hp.first, trace = trace)
         }
     }
 
@@ -271,6 +273,7 @@ class HttpProxyServer(
         var fwdUp = 0L
         var fwdDown = 0L
         var closeWhy = "http-done"
+        runCatching { trace.relayStarted(client, upstream) }
         try {
             val limits = limitsProvider()
             val buf = ByteArray(limits.relayBufferBytes.coerceAtLeast(8 * 1024))
@@ -336,6 +339,9 @@ class HttpProxyServer(
 
             closeWhy = if (keepAlive) "http-keepalive" else "http-done"
             return keepAlive
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            closeWhy = "cancelled"
+            throw e
         } catch (e: Throwable) {
             Log.w("hxmyproxy", "HTTP forward error $host:$port: ${e.message}")
             FileLog.w("hxmyproxy", "HTTP forward error $host:$port", e)

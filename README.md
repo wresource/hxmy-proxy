@@ -13,15 +13,16 @@ gateway are outside its coverage. VPN app policies and the local network can aff
 
 ## Download and latest update
 
-[**1.49.22 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.22/hxmy-proxy-1.49.22.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.22) ·
-[What's new](docs/releases/1.49.22.md)
+[**1.49.26 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.26/hxmy-proxy-1.49.26.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.26) ·
+[What's new](docs/releases/1.49.26.md)
 
-Activity now has separate status and recorded-route filters alongside sorting. Repeated visits
-stay in one row per domain and protocol; controls and menus are centered and adapt to large text.
-Fresh request sampling prevents known routes from briefly appearing as Unknown, including during
-HTTP connection reuse. Use the APK for a same-certificate update that keeps local data. The AAB is
-for Google Play submission; Play availability follows its own rollout.
+Failed backup DNS results can now trigger a bounded primary recheck, and slow DoH providers no
+longer consume every later provider's opportunity. Connection recovery preserves the selected
+outgoing network and original timeout budget. Android blocking fallback now supports simultaneous
+reads and writes correctly; diagnostics distinguish I/O failures, half-close and cancellation.
+Use the APK for a same-certificate update that keeps local data. The AAB is for Google Play
+submission; Play availability follows its own rollout.
 
 | Overview | Device and destination traffic | Inbound and ports | Outbound settings |
 |---|---|---|---|
