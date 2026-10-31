@@ -1,6 +1,6 @@
 # Proxy transport profiles
 
-This development branch adds UDP forwarding to the existing ordinary Android
+Version 1.49.68 includes UDP forwarding in the existing ordinary Android
 proxy service. The application does not create a VPN interface, require root,
 inject raw IP packets, or replace another VPN application. A selected existing
 VPN is an optional egress network, just like a physical network.
@@ -175,7 +175,7 @@ keep-alive response. Body bytes are not buffered as one chunk-sized allocation.
 
 ## Phone DNS message service
 
-The development branch accepts `GET /dns-query?dns=<base64url>` and `POST /dns-query`
+The app accepts `GET /dns-query?dns=<base64url>` and `POST /dns-query`
 with `Content-Type: application/dns-message`. Both the HTTP port and the same SOCKS
 TCP port provide these authenticated control routes. SOCKS still uses its normal
 05 handshake for proxy traffic; its HTTP control handler does not open a general

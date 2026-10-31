@@ -3,7 +3,7 @@
 > [English](README.md) · **简体中文**
 
 **把 Android 手机作为本地代理网关。** 电脑、平板或另一台手机可通过 HTTP / HTTPS CONNECT、
-SOCKS5 TCP 或 PAC 使用手机的出口网络；在工作台直接查看接入设备、每台设备的用量及目标域名流量，
+SOCKS5 或 PAC 使用手机的出口网络；在工作台直接查看接入设备、每台设备的用量及目标域名流量，
 访问异常时检查原因、修改规则并观察新的连接。
 
 Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开发主体 **mzstd**。
@@ -11,17 +11,17 @@ Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开�
 
 ## 下载与本次更新
 
-[**1.49.26 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.26/hxmy-proxy-1.49.26.apk) ·
-[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.26) ·
-[完整更新内容](docs/releases/1.49.26.md)
+[**1.49.68 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.68/hxmy-proxy-1.49.68.apk) ·
+[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.68) ·
+[完整更新内容](docs/releases/1.49.68.md)
 
-**开发源码 1.49.68（308）** 另已实现 HTTP/1.1 CONNECT-UDP、原生 SOCKS5 UDP、有界 SOCKS5 BIND、手机网络 DNS 报文接口及普通 ping socket 的 IPv4/IPv6 Echo；上方已发布的 1.49.26 下载尚不包含这些新增功能。
+**1.49.68（308）** 新增 HTTP/1.1 CONNECT-UDP、原生 SOCKS5 UDP、有界 SOCKS5 BIND、手机网络 DNS 报文接口及普通 ping socket 的 IPv4/IPv6 Echo。
 认证、边界及主动 FTP 的回连条件见[协议接口说明](docs/protocol/udp-proxy.md)。App 仍是普通 Android 服务，不要求 root，也不新增 VPN 接口。
 
 **设置 → 隐私 → 隐私与安全** 的“允许代理局域网目标”默认关闭。PAC 让客户端绕过内网 IP、简单主机名、`.local` 和 `.home.arpa`；仍发到手机的内网请求会被拒绝，并提示配置客户端直连。有明确需求时才开启，不影响其他设备连接本机代理；回环与链路本地出口始终禁止。配套客户端可读取 App 已生效的策略，但不是使用 App 的前提，也不应因协议能力增加而擅自接管电脑全部流量。
 
-本版改善不可用备用DNS结果的恢复，避免慢DoH服务耗尽后备查询机会；恢复仍遵守所选出口与原连接预算。
-修复Android阻塞回退路径中读取等待挡住反向写入的问题，完善读写异常、半关闭和主动停止的诊断记录。
+DIRECT TCP 建连尊重物理网络返回的首选地址族，交错尝试 IPv6/IPv4 并保留回退机会。
+改进 DNS 调度和取消回收，减少慢查询造成的等待，同时保留指定出口、有效缓存与已有恢复规则；UDP 保持兼容的地址选择方式。
 同签名 APK 可覆盖更新并保留数据，AAB 用于 Google Play 提交；Play 上线时间以商店为准。
 
 | 运行概览 | 设备与域名流量 | 接入网络与端口 | 出口设置 |
@@ -33,7 +33,7 @@ Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开�
 ## 1. 适用范围
 
 应用运行本地代理，不自建 VPN 服务。手机上兼容的 VPN 可以作为出口，但 VPN 应用策略和本地网络
-会影响可用性。**每台客户端都要配置代理**；忽略代理设置的应用和绕过网关的连接不在覆盖范围内。UDP 需要支持上述开发版接口的客户端。
+会影响可用性。**每台客户端都要配置代理**；忽略代理设置的应用和绕过网关的连接不在覆盖范围内。UDP 需要支持上述协议接口的客户端。
 
 - 有 VPN：已配置代理的客户端可复用手机上的兼容 VPN 出口，无需各自安装 VPN。
 - 无 VPN：仍可使用手机的物理网络出口，并对实际经过代理的连接应用规则与统计。
@@ -93,7 +93,7 @@ IP/CIDR匹配的是请求中的IP字面量，不自动根据域名解析IP改变
   不偷偷回到 VPN。Inbound 没选接口时全部拒绝，收缩准入也会清理不再允许的在途连接。
 - **安全恢复**：快捷修改与其前后快照同一 DataStore 事务保存，最多20条。本域名后来被编辑过时，
   旧记录不能覆盖后续修改，即使后来又改回相同值；无关域名和端口不受撤销影响。清空记录不改变生效规则。
-- **网络与服务**：HTTP/CONNECT、SOCKS5 TCP、PAC，IPv4/IPv6 入站，NIO 转发及背压统计。
+- **网络与服务**：HTTP/CONNECT、SOCKS5 TCP/UDP、CONNECT-UDP、受网络可达性约束的 BIND、PAC，IPv4/IPv6 入站，NIO 转发及背压统计。
   系统 DNS 主路失败后按配置提供互援与 DoH；服务以 connectedDevice 前台通知运行。
 - **恢复共享**：上次正在共享时可在更新/重启后尝试恢复，仍受 Android 后台限制；主动停止或规则保护失败而停止后保持关闭。
 - **界面**：Jetpack Compose + Material 3，中英文、浅深色、宽屏和大字体；复杂详情统一底部面板。

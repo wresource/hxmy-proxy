@@ -9,19 +9,18 @@ devices are using it, and inspect destination traffic when a website stops worki
 The app runs a proxy on your phone; it does not provide its own VPN service. A compatible VPN
 already running on the phone can serve as an outgoing network. Each client must be configured
 to use the proxy. Apps that ignore proxy settings and connections that bypass the gateway are
-outside its coverage. UDP needs a compatible client and the development transports described below.
+outside its coverage. UDP needs a compatible client and the transports described below.
 VPN app policies and the local network can affect compatibility.
 
 ## Download and latest update
 
-[**1.49.26 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.26/hxmy-proxy-1.49.26.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.26) ·
-[What's new](docs/releases/1.49.26.md)
+[**1.49.68 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.68/hxmy-proxy-1.49.68.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.68) ·
+[What's new](docs/releases/1.49.68.md)
 
-The **1.49.68 (308) development source** also implements HTTP/1.1 CONNECT-UDP, native SOCKS5 UDP,
+**1.49.68 (308)** adds HTTP/1.1 CONNECT-UDP, native SOCKS5 UDP,
 bounded SOCKS5 BIND for reachable secondary connections, phone-network DNS messages,
-and IPv4/IPv6 Echo using ordinary ping sockets. These additions are
-not in the published 1.49.26 download above. See the [transport profiles](docs/protocol/udp-proxy.md)
+and IPv4/IPv6 Echo using ordinary ping sockets. See the [transport profiles](docs/protocol/udp-proxy.md)
 for authentication, limits and active FTP/network requirements. The app remains
 an ordinary Android service, without root or a new VPN interface.
 
@@ -33,10 +32,10 @@ to the proxy. Loopback and link-local egress remain forbidden. Optional companio
 read the phone's applied policy; they are not required and must not turn protocol support into
 unrequested system-wide traffic capture.
 
-Failed backup DNS results can now trigger a bounded primary recheck, and slow DoH providers no
-longer consume every later provider's opportunity. Connection recovery preserves the selected
-outgoing network and original timeout budget. Android blocking fallback now supports simultaneous
-reads and writes correctly; diagnostics distinguish I/O failures, half-close and cancellation.
+DIRECT TCP connections now respect the physical network's first address family and alternate
+IPv6/IPv4 candidates while keeping fallback opportunities. DNS scheduling and cancellation
+handling reduce delays caused by slow queries and preserve the selected network, healthy cache
+entries and existing recovery rules. UDP keeps its compatible address-selection behavior.
 Use the APK for a same-certificate update that keeps local data. The AAB is for Google Play
 submission; Play availability follows its own rollout.
 
