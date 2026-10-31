@@ -25,10 +25,10 @@ class FdBudget(private val limitsFile: File = File("/proc/self/limits")) {
      * 安全的最大全局连接数。读不到 rlimit 时返回 [Int.MAX_VALUE]（退回不钳制，避免误限），
      * 否则按 (rlimit - [RESERVED]) / [PER_CONN] 计算，并至少保留配置区间的下界。
      */
-    fun safeMaxGlobal(): Int {
+    fun safeMaxGlobal(extraReserved: Int = 0): Int {
         if (rlimit < 0) rlimit = readSoftLimit()
         if (rlimit <= 0) return Int.MAX_VALUE
-        return ((rlimit - RESERVED) / PER_CONN)
+        return ((rlimit - RESERVED - extraReserved.coerceAtLeast(0)) / PER_CONN)
             .coerceAtLeast(ConnectionLimits.RANGE_GLOBAL.first)
     }
 

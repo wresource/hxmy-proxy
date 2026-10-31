@@ -95,6 +95,44 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         )
     }
 
+    internal fun udpReady(host: String, peer: java.net.InetSocketAddress, network: Long?) {
+        RequestActivity.store.datagramReady(activity, peer.address?.hostAddress)
+        Ev.i(LogCat.EGRESS, "req.udp.ready", "id" to id, "host" to host, "ip" to peer.address?.hostAddress,
+            "port" to peer.port, "netId" to network, "ms" to elapsedMs())
+    }
+
+    internal fun udpReply() { RequestActivity.store.datagramReply(activity) }
+
+    internal fun bindReady(host: String, bound: java.net.InetSocketAddress, network: Long?) {
+        Ev.i(LogCat.EGRESS,"req.bind.ready","id" to id,"host" to host,"ip" to bound.address.hostAddress,
+            "port" to bound.port,"netId" to network,"ms" to elapsedMs())
+    }
+
+    internal fun dnsMessageResult(host:String,type:Int,rcode:Int,network:Long?,truncated:Boolean) {
+        Ev.i(LogCat.DNS,"req.dns.message","id" to id,"host" to host,"type" to type,"rcode" to rcode,
+            "netId" to network,"truncated" to truncated,"ms" to elapsedMs())
+    }
+    internal fun echoReply(host:String,ipv6:Boolean,bytes:Int,network:Long?) {
+        Ev.i(LogCat.EGRESS,"req.echo.reply","id" to id,"host" to host,"family" to if(ipv6)6 else 4,
+            "bytes" to bytes,"netId" to network,"ms" to elapsedMs())
+    }
+
+    internal fun udpClosed(host: String, reason: String, operation: String?, side: String?, error: Throwable?,
+        up: Long, down: Long, packetsUp: Long, packetsDown: Long, dropped: Long) {
+        val evidence = RelayCloseEvidence()
+        evidence.terminate(reason, operation, side, error)
+        val cause = evidence.cause()
+        if (cause.failed) RequestActivity.store.failed(activity,
+            listOfNotNull(reason, operation, side).joinToString(":"), cause.errorType, "other")
+        RequestActivity.store.closed(activity, reason, up, down)
+        val fields = arrayOf("id" to id, "host" to host, "transport" to "udp", "why" to reason,
+            "op" to operation, "side" to side, "err" to cause.errorType, "errno" to cause.errno,
+            "up" to up, "down" to down, "packetsUp" to packetsUp, "packetsDown" to packetsDown,
+            "dropped" to dropped, "ms" to elapsedMs(), "rt" to realtimeMs())
+        if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
+        else Ev.i(LogCat.RELAY, "req.closed", *fields)
+    }
+
     /** 终局（失败或关闭）。[why] 是阶段名，便于回答「卡在哪一步」。 */
     fun failed(host: String, why: String, err: Any?) {
         RequestActivity.store.failed(activity, why, err?.toString(), (err as? ProxyError)?.code)

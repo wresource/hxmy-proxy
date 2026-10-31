@@ -3,19 +3,35 @@
 > **English** · [简体中文](README.zh-CN.md)
 
 **Use your Android phone as a local proxy gateway.** Connect a laptop, tablet or another phone
-through HTTP / HTTPS CONNECT, SOCKS5 TCP or PAC. Choose the phone's outgoing network, see which
+through HTTP / HTTPS CONNECT, SOCKS5 or PAC. Choose the phone's outgoing network, see which
 devices are using it, and inspect destination traffic when a website stops working.
 
 The app runs a proxy on your phone; it does not provide its own VPN service. A compatible VPN
 already running on the phone can serve as an outgoing network. Each client must be configured
-to use the proxy. Apps that ignore proxy settings, UDP traffic and connections that bypass the
-gateway are outside its coverage. VPN app policies and the local network can affect compatibility.
+to use the proxy. Apps that ignore proxy settings and connections that bypass the gateway are
+outside its coverage. UDP needs a compatible client and the development transports described below.
+VPN app policies and the local network can affect compatibility.
 
 ## Download and latest update
 
 [**1.49.26 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.26/hxmy-proxy-1.49.26.apk) ·
 [Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.26) ·
 [What's new](docs/releases/1.49.26.md)
+
+The **1.49.68 (308) development source** also implements HTTP/1.1 CONNECT-UDP, native SOCKS5 UDP,
+bounded SOCKS5 BIND for reachable secondary connections, phone-network DNS messages,
+and IPv4/IPv6 Echo using ordinary ping sockets. These additions are
+not in the published 1.49.26 download above. See the [transport profiles](docs/protocol/udp-proxy.md)
+for authentication, limits and active FTP/network requirements. The app remains
+an ordinary Android service, without root or a new VPN interface.
+
+**Allow local network targets** is off by default under **Settings → Privacy → Privacy & security**.
+PAC clients bypass private addresses, simple hostnames and `.local` / `.home.arpa` targets;
+requests still sent to the phone are refused with client-side bypass guidance. Enable the switch
+only when the phone should forward to local targets. This does not block clients from connecting
+to the proxy. Loopback and link-local egress remain forbidden. Optional companion clients can
+read the phone's applied policy; they are not required and must not turn protocol support into
+unrequested system-wide traffic capture.
 
 Failed backup DNS results can now trigger a bounded primary recheck, and slow DoH providers no
 longer consume every later provider's opportunity. Connection recovery preserves the selected

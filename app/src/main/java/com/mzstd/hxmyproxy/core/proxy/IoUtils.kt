@@ -3,6 +3,22 @@ package com.mzstd.hxmyproxy.core.proxy
 import java.io.Closeable
 import java.io.EOFException
 import java.io.InputStream
+import java.io.IOException
+
+internal object HttpWireLimits {
+    const val LINE_BYTES = 64 * 1024
+    const val HEADER_TEXT_BYTES = 256 * 1024
+    const val HEADER_COUNT = 256
+}
+internal class HttpMetadataLimitException : IOException("HTTP metadata limit exceeded")
+internal class HttpHeaderBudget {
+    private var bytes = 0
+    private var count = 0
+    fun observe(line: String) {
+        bytes += line.length + 2
+        if (++count > HttpWireLimits.HEADER_COUNT || bytes > HttpWireLimits.HEADER_TEXT_BYTES) throw HttpMetadataLimitException()
+    }
+}
 
 /** 安静关闭，吞掉异常（用于 finally / 清理路径）。 */
 internal fun Closeable.closeQuietly() = try { close() } catch (_: Throwable) {}
@@ -24,10 +40,13 @@ internal fun readFully(input: InputStream, buf: ByteArray) {
  */
 internal fun readAsciiLine(input: InputStream): String? {
     val sb = StringBuilder()
+    var bytes = 0
     while (true) {
         val c = input.read()
         if (c < 0) return if (sb.isEmpty()) null else sb.toString()
         if (c == '\n'.code) break
+        // Count discarded CR bytes too, so an endless CR stream is also bounded.
+        if (++bytes > HttpWireLimits.LINE_BYTES) throw HttpMetadataLimitException()
         if (c != '\r'.code) sb.append(c.toChar())
     }
     return sb.toString()

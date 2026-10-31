@@ -246,6 +246,7 @@
     <string name="direct_fail_reason_refused">连接被拒绝</string>
     <string name="direct_fail_reason_unreachable">主机不可达</string>
     <string name="direct_fail_reason_denied">被出口护栏拦下</string>
+    <string name="local_network_proxy_refused">局域网代理已关闭。请在客户端配置内网直连，或在本应用中允许代理局域网目标。</string>
     <string name="direct_fail_reason_other">连接失败</string>
     <!-- 三态覆盖：每个选项的**后果**（chip 字面只说了做什么，没说会怎样） -->
     <string name="override_hint_proxy">经代理的出口出去——如果你只是不想让它被拦，通常选这个。</string>
@@ -286,7 +287,8 @@
     <string name="proto_http_sub">浏览器、系统代理通用</string>
     <string name="proto_socks_sub">终端、游戏等 TCP 应用常用</string>
     <string name="proto_pac_sub">客户端按需走代理</string>
-    <string name="block_private_sub">阻止客户端借代理访问你手机所在内网的其他设备</string>
+    <string name="block_private_sub">客户端应直连局域网；仍发到本机的内网请求会被拒绝。不影响其他设备连接代理。</string>
+    <string name="local_network_proxy_allowed_sub">允许本机代为访问局域网目标。回环和链路本地地址仍不转发。</string>
     <string name="settings_privacy">隐私与安全</string>
     <string name="settings_nav">导航栏</string>
     <string name="nav_hidden_section">已隐藏</string>
@@ -359,7 +361,7 @@
     <string name="cellular_confirm_msg">经蜂窝出口的流量会消耗你的移动数据,可能产生资费。</string>
     <string name="cellular_confirm_ok">使用蜂窝</string>
     <string name="egress_vpn_warn">系统 VPN 正开启——绑定物理出口可能失败（VPN lockdown/未允许绕过）。</string>
-    <string name="settings_block_private">禁止私网出口（反 SSRF）</string>
+    <string name="settings_block_private">允许代理局域网目标</string>
     <string name="settings_limits">连接上限</string>
     <string name="limit_global">最大连接数</string>
     <string name="limit_per_client">单客户端上限</string>
@@ -435,7 +437,7 @@
     <string name="faq_q2">这安全吗？会偷我的数据吗？</string>
     <string name="faq_a2">开发者不会收到使用统计。设置和日志存放在本机，由你决定是否导出。转发流量会到达请求的目标，DNS 可能连接外部解析服务；分享日志前请检查内容。</string>
     <string name="faq_q4">HTTP、SOCKS5、PAC 我该选哪个？</string>
-    <string name="faq_a4">HTTP 适合许多浏览器和系统代理设置，也支持 HTTPS CONNECT；SOCKS5 适合 TCP 客户端；PAC 为支持它的客户端提供自动代理脚本。不经过这些代理设置的流量不会被过滤。</string>
+    <string name="faq_a4">HTTP 适合许多浏览器和系统代理设置，也支持 HTTPS CONNECT；SOCKS5 支持 TCP 和 UDP 客户端；CONNECT-UDP 客户端使用 HTTP 端口。PAC 为支持它的客户端提供自动代理脚本。不经过这些代理设置的流量不会被过滤。</string>
     <string name="faq_q5">其他设备真的会用到我手机的 VPN 吗？</string>
     <string name="faq_a5">兼容的 VPN 可以承载代理流量。请选择所需出口，并用新的客户端连接验证。部分 VPN 限制共享；直连规则使用单独设置的直连出口。</string>
     <string name="faq_q6">要不要设密码？</string>
@@ -630,4 +632,6 @@
     <string name="rule_source_builtin">内置规则</string>
     <string name="rule_source_default">默认代理出口</string>
     <string name="top_domain_proxy">使用代理出口</string>
+    <string name="ui_explain_udp_ready">UDP会话已就绪，尚未确认收到目标回包。</string>
+    <string name="ui_explain_udp_reply">已收到UDP回包，请在客户端确认应用的实际结果。</string>
 </resources>

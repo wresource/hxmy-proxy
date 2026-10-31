@@ -1,6 +1,15 @@
 package com.mzstd.hxmyproxy.core.security
 
 import java.security.MessageDigest
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+
+/** Reject malformed wire bytes rather than silently authenticating them as U+FFFD. */
+internal fun decodeCredentialUtf8(bytes: ByteArray): String? = try {
+    Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
+} catch (_: CharacterCodingException) { null }
 
 /**
  * 认证（**可选**，D5）。用于 SOCKS5 RFC1929 用户名/密码与 HTTP Basic。
@@ -21,10 +30,22 @@ object NoAuthAuthenticator : Authenticator {
  * 单凭据认证（启用时）。凭据由设置层提供（真实存储用 EncryptedSharedPreferences/Keystore，见 Step 4）。
  */
 class SingleCredentialAuthenticator(
-    @Volatile var username: String = "",
-    @Volatile var password: String = "",
+    username: String = "",
+    password: String = "",
     @Volatile override var enabled: Boolean = false,
 ) : Authenticator {
+    private data class Credentials(val username: String, val password: String)
+    @Volatile private var credentials = Credentials(username,password)
+    var username: String
+        get() = credentials.username
+        set(value) = synchronized(this) { credentials = credentials.copy(username=value) }
+    var password: String
+        get() = credentials.password
+        set(value) = synchronized(this) { credentials = credentials.copy(password=value) }
+    /** The store publishes a pair. Never expose new username + old password between writes. */
+    @Synchronized fun updateCredentials(username: String, password: String) {
+        credentials = Credentials(username,password)
+    }
     /**
      * 凭据未配置（空密码）时一律拒绝（fail-closed）：避免"开了认证但没设密码"时空凭据被放行。
      *
@@ -37,9 +58,10 @@ class SingleCredentialAuthenticator(
      * 而开头那个空密码判断与外部输入无关，不构成侧信道，保留短路。
      */
     override fun verify(username: String, password: String): Boolean {
-        if (this.password.isEmpty()) return false
-        val userOk = MessageDigest.isEqual(username.toByteArray(), this.username.toByteArray())
-        val passOk = MessageDigest.isEqual(password.toByteArray(), this.password.toByteArray())
+        val expected = credentials
+        if (expected.password.isEmpty()) return false
+        val userOk = MessageDigest.isEqual(username.toByteArray(), expected.username.toByteArray())
+        val passOk = MessageDigest.isEqual(password.toByteArray(), expected.password.toByteArray())
         return userOk and passOk
     }
 }

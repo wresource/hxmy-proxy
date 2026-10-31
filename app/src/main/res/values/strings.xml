@@ -250,6 +250,7 @@
     <string name="direct_fail_reason_refused">connection refused</string>
     <string name="direct_fail_reason_unreachable">host unreachable</string>
     <string name="direct_fail_reason_denied">blocked by egress guard</string>
+    <string name="local_network_proxy_refused">Local network proxying is off. Configure proxy bypass on the client for local targets, or allow local network targets in this app.</string>
     <string name="direct_fail_reason_other">connection failed</string>
     <!-- 三态覆盖：每个选项的**后果**（chip 字面只说了做什么，没说会怎样） -->
     <string name="override_hint_proxy">Goes out through the proxy\'s egress — usually what you want when you just don\'t want it blocked.</string>
@@ -290,7 +291,8 @@
     <string name="proto_http_sub">Browsers &amp; system proxy</string>
     <string name="proto_socks_sub">Terminals, games, TCP apps</string>
     <string name="proto_pac_sub">Proxy only when needed</string>
-    <string name="block_private_sub">Stop clients from reaching devices on your phone\'s local network through the proxy</string>
+    <string name="block_private_sub">Local targets should connect directly on the client. Requests still sent here are refused. Devices can still connect to your proxy.</string>
+    <string name="local_network_proxy_allowed_sub">This phone may forward requests to local network targets. Loopback and link-local targets remain blocked.</string>
     <string name="settings_privacy">Privacy &amp; security</string>
     <string name="settings_nav">Navigation bar</string>
     <string name="nav_hidden_section">Hidden</string>
@@ -363,7 +365,7 @@
     <string name="cellular_confirm_msg">Traffic sent out via cellular consumes your mobile data and may incur charges.</string>
     <string name="cellular_confirm_ok">Use cellular</string>
     <string name="egress_vpn_warn">System VPN active — binding a physical egress may fail.</string>
-    <string name="settings_block_private">Block private-LAN egress (anti-SSRF)</string>
+    <string name="settings_block_private">Allow local network targets</string>
     <string name="settings_limits">Connection limits</string>
     <string name="limit_global">Max conns</string>
     <string name="limit_per_client">Per client</string>
@@ -440,7 +442,7 @@
     <string name="faq_q2">Is it safe? Will it steal my data?</string>
     <string name="faq_a2">The developer receives no usage analytics. Settings and logs stay on this device unless you export them. Proxy traffic reaches its requested destinations; DNS may contact external resolvers. Review logs before sharing them.</string>
     <string name="faq_q4">HTTP, SOCKS5 or PAC?</string>
-    <string name="faq_a4">HTTP works with many browsers and system proxy settings, including HTTPS CONNECT. SOCKS5 supports TCP clients. PAC is an automatic proxy script for clients that support it. Traffic that bypasses these settings is not filtered.</string>
+    <string name="faq_a4">HTTP works with many browsers and system proxy settings, including HTTPS CONNECT. SOCKS5 supports TCP and UDP clients. CONNECT-UDP clients use the HTTP port. PAC is an automatic proxy script for clients that support it. Traffic that bypasses these settings is not filtered.</string>
     <string name="faq_q5">Will other devices really use my phone\'s VPN?</string>
     <string name="faq_a5">Compatible VPNs can carry the proxy traffic. Select the required Outbound and verify a new client connection. Some VPNs restrict sharing; Direct rules use the separately selected Direct egress.</string>
     <string name="faq_q6">Should I set a password?</string>
@@ -644,4 +646,6 @@
     <string name="rule_source_builtin">Built-in rules</string>
     <string name="rule_source_default">Default proxy route</string>
     <string name="top_domain_proxy">Use proxy egress</string>
+    <string name="ui_explain_udp_ready">UDP session is ready. Receiving a reply has not yet been confirmed.</string>
+    <string name="ui_explain_udp_reply">A UDP reply was received. Confirm the application result on the client.</string>
 </resources>

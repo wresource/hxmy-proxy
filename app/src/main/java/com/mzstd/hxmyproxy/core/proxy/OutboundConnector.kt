@@ -5,12 +5,15 @@ import com.mzstd.hxmyproxy.core.security.EgressGuard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,6 +26,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
@@ -76,6 +81,8 @@ class OutboundConnector(
         com.mzstd.hxmyproxy.core.network.EgressHealth(),
     private val systemDns: com.mzstd.hxmyproxy.core.network.SystemDnsLookup =
         com.mzstd.hxmyproxy.core.network.AndroidSystemDnsLookup,
+    private val datagramFactory: DatagramEndpointFactory = AndroidDatagramEndpointFactory,
+    private val datagramTargetAllowed: (InetAddress) -> Boolean = DatagramTargetGuard::isAllowed,
 ) {
     /**
      * 进程级短 TTL DNS 缓存：首屏同域名多次建连只解析一次，VPN 切换/DNS 漂移在 TTL 内自然失效。
@@ -109,6 +116,14 @@ class OutboundConnector(
 
     /** 系统异步查询的全路径并发闸门，主路与互援共用；满载立即判负，不排队。 */
     private val dnsSlots = java.util.concurrent.Semaphore(DNS_MAX_INFLIGHT)
+    private class PrimaryDnsQuery {
+        val result = CompletableDeferred<List<InetAddress>>()
+        val preempted = AtomicBoolean(false)
+        lateinit var job: Job
+    }
+    /** Only queries past the historical 1.5s handoff may yield to capacity pressure. */
+    private val retainedDnsPrimaries = ConcurrentHashMap.newKeySet<PrimaryDnsQuery>()
+    private val dnsPreemption = Mutex()
     private val dnsRejected = java.util.concurrent.atomic.AtomicLong()
     private val dnsTimedOut = java.util.concurrent.atomic.AtomicLong()
 
@@ -280,7 +295,7 @@ class OutboundConnector(
         return egressHealth.isSidelined(network)
     }
 
-    /** 解析域名（全部地址）并连接，IPv4 优先 + Happy Eyeballs。[bypassVpn]=true 时绕过共享 VPN 走真实网络。 */
+    /** DIRECT keeps the physical resolver's preferred family; PROXY retains its existing IPv4 policy. */
     suspend fun connect(
         host: String,
         port: Int,
@@ -289,6 +304,7 @@ class OutboundConnector(
         /** 请求级追踪；null=不记。见 [RequestTrace]。 */
         trace: RequestTrace? = null,
     ): Socket {
+        rejectExplicitLocalTarget(host)
         // **这两步必须在 try 内**：egressNetworkFor 与 egressUnusable 都会抛，而它们此前在 try 之外，
         // 于是下面 catch 里的 DirectEgressFailures.recordFailure 永远收不到 ——
         // 0814 实测 96 次 DIRECT 失败（全部 err=AccessDenied、0-2ms 内返回）一次都没进账本，
@@ -308,7 +324,7 @@ class OutboundConnector(
             run {
                 dialWithDnsRecovery(host, network, bypassVpn, trace,
                     preferAlternate = { preferAlternateEgress(network, bypassVpn) && physicalFallback != null }) { addresses ->
-                    connectAny(orderAddresses(addresses), port, network)
+                    connectAny(orderAddresses(addresses, bypassVpn), port, network, bypassVpn)
                 }
             }
                 .also {
@@ -379,6 +395,178 @@ class OutboundConnector(
     /** Retained as a narrow test/lookup boundary; production keeps provenance through dialing. */
     private suspend fun resolve(host: String, network: Network?, trace: RequestTrace? = null): List<InetAddress> =
         resolveDetailed(host, network, trace).addrs
+
+    internal class PreparedDatagram(val endpoint: DatagramEndpoint, val networkHandle: Long?) : Closeable {
+        override fun close() = endpoint.close()
+    }
+
+    /** Prepare one fixed UDP target without sending payload or pretending UDP connect is a
+     * reachability check. Never apply Happy Eyeballs, rescue-cache failure feedback, or TCP
+     * network-health failure accounting to a silent UDP destination. */
+    internal suspend fun prepareDatagram(
+        host: String, port: Int, bypassVpn: Boolean,
+        onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)? = null,
+        trace: RequestTrace? = null,
+        nativeSocks: Boolean = false,
+    ): PreparedDatagram {
+        rejectExplicitLocalTarget(host)
+        var network: Network? = null
+        suspend fun prepareOn(selected: Network?): PreparedDatagram {
+            val route = if (bypassVpn) "DIRECT" else "PROXY:$egressFallback"
+            val answer = resolveDetailed(host, selected, trace, route)
+            // UDP has no generic handshake: a physical IPv6 route can accept sends
+            // while the remote UDP path is silent (verified independently on Tablet).
+            // Retain the existing domain-address preference rather than applying the
+            // TCP race policy without a safe fallback. IPv6 literals and IPv6-only
+            // answers remain supported; never duplicate business datagrams as probes.
+            val address = orderAddresses(answer.addrs).firstOrNull { egressGuard.isAllowed(it) && datagramTargetAllowed(it) }
+                ?: throw ProxyException(denialFor(answer.addrs), "udp-target-denied")
+            var owned: DatagramEndpoint? = null
+            try {
+                val endpoint = try {
+                    withContext(connectDispatcher) {
+                        currentCoroutineContext().ensureActive()
+                        (if (nativeSocks) datagramFactory.openNativeSocks(address, port, selected)
+                        else datagramFactory.open(address, port, selected)).also { owned = it }
+                    }
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (failure: Exception) {
+                    val chain = generateSequence<Throwable>(failure) { it.cause }.take(4).toList()
+                    val errno = chain.filterIsInstance<android.system.ErrnoException>().firstOrNull()?.errno
+                    throttledFileLog("udp-open:$host", "UDP setup failed $host phase=${(failure as? DatagramSetupException)?.phase ?: "open"}" +
+                        " classes=${chain.joinToString("<-") { it.javaClass.simpleName }} errno=$errno")
+                    throw ProxyException(ProxyError.RemoteUnreachable, "udp-bind")
+                }
+                currentCoroutineContext().ensureActive()
+                reportEgress(onEgress, selected)
+                val prepared = PreparedDatagram(endpoint, selected?.networkHandle)
+                owned = null // ready value handed to caller; acquireUpstream guards discarded handoff
+                return prepared
+            } finally { runCatching { owned?.close() } }
+        }
+        return try {
+            network = egressNetworkFor(bypassVpn, host)
+            if (egressUnusable(network, bypassVpn)) throw ProxyException(
+                ProxyError.EgressSidelined, "egress-down", egressHealth.retryAfterSeconds(network),
+            )
+            prepareOn(network)
+        } catch (failure: ProxyException) {
+            if (bypassVpn) {
+                if (failure.stage == "no-physical-egress") DirectEgressFailures.recordNoEgress()
+                else if (!failure.error.isPolicyDenied) DirectEgressFailures.recordFailure(host, failure.error.code)
+                throw failure
+            }
+            if (failure.error.isPolicyDenied || failure.stage == "egress-unavailable" || network == null ||
+                egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) throw failure
+            val alternate = underlyingNetworkProvider?.fallbackEgress(network) ?: throw failure
+            // This is setup only: no UDP payload has been accepted or replayed.
+            prepareOn(alternate)
+        }
+    }
+
+    internal class PreparedBind(val listener: TcpBindListener, val peers: Set<InetAddress>) : Closeable {
+        override fun close() = listener.close()
+    }
+
+    internal data class DnsMessageAnswer(val wire:ByteArray,val networkHandle:Long?)
+    internal data class EchoMessageAnswer(val wire:ByteArray,val networkHandle:Long?)
+    internal suspend fun queryEchoMessage(target:InetAddress,wire:ByteArray,bypassVpn:Boolean,backend:EchoMessageQuery,
+        onEgress:((com.mzstd.hxmyproxy.core.stats.EgressKind)->Unit)?):EchoMessageAnswer {
+        if(!egressGuard.isAllowed(target)||!datagramTargetAllowed(target))throw ProxyException(denialFor(listOf(target)),"echo-target-denied")
+        val host=target.hostAddress?:throw ProxyException(ProxyError.AccessDenied,"echo-target-denied")
+        return withTimeoutOrNull(3000) {
+            var selected:Network?=null
+            suspend fun attempt(network:Network?):EchoMessageAnswer {
+                val answer=backend.query(network,target,wire);currentCoroutineContext().ensureActive();reportEgress(onEgress,network)
+                return EchoMessageAnswer(answer,network?.networkHandle)
+            }
+            try {
+                selected=egressNetworkFor(bypassVpn,host)
+                if(egressUnusable(selected,bypassVpn))throw ProxyException(ProxyError.EgressSidelined,"egress-down",egressHealth.retryAfterSeconds(selected))
+                attempt(selected)
+            }catch(failure:ProxyException){
+                if(bypassVpn){if(failure.stage=="no-physical-egress")DirectEgressFailures.recordNoEgress();throw failure}
+                // Only setup/known-unavailable failures may choose the configured alternate.
+                // A sent Echo which is silent must never be replayed or poison network health.
+                if(failure.stage !in setOf("echo-setup","egress-down")||selected==null||
+                    egressFallback==com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT)throw failure
+                attempt(underlyingNetworkProvider?.fallbackEgress(selected)?:throw failure)
+            }
+        } ?: throw ProxyException(ProxyError.RemoteTimeout,"echo-timeout")
+    }
+    /** Resolve the original DNS message on the phone's selected Network. This does not
+     * reuse an A/AAAA-only cache, replace explicit client DNS destinations, or mark DNS
+     * negative answers as network failures. One budget covers any explicit DEGRADE. */
+    internal suspend fun queryDnsMessage(host:String,wire:ByteArray,bypassVpn:Boolean,backend:DnsMessageQuery,
+        onEgress:((com.mzstd.hxmyproxy.core.stats.EgressKind)->Unit)?,trace:RequestTrace):DnsMessageAnswer {
+        val budget=ConnectDeadline(3000)
+        suspend fun attempt(network:Network?,maxMs:Long):DnsMessageAnswer {
+            val answer=withTimeoutOrNull(minOf(maxMs,budget.remainingMs())) { backend.query(network,wire) }
+                ?: throw ProxyException(ProxyError.RemoteTimeout,"dns-message-timeout")
+            currentCoroutineContext().ensureActive()
+            reportEgress(onEgress,network)
+            trace.dns(host,if(network==null)DnsSource.SYS_DEFAULT else DnsSource.SYS_EGRESS,
+                network?.networkHandle,0,"raw-message",null)
+            return DnsMessageAnswer(answer,network?.networkHandle)
+        }
+        return withTimeoutOrNull(3000) {
+            var selected:Network?=null
+            try {
+                selected=egressNetworkFor(bypassVpn,host)
+                if(egressUnusable(selected,bypassVpn))throw ProxyException(ProxyError.EgressSidelined,"egress-down",egressHealth.retryAfterSeconds(selected))
+                val alternate=if(!bypassVpn&&selected!=null&&egressFallback==com.mzstd.hxmyproxy.core.model.EgressFallback.DEGRADE)
+                    underlyingNetworkProvider?.fallbackEgress(selected) else null
+                attempt(selected,if(alternate!=null)1500 else budget.remainingMs())
+            }catch(failure:ProxyException){
+                if(bypassVpn){if(failure.stage=="no-physical-egress")DirectEgressFailures.recordNoEgress();throw failure}
+                if(failure.error.isPolicyDenied||failure.error==ProxyError.TooManyConnections||
+                    failure.stage in setOf("egress-unavailable","dns-message-parse")||selected==null||
+                    egressFallback==com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT)throw failure
+                attempt(underlyingNetworkProvider?.fallbackEgress(selected)?:throw failure,budget.remainingMs())
+            }
+        } ?: throw ProxyException(ProxyError.RemoteTimeout,"dns-message-timeout")
+    }
+
+    /** BIND listens on the same policy-selected Network as an outgoing request. Any allowed
+     * fallback happens before the first reply; never advertise one address and later move it. */
+    internal suspend fun prepareBind(host: String, bypassVpn: Boolean, factory: TcpBindListenerFactory,
+                                     onEgress: ((com.mzstd.hxmyproxy.core.stats.EgressKind) -> Unit)?,
+                                     trace: RequestTrace): PreparedBind {
+        rejectExplicitLocalTarget(host)
+        var network: Network? = null
+        suspend fun openOn(selected: Network?): PreparedBind {
+            val answer = resolveDetailed(host,selected,trace,if (bypassVpn) "DIRECT" else "PROXY:$egressFallback")
+            val allowed = orderAddresses(answer.addrs, bypassVpn).filter { egressGuard.isAllowed(it) && !it.isAnyLocalAddress &&
+                !it.isMulticastAddress && !(it is Inet4Address && it.address.all { octet -> octet == (-1).toByte() }) }
+            if (allowed.isEmpty()) throw ProxyException(denialFor(answer.addrs),"bind-peer-denied")
+            for (address in allowed) {
+                var owned: TcpBindListener? = null
+                try {
+                    val listener = withContext(connectDispatcher) {
+                        currentCoroutineContext().ensureActive()
+                        factory.open(address,selected).also { owned = it }
+                    }
+                    currentCoroutineContext().ensureActive()
+                    reportEgress(onEgress,selected)
+                    val peers = allowed.filter { (it is Inet4Address) == (listener.bound.address is Inet4Address) }.toSet()
+                    check(peers.isNotEmpty())
+                    return PreparedBind(listener,peers).also { owned = null }
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (_: IOException) { /* Try another available address family before replying. */ }
+                finally { runCatching { owned?.close() } }
+            }
+            throw ProxyException(ProxyError.RemoteUnreachable,"bind-network-unavailable")
+        }
+        return try {
+            network = egressNetworkFor(bypassVpn,host)
+            if (egressUnusable(network,bypassVpn)) throw ProxyException(ProxyError.EgressSidelined,"egress-down",egressHealth.retryAfterSeconds(network))
+            openOn(network)
+        } catch (failure: ProxyException) {
+            if (bypassVpn || failure.error.isPolicyDenied || failure.stage == "egress-unavailable" || network == null ||
+                egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) throw failure
+            openOn(underlyingNetworkProvider?.fallbackEgress(network) ?: throw failure)
+        }
+    }
 
     private suspend fun resolveDetailed(host: String, network: Network?, trace: RequestTrace? = null, route: String = "PROXY:$egressFallback"): DnsAnswer {
         val name = host.trimEnd('.').lowercase(java.util.Locale.ROOT)
@@ -455,7 +643,7 @@ class OutboundConnector(
         fun describe(answer: DnsAnswer, attempt: Int) {
             if (trace != null && com.mzstd.hxmyproxy.core.log.FileLog.enabled) trace.dialCandidates(host, attempt,
                 answer.lease?.id, network?.networkHandle,
-                orderAddresses(answer.addrs).take(MAX_HE_CANDIDATES + 2).mapNotNull { it.hostAddress })
+                tcpCandidates(orderAddresses(answer.addrs, bypassVpn), bypassVpn).mapNotNull { it.hostAddress })
         }
         try {
             describe(original, 1)
@@ -568,7 +756,9 @@ class OutboundConnector(
     /**
      * Preserve delayed rescue (1.24/1.25) but do not let a different resolver cancel a
      * still-viable primary. Rescue is prefetched after 400ms or an early primary failure.
-     * Only a failed/expired primary makes rescue eligible. All work has the same bounds.
+     * The historical 1.5s handoff still controls when rescue may win. If rescue is not ready
+     * yet, keep listening to primary within the existing total budget. Retained queries
+     * yield their actual slots under pressure instead of starving new/rescue work.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun resolveUncached(host: String, network: Network?, backupEnabled: Boolean): DnsAnswer {
@@ -578,24 +768,69 @@ class OutboundConnector(
         )
         return coroutineScope {
             val started = System.nanoTime()
-            val primary = async { resolveOnOrEmpty(network, host) }
+            val requestContext = currentCoroutineContext()
+            val primary = PrimaryDnsQuery()
+            primary.job = launch(start = CoroutineStart.LAZY) {
+                try {
+                    primary.result.complete(resolveOnOrEmpty(network, host, DNS_QUERY_TIMEOUT_MS))
+                } catch (error: CancellationException) {
+                    if (primary.preempted.get() && requestContext.isActive) primary.result.complete(emptyList())
+                    else primary.result.cancel(error)
+                    throw error
+                } finally { retainedDnsPrimaries.remove(primary) }
+            }
+            primary.job.start()
+            val softReached = CompletableDeferred<Unit>()
+            val handoff = async {
+                val remaining = DNS_STEP_TIMEOUT_MS - (System.nanoTime() - started) / 1_000_000L
+                delay(remaining.coerceAtLeast(0))
+                if (!primary.result.isCompleted) {
+                    retainedDnsPrimaries.add(primary)
+                    if (primary.result.isCompleted || !primary.job.isActive) retainedDnsPrimaries.remove(primary)
+                }
+                // Publish the acceptance boundary before any quota maintenance can suspend.
+                softReached.complete(Unit)
+                if (dnsSlots.availablePermits() == 0) yieldRetainedDnsPrimaries()
+            }
             val rescue = async {
-                val completedPrimary = if (network == null) primary.await() else select<List<InetAddress>?> {
-                    primary.onAwait { it }
-                    onTimeout(DNS_HEDGE_DELAY_MS) { null }
+                val completedPrimary = select<List<InetAddress>?> {
+                    primary.result.onAwait { it }
+                    if (network == null) softReached.onAwait { null }
+                    else onTimeout(DNS_HEDGE_DELAY_MS) { null }
                 }
                 if (!completedPrimary.isNullOrEmpty()) DnsAnswer(emptyList(), DnsSource.SYS_DEFAULT, null)
                 else resolveBackup(host, network, backupEnabled)
             }
-            try {
-                val p = primary.await()
-                if (p.isNotEmpty()) DnsAnswer(
-                    p, if (network == null) DnsSource.SYS_DEFAULT else DnsSource.SYS_EGRESS,
-                    network?.networkHandle, "rtt=${(System.nanoTime() - started) / 1_000_000}ms",
-                ) else rescue.await().takeIf { it.addrs.isNotEmpty() }?.also { dnsRescueUses.incrementAndGet() }
+            fun primaryAnswer(addresses: List<InetAddress>) = DnsAnswer(
+                addresses, if (network == null) DnsSource.SYS_DEFAULT else DnsSource.SYS_EGRESS,
+                network?.networkHandle, "rtt=${(System.nanoTime() - started) / 1_000_000}ms",
+            )
+            fun rescueAnswer(answer: DnsAnswer): DnsAnswer {
+                // Both may be ready when select dispatches. A visible valid primary wins.
+                val p = if (primary.result.isCompleted && !primary.result.isCancelled) primary.result.getCompleted() else emptyList()
+                if (p.isNotEmpty()) return primaryAnswer(p)
+                return answer.takeIf { it.addrs.isNotEmpty() }?.also { dnsRescueUses.incrementAndGet() }
                     ?: throw ProxyException(ProxyError.DnsFailure, "dns-no-answer")
+            }
+            try {
+                val first = select<List<InetAddress>?> {
+                    primary.result.onAwait { it }
+                    softReached.onAwait { null }
+                }
+                when {
+                    first?.isNotEmpty() == true -> primaryAnswer(first)
+                    first != null -> rescueAnswer(rescue.await())
+                    else -> select {
+                        primary.result.onAwait { p -> if (p.isNotEmpty()) primaryAnswer(p) else rescueAnswer(rescue.await()) }
+                        rescue.onAwait { rescueAnswer(it) }
+                    }
+                }
             } finally {
-                primary.cancel()
+                retainedDnsPrimaries.remove(primary)
+                primary.job.cancel()
+                primary.result.cancel()
+                softReached.cancel()
+                handoff.cancel()
                 rescue.cancel()
             }
         }
@@ -641,19 +876,37 @@ class OutboundConnector(
     }
 
 
-    /** 每条系统解析支路可取消，并受相同的名额和 1.5 秒预算约束。 */
-    private suspend fun <T> dnsStep(block: suspend () -> T): T? {
-        if (!dnsSlots.tryAcquire()) {
+    /** Revert only past-handoff primaries to the old cancelled state when slots are needed.
+     * Never release their permits here: dnsStep finally owns the actual release. The bounded
+     * join also protects admission from a non-cooperative lookup implementation. */
+    private suspend fun yieldRetainedDnsPrimaries() {
+        withTimeoutOrNull(DNS_PREEMPT_JOIN_MS) {
+            dnsPreemption.withLock {
+                currentCoroutineContext().ensureActive()
+                val victims = ArrayList<PrimaryDnsQuery>()
+                for (query in retainedDnsPrimaries) if (retainedDnsPrimaries.remove(query)) victims.add(query)
+                victims.forEach { it.preempted.set(true); it.job.cancel() }
+                victims.forEach { it.job.join() }
+            }
+        }
+    }
+
+    /** Every live query retains its real permit. Rescue keeps the original 1.5s budget. */
+    private suspend fun <T> dnsStep(timeoutMs: Long = DNS_STEP_TIMEOUT_MS, block: suspend () -> T): T? {
+        var admitted = dnsSlots.tryAcquire()
+        if (!admitted) { yieldRetainedDnsPrimaries(); admitted = dnsSlots.tryAcquire() }
+        if (!admitted) {
             val n = dnsRejected.incrementAndGet()
             throttledFileLog("dns-busy", "DNS inflight full ($DNS_MAX_INFLIGHT), failing fast; $n total")
             return null
         }
         val start = System.nanoTime()
         try {
-            val result = withTimeoutOrNull(DNS_STEP_TIMEOUT_MS) { block() }
+            if (dnsSlots.availablePermits() == 0) yieldRetainedDnsPrimaries()
+            val result = withTimeoutOrNull(timeoutMs) { block() }
             if (result == null) {
                 val n = dnsTimedOut.incrementAndGet()
-                throttledFileLog("dns-timeout", "DNS step timeout (${DNS_STEP_TIMEOUT_MS}ms); $n total; async=true")
+                throttledFileLog("dns-timeout", "DNS step timeout (${timeoutMs}ms); $n total; async=true")
             } else {
                 recordDnsOk((System.nanoTime() - start) / 1_000_000L)
             }
@@ -694,10 +947,10 @@ class OutboundConnector(
             acc += dnsOkBuckets.get(i)
             if (acc >= want) {
                 return if (i < DNS_OK_BUCKET_UPPER_MS.size) DNS_OK_BUCKET_UPPER_MS[i]
-                else DNS_STEP_TIMEOUT_MS
+                else DNS_QUERY_TIMEOUT_MS
             }
         }
-        return DNS_STEP_TIMEOUT_MS
+        return DNS_QUERY_TIMEOUT_MS
     }
 
     /** DNS 侧健康指标，供 PERF 心跳打点——排队/超时此前完全不可观测。 */
@@ -743,9 +996,9 @@ class OutboundConnector(
      * **非解析类异常不静默吞掉**——它意味着救援机制本身坏了（句柄失效/权限），
      * 而不是「这个域名解析不出来」，两者混为一谈会让这条路径变成又一个黑箱。
      */
-    private suspend fun resolveOnOrEmpty(net: Network?, host: String): List<InetAddress> =
+    private suspend fun resolveOnOrEmpty(net: Network?, host: String, timeoutMs: Long = DNS_STEP_TIMEOUT_MS): List<InetAddress> =
         try {
-            dnsStep { systemDns.resolve(net, host) }.orEmpty()
+            dnsStep(timeoutMs) { systemDns.resolve(net, host) }.orEmpty()
         } catch (e: CancellationException) {
             throw e
         } catch (_: UnknownHostException) {
@@ -759,10 +1012,25 @@ class OutboundConnector(
 
     /** AUTO 和指定出口的 DoH 共用同一预算、有限工作池及统计口径。 */
     private suspend fun resolveDohWithinBudget(host: String): DnsAnswer? {
-        dohCalls.incrementAndGet()
         val started = System.nanoTime()
         val deadline = started + DOH_TOTAL_BUDGET_MS * 1_000_000L
-        val dohNetwork = underlyingNetworkProvider?.dohNetwork()
+        var selection = underlyingNetworkProvider?.dohSelection()
+        if (selection != null && !selection.available) {
+            // Startup callbacks may still be pending. Their existing one-second window
+            // consumes this DoH budget rather than starting a new timeout afterward.
+            underlyingNetworkProvider?.awaitInitialDohNetwork()
+            selection = underlyingNetworkProvider?.dohSelection()
+        }
+        if (selection != null && !selection.available) {
+            // A missing physical network is not DEFAULT. Keep the other existing DNS
+            // rescue branches; do not silently send this DoH query over the user's VPN.
+            throttledFileLog("doh-egress-missing:${selection.choice}",
+                "DoH backup skipped: selected egress unavailable (choice=${selection.choice})")
+            return null
+        }
+        dohCalls.incrementAndGet()
+        // A connector without a provider retains its existing default-route behavior.
+        val dohNetwork = selection?.network
         val answers = try {
             dohResolve(host, deadline, dohNetwork)
         } catch (e: CancellationException) {
@@ -791,10 +1059,18 @@ class OutboundConnector(
             val queries = DOH_ENDPOINTS.mapIndexed { index, endpoint ->
                 async {
                     delay(index * DOH_PROVIDER_STAGGER_MS)
+                    // Blocking HTTP implementations may swallow InterruptedException and clear
+                    // the thread flag. Keep the provider Job as the authoritative cancellation
+                    // signal so that cancelled work cannot start another DNS record request.
+                    val providerContext = currentCoroutineContext()
                     try {
                         DOH_WORKERS.execute {
-                            dohQuery(host, deadlineNs, dohNet, endpoint.first, endpoint.second, 1)
-                                ?: dohQuery(host, deadlineNs, dohNet, endpoint.first, endpoint.second, 28)
+                            when (val a = dohQuery(host, deadlineNs, dohNet, endpoint.first, endpoint.second, 1) { providerContext.isActive }) {
+                                is DohQueryResult.Answer -> a.value
+                                DohQueryResult.NoAnswer, DohQueryResult.RequestFailed ->
+                                    (dohQuery(host, deadlineNs, dohNet, endpoint.first, endpoint.second, 28) { providerContext.isActive } as? DohQueryResult.Answer)?.value
+                                DohQueryResult.EndpointUnavailable, DohQueryResult.Stopped -> null
+                            }
                         }
                     } catch (e: CancellationException) { throw e }
                     catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -815,15 +1091,28 @@ class OutboundConnector(
         }
     }
 
-    /** Only blocking HTTP I/O occupies DOH_WORKERS. Deadline checked before starting queued work. */
-    private fun dohQuery(host: String, deadlineNs: Long, dohNet: Network?, base: String, accept: String?, type: Int): DnsAnswer? {
+    private sealed interface DohQueryResult {
+        data class Answer(val value: DnsAnswer) : DohQueryResult
+        data object NoAnswer : DohQueryResult
+        data object RequestFailed : DohQueryResult
+        data object EndpointUnavailable : DohQueryResult
+        data object Stopped : DohQueryResult
+    }
+
+    /** Only blocking HTTP I/O occupies DOH_WORKERS. Deadline checked before starting queued work.
+     * A and AAAA use the same HTTPS transport: failure before TCP/TLS is established cannot
+     * become a different resolver endpoint by changing record type. Once connected, retain
+     * the existing AAAA attempt after an empty/failed A response (including read timeouts). */
+    private fun dohQuery(host: String, deadlineNs: Long, dohNet: Network?, base: String, accept: String?, type: Int, providerActive: () -> Boolean): DohQueryResult {
         val started = System.nanoTime()
         var outcome = "empty"
+        var phase = "open"
+        var connected = false
         // Caller cancellation never waits for this worker. Bound its own socket work too,
         // so an interrupted request cannot keep consuming a worker across endpoints.
-        if (Thread.currentThread().isInterrupted) return null
+        if (!providerActive() || Thread.currentThread().isInterrupted) return DohQueryResult.Stopped
         val remainMs = (deadlineNs - System.nanoTime()) / 1_000_000L
-        if (remainMs <= 0) return null
+        if (remainMs <= 0) return DohQueryResult.Stopped
         val stepMs = minOf(DOH_TIMEOUT_MS.toLong(), remainMs).toInt()
         var conn: javax.net.ssl.HttpsURLConnection? = null
         try {
@@ -832,15 +1121,19 @@ class OutboundConnector(
             conn.connectTimeout = stepMs
             conn.readTimeout = stepMs
             if (accept != null) conn.setRequestProperty("Accept", accept)
+            phase = "connect_tls"
             conn.connect()
+            connected = true
+            phase = "response"
             val readBudget = ((deadlineNs - System.nanoTime()) / 1_000_000L).toInt()
-            if (readBudget <= 0 || Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("DoH deadline reached")
+            if (readBudget <= 0 || !providerActive() || Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("DoH deadline reached or provider cancelled")
             conn.readTimeout = minOf(stepMs, readBudget)
             val body = conn.inputStream.use { input ->
+                phase = "body"
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(4096)
                 while (true) {
-                    if (Thread.currentThread().isInterrupted || System.nanoTime() >= deadlineNs) {
+                    if (!providerActive() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadlineNs) {
                         throw java.io.InterruptedIOException("DoH deadline reached")
                     }
                     val n = input.read(buffer)
@@ -850,7 +1143,8 @@ class OutboundConnector(
                 }
                 output.toString("UTF-8")
             }
-            val answers = org.json.JSONObject(body).optJSONArray("Answer") ?: return null
+            phase = "parse"
+            val answers = org.json.JSONObject(body).optJSONArray("Answer") ?: return DohQueryResult.NoAnswer
             val out = ArrayList<InetAddress>()
             for (i in 0 until answers.length()) {
                 val a = answers.getJSONObject(i)
@@ -859,17 +1153,22 @@ class OutboundConnector(
                     numericAddressOrNull(a.getString("data"))?.let(out::add)
                 }
             }
-            if (out.isNotEmpty() && !Thread.currentThread().isInterrupted && System.nanoTime() < deadlineNs) {
+            if (out.isNotEmpty() && providerActive() && !Thread.currentThread().isInterrupted && System.nanoTime() < deadlineNs) {
                 outcome = "answer"
-                return DnsAnswer(out, DnsSource.DOH, dohNet?.networkHandle, "endpoint=$base;type=$type")
+                return DohQueryResult.Answer(DnsAnswer(out, DnsSource.DOH, dohNet?.networkHandle, "endpoint=$base;type=$type"))
             }
         } catch (e: Exception) {
             outcome = e.javaClass.simpleName
+            return when {
+                e is InterruptedException || !providerActive() || Thread.currentThread().isInterrupted || System.nanoTime() >= deadlineNs -> DohQueryResult.Stopped
+                !connected -> DohQueryResult.EndpointUnavailable
+                else -> DohQueryResult.RequestFailed
+            }
         } finally {
             runCatching { conn?.disconnect() }
-            throttledFileLog("doh-attempt:$host:$base:$type", "DoH attempt host=$host endpoint=$base type=$type net=${dohNet?.networkHandle ?: 0L} outcome=$outcome ms=${(System.nanoTime() - started) / 1_000_000L} budget=$stepMs")
+            throttledFileLog("doh-attempt:$host:$base:$type", "DoH attempt host=$host endpoint=$base type=$type net=${dohNet?.networkHandle ?: 0L} outcome=$outcome phase=$phase ms=${(System.nanoTime() - started) / 1_000_000L} budget=$stepMs")
         }
-        return null
+        return DohQueryResult.NoAnswer
     }
 
     /**
@@ -899,6 +1198,7 @@ class OutboundConnector(
         /** 请求级追踪；null=不记。见 [RequestTrace]。 */
         trace: RequestTrace? = null,
     ): SocketChannel {
+        rejectExplicitLocalTarget(host)
         // 同 connect()：两个抛点必须在 try 内，否则 catch 里的 DirectEgressFailures 收不到。
         var network: Network? = null
         val physicalFallback by lazy { underlyingNetworkProvider?.fallbackEgress(network) }
@@ -915,7 +1215,7 @@ class OutboundConnector(
             run {
                 dialWithDnsRecovery(host, network, bypassVpn, trace,
                     preferAlternate = { preferAlternateEgress(network, bypassVpn) && physicalFallback != null }) { addresses ->
-                    connectAnyChannel(orderAddresses(addresses), port, network)
+                    connectAnyChannel(orderAddresses(addresses, bypassVpn), port, network, bypassVpn)
                 }
             }
                 .also {
@@ -989,9 +1289,52 @@ class OutboundConnector(
         trace: RequestTrace? = null,
     ): SocketChannel = connectChannel(addr.hostAddress ?: throw ProxyException(ProxyError.DnsFailure), port, bypassVpn, onEgress, trace)
 
-    /** IPv4 优先排序（IPv6 在 NAT/移动网常不可达，放后面）。 */
-    internal fun orderAddresses(addrs: List<InetAddress>): List<InetAddress> =
-        addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
+    /** DIRECT inherits its physical resolver's ranking. PROXY's rescue ordering is unchanged. */
+    internal fun orderAddresses(addrs: List<InetAddress>, bypassVpn: Boolean = false): List<InetAddress> =
+        if (bypassVpn) addrs else addrs.sortedBy { if (it is Inet4Address) 0 else 1 }
+
+    /** Select before interleaving: changing capByFamily's majority to IPv6 would
+     * discard IPv4 rescue addresses that the old bounded pool could still reach.
+     * Keep every member of that pool and the six-attempt limit, then let DIRECT start with
+     * the first allowed family from the physical resolver and alternate families.
+     * Within each family the original ordering remains stable. */
+    /** A policy refusal is not a failed network. Public-name DNS recovery remains
+     * unchanged; only explicit local destinations are rejected before selecting an egress. */
+    private fun rejectExplicitLocalTarget(host: String) {
+        val guard = egressGuard as? com.mzstd.hxmyproxy.core.security.DefaultEgressGuard ?: return
+        if (!guard.blockPrivateLan) return
+        val name = host.lowercase(java.util.Locale.ROOT).removeSuffix(".")
+        val literal = numericAddressOrNull(name)
+        if ((literal != null && guard.isPrivateNetworkBlocked(literal)) ||
+            (literal == null && DnsNamePolicy.isLocalNetworkName(name)))
+            throw ProxyException(ProxyError.LocalNetworkBlocked, "local-target-disabled")
+    }
+
+    private fun denialFor(addrs: List<InetAddress>): ProxyError =
+        if ((egressGuard as? com.mzstd.hxmyproxy.core.security.DefaultEgressGuard)
+                ?.let { guard -> addrs.any(guard::isPrivateNetworkBlocked) } == true)
+            ProxyError.LocalNetworkBlocked else ProxyError.AccessDenied
+
+    internal fun tcpCandidates(addrs: List<InetAddress>, bypassVpn: Boolean = false): List<InetAddress> {
+        val allowed = addrs.filter { egressGuard.isAllowed(it) }
+        if (!bypassVpn || allowed.isEmpty()) return capByFamily(allowed)
+        val pool = capByFamily(orderAddresses(allowed)).toMutableList()
+        // With one IPv4 and many IPv6 answers the legacy quota only filled two
+        // slots. Use spare slots without evicting any previously eligible rescue.
+        for (address in allowed) {
+            if (pool.size >= MAX_HE_CANDIDATES) break
+            if (address !in pool) pool.add(address)
+        }
+        val firstIsV4 = allowed.first() is Inet4Address
+        val first = pool.filter { (it is Inet4Address) == firstIsV4 }
+        val second = pool.filter { (it is Inet4Address) != firstIsV4 }
+        return buildList(pool.size) {
+            for (i in 0 until maxOf(first.size, second.size)) {
+                first.getOrNull(i)?.let(::add)
+                second.getOrNull(i)?.let(::add)
+            }
+        }
+    }
 
     /**
      * 扇出截断：候选超过 [MAX_HE_CANDIDATES] 时按**地址族配额**保留，而不是一刀切取前 N 个。
@@ -999,18 +1342,16 @@ class OutboundConnector(
      * 修的是一个会改变**可达集合**（而不只是尝试顺序）的缺陷：截断发生在 [orderAddresses] 的
      * IPv4 优先排序**之后**，于是域名解析出 7 个以上地址、前 6 个恰好都是 IPv4 时，
      * **IPv6 被整体删除** —— 前面那些 IPv4 全是黑洞时，本来能救场的 IPv6 已经不在池子里了。
-     * 依据 RFC 8305 §3.1（全文唯一一处谈「不得不截断时怎么办」的规范文字）：
-     * "If such a limit is required by hardware limitations, the client SHOULD use at least one
-     * address from each address family from the available list."
+     * 这是本项目控制线程/FD的候选配额；RFC8305 §4 的双栈排序/交错由 tcpCandidates
+     * 在 DIRECT 路径实现。§3.1讨论DNS服务器地址，不能误作目的IP截断的直接依据。
      *
      * 刻意只给次要族**保底 [MIN_MINORITY_SLOTS] 个名额**而不是对半分：本项目的「系统解析 + 互援 + DoH」
      * 合并池正是靠多个 IPv4 并行竞速来对抗 DNS 污染（见 [resolve] 里那段合并逻辑），把 IPv4 名额腰斩
-     * 会让「前几个是污染死 IP」从能救回来变成全失败。RFC 要的是「至少一个」，不是 50/50。
+     * 会让「前几个是污染死 IP」从能救回来变成全失败；本配额不是50/50均分。
      *
      * **只改保留哪些、不改先试哪个**：保留下来的地址按原下标回填，族间先后与族内顺序一律不变，
-     * 所以起跑顺序完全不受本函数影响。IPv4 优先这个**策略**该不该改是另一件事（RFC 8305 §4 要求
-     * 交错、并把排序 MUST 委托给 RFC 6724，而 Android 的 getaddrinfo 已按当前网络+uid 排过一遍），
-     * 那需要真机数据支撑，别混在截断里顺手做掉。
+     * 所以起跑顺序不受本函数影响。305在保留旧集合之后，才对DIRECT使用物理系统首选族
+     * 和交错顺序，并用未占满的槽补候选；PROXY保留原选择和顺序。
      */
     internal fun capByFamily(addrs: List<InetAddress>, max: Int = MAX_HE_CANDIDATES): List<InetAddress> {
         if (addrs.size <= max) return addrs
@@ -1033,9 +1374,9 @@ class OutboundConnector(
      * 全部失败抛最后一次错误；候选为空（DNS 空 / 全被护栏拦）抛对应错误。
      */
     /** 阻塞 [Socket] 版（HTTP 明文路径 / 现有调用）。出口分流靠 `network.socketFactory` 建已绑定 socket。 */
-    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int, network: Network? = null): Socket =
+    internal suspend fun connectAny(addrs: List<InetAddress>, port: Int, network: Network? = null, bypassVpn: Boolean = false): Socket =
         connectAnyGeneric(
-            addrs, port,
+            addrs, port, bypassVpn,
             create = { network?.socketFactory?.createSocket() ?: Socket() },
             connect = { s, a -> s.tcpNoDelay = true; s.keepAlive = true; s.connect(a, ProxyTuning.CONNECT_TIMEOUT_MS) },
         )
@@ -1046,9 +1387,9 @@ class OutboundConnector(
      * Android SocketAdaptor 由 FileDescriptorHolderSocketImpl 持有 channel 的同一个 fd。
      * 绑定失败必须关闭尚未交接的 channel，并保留 IOException 让调用方回退到绑定出口的阻塞路径。
      */
-    internal suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?): SocketChannel {
+    internal suspend fun connectAnyChannel(addrs: List<InetAddress>, port: Int, network: Network?, bypassVpn: Boolean = false): SocketChannel {
         return connectAnyGeneric(
-            addrs, port,
+            addrs, port, bypassVpn,
             create = {
                 val ch = SocketChannel.open()
                 try {
@@ -1087,20 +1428,17 @@ class OutboundConnector(
     private suspend fun <S : Closeable> connectAnyGeneric(
         addrs: List<InetAddress>,
         port: Int,
+        bypassVpn: Boolean,
         create: () -> S,
         connect: (S, InetSocketAddress) -> Unit,
     ): S {
         var winner: S? = null
         return try { coroutineScope {
-        val candidates = ArrayList<InetAddress>()
-        var blocked = false
-        for (a in addrs) if (egressGuard.isAllowed(a)) candidates.add(a) else blocked = true
-        if (candidates.isEmpty()) {
-            throw ProxyException(if (blocked) ProxyError.AccessDenied else ProxyError.DnsFailure)
+        val attempts = tcpCandidates(addrs, bypassVpn)
+        if (attempts.isEmpty()) {
+            throw ProxyException(if (addrs.isNotEmpty()) denialFor(addrs) else ProxyError.DnsFailure)
         }
-        // 扇出上限：解析出超多地址（个别 CDN/anycast 返回十几条）时只取前 N 个并行尝试，
-        // 但**按族配额**保留，绝不让某一族被整体挤出候选池（见 capByFamily）。
-        val attempts = capByFamily(candidates)
+        // tcpCandidates owns guard filtering, the unchanged bounded pool and DIRECT ordering.
 
         val results = Channel<Outcome<S>>(Channel.UNLIMITED)
         // inFlight 兼作锁对象；closed=注册闸门+清理标记：胜出/清理后置 true，使后到的尝试自行关闭而非连接。
@@ -1256,28 +1594,29 @@ class OutboundConnector(
          * 而排队是无声的——宁可这一路快速判负、让互援/DoH 接手，也不要把线程按住。
          */
         private const val DNS_STEP_TIMEOUT_MS = 1_500L
+        private const val DNS_PREEMPT_JOIN_MS = 100L
 
         /**
-         * Preserve the historical 400ms prefetch threshold (1.27 measured DNS p90).
+         * Preserve the historical 400ms threshold (1.27 introduced it as a conservative initial value).
          * Prefetch does not replace a viable primary; only failure/expiry makes it eligible.
          */
         private const val DNS_HEDGE_DELAY_MS = 400L
 
         /** 成功解析耗时的分桶上界（ms）。最后一桶是 [DNS_OK_BUCKET_UPPER_MS.last, 超时) */
-        private val DNS_OK_BUCKET_UPPER_MS = longArrayOf(20, 50, 100, 200, 400, 800, 1_200)
+        private val DNS_OK_BUCKET_UPPER_MS = longArrayOf(20, 50, 100, 200, 400, 800, 1_200, 1_500, 3_000)
         /**
          * 同时在途系统查询上限；所有互援支路也计入。DoH 独立限制实际阻塞工作数。
          */
         private const val DNS_MAX_INFLIGHT = 12
                 /** 上游建连有界池线程数：connect 是短时阻塞操作，96 足以支撑首屏几十域名并发建连且硬限线程。 */
         private const val CONNECT_THREADS = 96
-        /** 单域名 Happy Eyeballs 并行尝试的地址数上限（IPv4 优先取前 N，按族配额见 [capByFamily]）。 */
+        /** 单域名TCP候选上限；DIRECT的选择和起跑顺序见 [tcpCandidates]。 */
         private const val MAX_HE_CANDIDATES = 6
 
         /**
-         * 截断时给**次要地址族**保底的名额数。RFC 8305 §3.1 只要求「至少一个」，这里就给一个：
+         * 旧候选配额给**次要地址族**保底的名额数：
          * 目标是**不灭族**（IPv4 全挂时 IPv6 还在池子里），不是「让 IPv6 更早起跑」——
-         * 后者要改的是 [orderAddresses] 的排序策略，属于另一个决策，别混在截断里顺手做掉。
+         * DIRECT的早起跑与补空槽在 [tcpCandidates] 单独处理，不能借此缩减旧IPv4救援集合。
          * 调大它会等量挤占 IPv4 名额，而 IPv4 的并行数正是 DNS 污染救援的本钱。
          */
         private const val MIN_MINORITY_SLOTS = 1

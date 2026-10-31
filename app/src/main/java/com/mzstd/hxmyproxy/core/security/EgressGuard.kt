@@ -28,6 +28,9 @@ class DefaultEgressGuard(
         return true
     }
 
+    /** Distinguish the user-controlled LAN refusal from always-forbidden targets. */
+    fun isPrivateNetworkBlocked(addr: InetAddress): Boolean = blockPrivateLan && isPrivate(addr)
+
     private fun isPrivate(addr: InetAddress): Boolean {
         if (addr.isSiteLocalAddress) return true         // 10/8, 172.16/12, 192.168/16
         when (addr) {

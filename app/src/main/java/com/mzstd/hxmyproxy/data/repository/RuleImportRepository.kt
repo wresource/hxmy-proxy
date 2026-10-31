@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.data.repository
 
+import com.mzstd.hxmyproxy.core.util.concurrentSnapshot
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -43,7 +44,7 @@ class RuleImportRepository @Inject constructor(@param:ApplicationContext private
     private val settings get() = library.settings
     val store get() = settings.ruleContents
     private val running = ConcurrentHashMap.newKeySet<String>()
-    fun activeJobs(): Set<String> = running.toSet()
+    fun activeJobs(): Set<String> = concurrentSnapshot(running).toSet()
     private val cancelled = ConcurrentHashMap.newKeySet<String>()
     private val closers = ConcurrentHashMap<String, CopyOnWriteArrayList<() -> Unit>>()
     private data class Opened(val input: InputStream, val name: String)

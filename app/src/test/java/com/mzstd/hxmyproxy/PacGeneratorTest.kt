@@ -28,11 +28,13 @@ class PacGeneratorTest {
         assertTrue(pac.contains("function FindProxyForURL(url, host)"))
     }
 
-    /** 入口只给具体 IP —— `.local` 便利名已随 mDNS 删除，PAC 正文里不该再出现任何主机名。 */
+    /** Only proxy endpoints must be IP literals. A destination .local bypass is
+     * distinct from the old, unresolvable hxmyproxy.local proxy endpoint. */
     @Test fun onlyIpLiteralsNoHostnames() {
         val entries = listOf(ProxyEntry("192.168.1.34", 1080, ProxyProtocol.SOCKS5, "wlan0"))
         val pac = PacGenerator.generate(entries)
-        assertFalse(pac.contains(".local"))
+        assertFalse(Regex("(?:PROXY|SOCKS5?) [^;\\\"]*\\.local").containsMatchIn(pac))
+        assertFalse(pac.contains("hxmyproxy.local"))
         // SOCKS5(桌面) + 裸 SOCKS(iOS=SOCKS5) 两条都给
         assertTrue(pac.contains("SOCKS5 192.168.1.34:1080; SOCKS 192.168.1.34:1080; DIRECT"))
     }

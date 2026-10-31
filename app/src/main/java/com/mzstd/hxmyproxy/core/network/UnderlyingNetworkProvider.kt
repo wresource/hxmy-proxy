@@ -53,6 +53,15 @@ class UnderlyingNetworkProvider(context: Context) {
         withTimeoutOrNull(remainingMs) { availabilityChanged.first { available() } }
     }
 
+    /** The same initial callback window applies to an independently selected DoH network.
+     * Never request/keep a network alive or add another wait once that window has elapsed. */
+    suspend fun awaitInitialDohNetwork() {
+        if (dohSelection().available || !registered) return
+        val remainingMs = (initialDeadlineNs - System.nanoTime()) / 1_000_000L
+        if (remainingMs <= 0) return
+        withTimeoutOrNull(remainingMs) { availabilityChanged.first { dohSelection().available } }
+    }
+
     /** WiFi 句柄是否通过系统连通性校验（NET_CAPABILITY_VALIDATED）。仅诊断——纯内网 WiFi 合法地无 VALIDATED。 */
     @Volatile
     var validated: Boolean = false
@@ -110,20 +119,32 @@ class UnderlyingNetworkProvider(context: Context) {
 
     /** PROXY 出站按用户选择的出口网络；AUTO 返回 null（走系统默认，含 VPN）。 */
     /**
-     * 备用 DNS(DoH)请求走哪张网。返回 null = 跟随进程默认路由(旧行为)。
+     * 备用 DNS(DoH)请求走哪张网。DEFAULT 的 null 才表示系统默认路由；
+     * 指定物理出口或 FOLLOW_DIRECT 的 null 表示该出口当前不可用。
      *
      * 为什么 DoH 需要单独选一张网:它是「系统 DNS 已经失败之后」的救济手段,而默认路由在
      * egress=VPN 时正是刚出问题的那条 VPN——DoH 于是和它要救的业务走同一条正在死的路、一起失败
      * (0803 实测救援成功率仅 6.5%)。绑到物理网才能在 VPN 半死时仍问得到答案。
      * 注意这与端点选择是配套的:绑物理网后是国内直连,必须有国内可达的端点(见 DOH_ENDPOINTS)。
      */
-    fun dohNetwork(): Network? = when (dohChoice) {
-        com.mzstd.hxmyproxy.core.model.DohEgressChoice.FOLLOW_DIRECT -> current()
-        com.mzstd.hxmyproxy.core.model.DohEgressChoice.DEFAULT -> null
-        com.mzstd.hxmyproxy.core.model.DohEgressChoice.ETHERNET -> ethernetNet
-        com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI -> wifiNet
-        com.mzstd.hxmyproxy.core.model.DohEgressChoice.CELLULAR -> cellularNet
+    data class DohEgressSelection(val choice: com.mzstd.hxmyproxy.core.model.DohEgressChoice, val network: Network?) {
+        val available: Boolean get() = choice == com.mzstd.hxmyproxy.core.model.DohEgressChoice.DEFAULT || network != null
     }
+
+    fun dohSelection(): DohEgressSelection {
+        val selected = dohChoice
+        val network = when (selected) {
+            com.mzstd.hxmyproxy.core.model.DohEgressChoice.FOLLOW_DIRECT -> current()
+            com.mzstd.hxmyproxy.core.model.DohEgressChoice.DEFAULT -> null
+            com.mzstd.hxmyproxy.core.model.DohEgressChoice.ETHERNET -> ethernetNet
+            com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI -> wifiNet
+            com.mzstd.hxmyproxy.core.model.DohEgressChoice.CELLULAR -> cellularNet
+        }
+        return DohEgressSelection(selected, network)
+    }
+
+    /** Handle-only diagnostic/legacy accessor. Callers that open connections need [dohSelection]. */
+    fun dohNetwork(): Network? = dohSelection().network
 
     /**
      * 由 applyTunables 推入 DoH 出口选择。**不做 requestNetwork 保活**——DoH 只在解析失败时

@@ -4,7 +4,8 @@ package com.mzstd.hxmyproxy.core.model
  * 用户设置（DataStore 持久化的单一来源）。
  *
  * 安全默认（D5）：认证默认关闭（附未认证警告）；反 SSRF 出口护栏默认开启，
- * 但私网（RFC1918）出口默认放行（[blockPrivateLanEgress] = false）以保证广适用性。
+ * 局域网目标默认由客户端直连；允许手机代为访问内网需明确开启。
+ * 旧版本的默认允许不作为新开关的主动授权；显式开启后才允许代理局域网目标。
  */
 data class ProxySettings(
     val httpEnabled: Boolean = true,
@@ -38,8 +39,8 @@ data class ProxySettings(
     /** 指定出口连不通时：断开(STRICT，默认) 还是 降级默认路由(DEGRADE)。见 [EgressFallback]。 */
     val egressFallback: EgressFallback = EgressFallback.STRICT,
     val authEnabled: Boolean = false,
-    /** 反 SSRF：默认放行私网出口；置 true 则连私网也禁（loopback/链路本地始终禁）。 */
-    val blockPrivateLanEgress: Boolean = false,
+    /** 反 SSRF：默认禁止私网出口；用户明确允许后置 false（loopback/链路本地始终禁）。 */
+    val blockPrivateLanEgress: Boolean = true,
     val preset: PerformancePreset = PerformancePreset.BALANCED,
     val limits: ConnectionLimits = PerformancePreset.BALANCED.toLimits(),
     val language: AppLanguage = AppLanguage.SYSTEM,

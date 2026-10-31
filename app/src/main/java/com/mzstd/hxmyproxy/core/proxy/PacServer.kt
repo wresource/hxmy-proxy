@@ -33,20 +33,23 @@ class PacServer(
         val input = client.getInputStream()
         val output = client.getOutputStream()
 
-        val requestLine = readAsciiLine(input) ?: return
+        val requestLine = try { readAsciiLine(input) }
+        catch (_: HttpMetadataLimitException) { writeResponse(output,414,"URI Too Long",null,null);return } ?: return
         // 读请求头：丢弃其余，留 User-Agent（按平台分发）与 Accept-Language（落地页/描述文件双语）。
         var userAgent = ""
         var acceptLanguage = ""
-        while (true) {
+        val budget = HttpHeaderBudget()
+        try { while (true) {
             val l = readAsciiLine(input) ?: break
             if (l.isEmpty()) break
+            budget.observe(l)
             if (l.length >= 11 && l.regionMatches(0, "User-Agent:", 0, 11, ignoreCase = true)) {
                 userAgent = l.substring(11).trim()
             }
             if (l.length >= 16 && l.regionMatches(0, "Accept-Language:", 0, 16, ignoreCase = true)) {
                 acceptLanguage = l.substring(16).trim()
             }
-        }
+        } } catch (_: HttpMetadataLimitException) { writeResponse(output,431,"Request Header Fields Too Large",null,null);return }
         // 语言跟扫码设备的浏览器走（可能是英文电脑），与手机 app 语言无关。
         val zh = SetupPageGenerator.isZh(acceptLanguage)
 

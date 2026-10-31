@@ -35,6 +35,7 @@ class RelayEngine(
         onTraffic: (Long, Long) -> Unit = this.onTraffic,
         host: String? = null,
         trace: RequestTrace? = null,
+        initialClientBytes: ByteArray = ByteArray(0),
     ) {
         val evidence = RelayCloseEvidence()
         val up = AtomicLong(); val down = AtomicLong()
@@ -60,7 +61,7 @@ class RelayEngine(
                 // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。
                 // 与 handle 的建连派发器分离：新连接的握手/建连不会被搬字节占满线程而饿死（队头阻塞）。
                 val upJob = launch(relayDispatcher) {
-                    pump(cStreams, uStreams, upstream, "client", "upstream", bufferBytes, evidence, cancelled, closeAll) { up.addAndGet(it); onTraffic(it, 0) }
+                    pump(cStreams, uStreams, upstream, "client", "upstream", bufferBytes, evidence, cancelled, closeAll, initialClientBytes) { up.addAndGet(it); onTraffic(it, 0) }
                 }
                 val downJob = launch(relayDispatcher) {
                     pump(uStreams, cStreams, client, "upstream", "client", bufferBytes, evidence, cancelled, closeAll) { down.addAndGet(it); onTraffic(0, it) }
@@ -97,6 +98,7 @@ class RelayEngine(
         evidence: RelayCloseEvidence,
         cancelled: () -> Boolean,
         closeAll: () -> Unit,
+        initialBytes: ByteArray = ByteArray(0),
         onBytes: (Long) -> Unit,
     ) {
         val buf = ByteArray(bufferBytes)
@@ -106,6 +108,11 @@ class RelayEngine(
             val input = from.input
             side = toSide
             val output = destination.output
+            if (initialBytes.isNotEmpty()) {
+                operation = "write"; side = toSide
+                output.write(initialBytes); output.flush()
+                operation = "accounting"; onBytes(initialBytes.size.toLong())
+            }
             while (true) {
                 operation = "read"; side = fromSide
                 val n = try {

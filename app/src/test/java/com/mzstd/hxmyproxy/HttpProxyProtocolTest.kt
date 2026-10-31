@@ -572,6 +572,12 @@ class HttpProxyProtocolTest {
         assertEquals("非逐跳头必须原样回给客户端", "yes", head.value("X-Origin"))
     }
 
+    @Test(timeout = 20000) fun oversizedUpstreamMetadataReturns502BeforeAnyOriginResponse() {
+        val origin=res.keep(RecordingOrigin(extraHeaders=listOf("X-Large" to "x".repeat(70*1024))))
+        val head=exchange(proxy(),"GET http://127.0.0.1:${origin.port}/ HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        assertEquals(502,head.status)
+    }
+
     /** keep-alive 复用连接上的第二个请求同样要走完整校验：畸形请求行照样回 400 而不是被静默丢弃。 */
     @Test(timeout = 20000) fun `keep-alive连接上的第二个请求畸形应回400`() {
         val origin = res.keep(RecordingOrigin())

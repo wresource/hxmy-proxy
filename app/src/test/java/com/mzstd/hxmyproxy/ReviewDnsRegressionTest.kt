@@ -82,7 +82,7 @@ class ReviewDnsRegressionTest {
         val doh=net(303)
         val provider=mockk<UnderlyingNetworkProvider> {
             every { current() } returns physical
-            every { dohNetwork() } returns doh
+            every { dohSelection() } returns UnderlyingNetworkProvider.DohEgressSelection(com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI, doh)
         }
         every { doh.openConnection(any()) } answers {
             calls.add(firstArg<URL>().toString())

@@ -721,12 +721,14 @@ private fun PrivacyCard(ui: MainUiState, viewModel: MainViewModel) {
             iconTint = iconFg,
             trailing = { InfoDot(stringResource(R.string.ui_data_flow_title), stringResource(R.string.ui_data_flow_body)) },
         )
-        LabeledSwitchRow(
-            title = stringResource(R.string.settings_block_private),
-            subtitle = stringResource(R.string.block_private_sub),
-            checked = ui.settings.blockPrivateLanEgress,
-            onCheckedChange = viewModel::setBlockPrivateLan,
-        )
+        Box(Modifier.fillMaxWidth().testTag("settings_local_network_targets")) {
+            LabeledSwitchRow(
+                title = stringResource(R.string.settings_block_private),
+                subtitle = stringResource(if (ui.settings.blockPrivateLanEgress) R.string.block_private_sub else R.string.local_network_proxy_allowed_sub),
+                checked = !ui.settings.blockPrivateLanEgress,
+                onCheckedChange = { viewModel.setBlockPrivateLan(!it) },
+            )
+        }
         LabeledSwitchRow(
             title = stringResource(R.string.settings_log_enabled),
             subtitle = stringResource(R.string.settings_log_enabled_sub),

@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ThreadPoolExecutor
 import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
@@ -34,7 +35,7 @@ class DohSchedulingTest {
         val running = AtomicInteger(); val peak = AtomicInteger()
         val provider = mockk<UnderlyingNetworkProvider> {
             every { current() } returns null
-            every { dohNetwork() } returns net
+            every { dohSelection() } returns UnderlyingNetworkProvider.DohEgressSelection(com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI, net)
         }
         every { net.openConnection(any()) } answers {
             val url = firstArg<URL>()
@@ -78,7 +79,7 @@ class DohSchedulingTest {
         val net = mockk<Network> { every { networkHandle } returns 9902L }
         val provider = mockk<UnderlyingNetworkProvider> {
             every { current() } returns null
-            every { dohNetwork() } returns net
+            every { dohSelection() } returns UnderlyingNetworkProvider.DohEgressSelection(com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI, net)
         }
         val c = testConnector(allowed, underlyingNetworkProvider = provider, systemDns = SystemDnsLookup { _, _ -> emptyList() })
         var connect: (URL) -> Unit = {}
@@ -133,6 +134,78 @@ class DohSchedulingTest {
         Fixture { url -> if (url.query.endsWith("type=28")) 28 to "2001:db8::99" else null }.use { f ->
             assertEquals(listOf(InetAddress.getByName("2001:db8::99")), resolve(f.c))
             assertTrue(f.calls.any { it.contains("type=28") })
+        }
+    }
+
+    @Test(timeout = 12000) fun unreachableHttpsEndpointIsNotContactedAgainJustToChangeDnsRecordType() = runBlocking {
+        Fixture { _ -> 1 to "192.0.2.91" }.use { f ->
+            f.connect = { url ->
+                if (url.host == "8.8.8.8" || url.host == "1.1.1.1") {
+                    throw SocketTimeoutException("failed before TLS was established")
+                }
+            }
+            assertEquals(listOf(InetAddress.getByName("192.0.2.91")), resolve(f.c))
+            for (host in listOf("8.8.8.8", "1.1.1.1")) {
+                val types = f.calls.map(::URL).filter { it.host == host }.map { it.query.substringAfter("type=") }
+                assertEquals("A/AAAA share the failed HTTPS transport for $host", listOf("1"), types)
+            }
+            assertTrue(f.peak.get() <= 4)
+        }
+    }
+
+    @Test(timeout = 12000) fun establishedEndpointReadTimeoutStillGetsItsIpv6AnswerChance() = runBlocking {
+        Fixture { url ->
+            if (url.host == "8.8.8.8") {
+                if (url.query.endsWith("type=1")) throw SocketTimeoutException("A response stalled after TLS")
+                28 to "2001:db8::91"
+            } else 1 to "192.0.2.92"
+        }.use { f ->
+            assertEquals(listOf(InetAddress.getByName("2001:db8::91")), resolve(f.c))
+            assertTrue(f.calls.any { it.contains("8.8.8.8") && it.endsWith("type=28") })
+        }
+    }
+
+    @Test(timeout = 12000) fun preferredIpv6OnlyEndpointStillBeatsDifferentLowerPriorityIpv4Answer() = runBlocking {
+        Fixture { url ->
+            if (url.host == "8.8.8.8") {
+                if (url.query.endsWith("type=1")) null else 28 to "2001:db8::92"
+            } else 1 to "192.0.2.93"
+        }.use { f ->
+            assertEquals(listOf(InetAddress.getByName("2001:db8::92")), resolve(f.c))
+        }
+    }
+
+    @Test(timeout = 12000) fun interruptedResponseDoesNotStartAnotherRecordQueryAfterInterruptFlagWasCleared() = runBlocking {
+        Fixture { url ->
+            if (url.host == "8.8.8.8") throw InterruptedException("blocking API cleared its interrupt flag")
+            1 to "192.0.2.94"
+        }.use { f ->
+            assertEquals(listOf(InetAddress.getByName("192.0.2.94")), resolve(f.c))
+            assertEquals(listOf("1"), f.calls.map(::URL).filter { it.host == "8.8.8.8" }.map { it.query.substringAfter("type=") })
+        }
+    }
+
+    @Test(timeout = 12000) fun cancelledProviderThatSwallowsInterruptAndReturnsEmptyCannotStartAaaa() = runBlocking {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        Fixture { url ->
+            if (url.host == "8.8.8.8" && url.query.endsWith("type=1")) {
+                entered.countDown()
+                while (release.count != 0L) try { release.await() } catch (_: InterruptedException) { }
+                null
+            } else 1 to "192.0.2.95"
+        }.use { f ->
+            val request = async(Dispatchers.Default) { resolve(f.c) }
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS))
+                withTimeout(1000) { request.cancelAndJoin() }
+                assertTrue("cancelled native I/O still owns its worker", f.active.get() > 0)
+                release.countDown()
+                val workers = OutboundConnector::class.java.getDeclaredField("DOH_WORKERS").apply { isAccessible = true }.get(null)
+                val pool = workers.javaClass.getDeclaredField("pool").apply { isAccessible = true }.get(workers) as ThreadPoolExecutor
+                assertTrue("wait for actual task completion, not a between-connections counter gap", ProxyTestKit.await(3000) { pool.activeCount == 0 && pool.queue.isEmpty() })
+                assertEquals(listOf("1"), f.calls.map(::URL).filter { it.host == "8.8.8.8" }.map { it.query.substringAfter("type=") })
+            } finally { release.countDown(); request.cancelAndJoin() }
         }
     }
 

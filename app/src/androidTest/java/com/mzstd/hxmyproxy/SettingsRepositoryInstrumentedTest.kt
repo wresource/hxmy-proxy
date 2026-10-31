@@ -23,6 +23,43 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SettingsRepositoryInstrumentedTest {
 
+    @Test fun legacyAllowDoesNotBecomeExplicitLocalProxyConsent() = runBlocking {
+        val repo = SettingsRepository(ApplicationProvider.getApplicationContext<Context>())
+        val original = repo.settings.first()
+        try {
+            val backup = org.json.JSONObject(repo.exportJson())
+            val values = backup.getJSONObject("settings")
+            values.remove("allow_local_network_targets")
+            values.put("block_private_lan", org.json.JSONObject().put("t", "b").put("v", false))
+            repo.importJson(backup.toString())
+            val actual = repo.settings.first()
+            assertTrue(actual.blockPrivateLanEgress)
+            assertEquals(original.copy(blockPrivateLanEgress = true), actual)
+            val saved = org.json.JSONObject(repo.exportJson()).getJSONObject("settings")
+            assertEquals(false, saved.getJSONObject("allow_local_network_targets").getBoolean("v"))
+            assertEquals(true, saved.getJSONObject("block_private_lan").getBoolean("v"))
+        } finally { repo.update { original } }
+    }
+
+    @Test fun explicitLocalProxyChoicePersistsThroughBackupAndRepositoryReload() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = SettingsRepository(context)
+        val original = repo.settings.first()
+        try {
+            repo.update { it.copy(blockPrivateLanEgress = false) }
+            val saved = repo.exportJson()
+            assertEquals(true, org.json.JSONObject(saved).getJSONObject("settings")
+                .getJSONObject("allow_local_network_targets").getBoolean("v"))
+            repo.update { it.copy(blockPrivateLanEgress = true) }
+            repo.importJson(saved)
+            assertEquals(false, SettingsRepository(context).settings.first().blockPrivateLanEgress)
+            val olderDenial = org.json.JSONObject(saved)
+            olderDenial.getJSONObject("settings").getJSONObject("block_private_lan").put("v", true)
+            repo.importJson(olderDenial.toString())
+            assertTrue(repo.settings.first().blockPrivateLanEgress)
+        } finally { repo.update { original } }
+    }
+
     @Test
     fun persistsAndMapsSettingsRoundTrip() = runBlocking {
         val ctx = ApplicationProvider.getApplicationContext<Context>()

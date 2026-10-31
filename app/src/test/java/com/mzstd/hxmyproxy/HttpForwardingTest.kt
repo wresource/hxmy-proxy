@@ -5,9 +5,12 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.EOFException
+import java.io.IOException
 
 class HttpForwardingTest {
 
@@ -61,5 +64,21 @@ class HttpForwardingTest {
         HttpForwarding.copyChunked(input, out, ByteArray(4096)) {}
         assertArrayEquals(chunked, out.toByteArray())              // 逐字节原样转发
         assertEquals("NEXT", String(input.readBytes()))           // 停在终止块之后
+    }
+
+    @Test fun truncatedOrMalformedChunkedBodyIsNeverReportedComplete() {
+        for (wire in listOf("", "0\r\n", "1\r\na\r\n", "xyz\r\n", "-1\r\n", "+1\r\n", "1\r\naZZ0\r\n\r\n")) {
+            assertThrows("Malformed input: $wire",IOException::class.java) {
+                HttpForwarding.copyChunked(ByteArrayInputStream(wire.toByteArray()),ByteArrayOutputStream(),ByteArray(8)) {}
+            }
+        }
+    }
+
+    @Test fun chunkLengthLargerThanIntStreamsUntilRealEofInsteadOfSilentlyEnding() {
+        val out=ByteArrayOutputStream()
+        assertThrows(EOFException::class.java) {
+            HttpForwarding.copyChunked(ByteArrayInputStream("80000000\r\npayload".toByteArray()),out,ByteArray(8)) {}
+        }
+        assertEquals("80000000\r\npayload",out.toString("ISO-8859-1"))
     }
 }

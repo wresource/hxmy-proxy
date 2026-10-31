@@ -55,6 +55,12 @@ class RequestActivityStore(private val capacity: Int = 256, private val clock: (
     fun connected(token: Token?, peer: String?) = change(token) {
         if (it.outcome in terminalErrors) it else it.copy(outcome = RequestOutcome.CONNECTED, peer = peer?.take(80))
     }
+    fun datagramReady(token: Token?, peer: String?) = change(token) {
+        if (it.outcome in terminalErrors) it else it.copy(outcome = RequestOutcome.CONNECTED, peer = peer?.take(80), stage = "udp-ready")
+    }
+    fun datagramReply(token: Token?) = change(token) {
+        if (it.outcome in terminalErrors) it else it.copy(stage = "udp-reply")
+    }
     fun failed(token: Token?, stage: String, error: String?, code: String? = null) = change(token) {
         it.copy(outcome = if (it.outcome == RequestOutcome.BLOCKED) RequestOutcome.BLOCKED else RequestOutcome.FAILED,
             stage = stage.take(80), error = error?.take(240), errorCode = code?.take(40))

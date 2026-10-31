@@ -255,18 +255,23 @@ class EvTest {
     }
 
     @Test
-    fun `节流键表有界——被灌爆后清表，宁可丢节流状态也不无限增长`() {
-        // dedup 里带来源 IP/域名，端口扫描器或 DNS 风暴可以造出无穷多个键。
-        // 上限的可观察后果：清表后老键的节流状态一并丢失，会重新落一条（而不是继续被抑制）。
-        val victim = "test-throttle-victim"
+    fun `高基数节流键触发淘汰且表规模保持有界`() {
+        // be531fb 已将整表清空改为按时间淘汰四分之一，并保留被抑制计数。
+        // 同毫秒键没有先后保证，也可能已有更旧的全局键，不能指定某个键一定被淘汰。
+        // 直接验证容量与淘汰计数；相邻用例继续验证被抑制信息不会凭空消失。
+        val nonce = System.nanoTime()
+        val victim = "test-throttle-victim:$nonce"
         Ev.throttled(LogCat.DNS, "dns.victim", victim, 600_000L)
         Ev.throttled(LogCat.DNS, "dns.victim", victim, 600_000L)
         assertEquals("同窗口内应被抑制", 1, evtLines("dns.victim").size)
 
-        repeat(600) { Ev.throttled(LogCat.DNS, "dns.noise", "flood:10.0.$it.1", 600_000L) }
-
-        Ev.throttled(LogCat.DNS, "dns.victim", victim, 600_000L)
-        assertEquals("键表被清后老键应重新落盘（证明表有上限）", 2, evtLines("dns.victim").size)
+        val evictionsBefore = Ev.throttleStats().second
+        repeat(600) { Ev.throttled(LogCat.DNS, "dns.noise", "flood:$nonce:$it", 600_000L) }
+        val (keys, evictions, _) = Ev.throttleStats()
+        // 现有生产逻辑在插入前检查 size > 512，因此串行瞬时上限为 513。
+        assertTrue("高基数输入必须触发淘汰", evictions > evictionsBefore)
+        assertTrue("键表不得随输入无限增长，实际为 $keys", keys <= 513)
+        assertTrue("分批淘汰后应保留最近键，不能退回整表清空", keys >= 384)
     }
 
     // ---------- 辅助 ----------

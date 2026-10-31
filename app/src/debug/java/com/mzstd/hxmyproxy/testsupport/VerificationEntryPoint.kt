@@ -12,4 +12,6 @@ import dagger.hilt.components.SingletonComponent
 interface VerificationEntryPoint {
     fun repository(): ProxyServerRepository
     fun settings(): SettingsRepository
+    fun credentials(): com.mzstd.hxmyproxy.data.repository.CredentialStore
+    fun networks(): com.mzstd.hxmyproxy.core.network.UnderlyingNetworkProvider
 }

@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import com.mzstd.hxmyproxy.core.util.concurrentSnapshot
 import android.util.Log
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.FileLog
@@ -277,7 +278,7 @@ abstract class TcpProxyServerBase(
                                 handle(client, tracker)
                             } catch (e: Throwable) {
                                 // 客户端正常断开（连接重置/管道断开/keep-alive 取消）是常态 → 仅 debug，不进错误日志。
-                                if (isPeerClosed(e)) {
+                                if (!isActive || isPeerClosed(e)) {
                                     Log.d(TAG, "$protocol peer-closed ${remote.hostAddress}: ${e.message}")
                                 } else {
                                     Log.w(TAG, "$protocol error ${remote.hostAddress}: ${e.message}")
@@ -312,7 +313,7 @@ abstract class TcpProxyServerBase(
         serverChannel = null
         // 主动关闭在途连接：阻塞中的 relay read/write 立即抛错 → 协程退出、线程归还有界池、FD 释放。
         // 只需关 client 端：一端断开后另一方向 pump 随之结束，handle 的 finally 会关上游 socket。
-        inFlight.toList().forEach { it.closeQuietly() }
+        concurrentSnapshot(inFlight).forEach { it.closeQuietly() }
         inFlight.clear()
         _boundPort.value = null
         _bindError.value = null
@@ -326,7 +327,7 @@ abstract class TcpProxyServerBase(
         // 而真正有判定价值的是「这一次踢了几条」——踢 1 条和踢 40 条是完全不同的事件。
         var evicted = 0
         val victims = LinkedHashSet<String>()
-        inFlight.toList().forEach { ch ->
+        concurrentSnapshot(inFlight).forEach { ch ->
             if (!ch.isOpen) return@forEach
             val sock = runCatching { ch.socket() }.getOrNull()
             val local = (sock?.localSocketAddress as? InetSocketAddress)?.address

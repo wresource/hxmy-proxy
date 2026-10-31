@@ -27,6 +27,22 @@ class PacServerTest {
     private val res = Resources()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Test(timeout = 20000) fun metadataLimitsKeepTheNormalPacEndpointUsable() {
+        val instance=server { "pac" }
+        val attempts=listOf(
+            ("GET /"+"x".repeat(65523)+" HTTP/1.1") to 414,
+            ("GET /proxy.pac HTTP/1.1\r\nHost: test\r\nX:"+"x".repeat(65535)) to 431,
+            ("GET /proxy.pac HTTP/1.1\r\nHost: test\r\n"+"X: v\r\n".repeat(256)) to 431,
+        )
+        for((wire,code) in attempts) {
+            ProxyTestKit.client(ProxyTestKit.awaitPort(instance)).use { s ->
+                s.getOutputStream().write(wire.toByteArray());s.shutdownOutput()
+                assertEquals(code,ProxyTestKit.readHead(s.getInputStream()).status)
+            }
+        }
+        assertEquals(200,get(instance,"/proxy.pac").first.status)
+    }
+
     @After fun tearDown() {
         res.close()
         scope.cancel()

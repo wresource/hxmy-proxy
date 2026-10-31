@@ -6,9 +6,14 @@ import com.mzstd.hxmyproxy.core.rules.RuleAction
 import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
+import com.mzstd.hxmyproxy.core.security.decodeCredentialUtf8
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Job
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -17,7 +22,7 @@ import java.net.Socket
 import java.nio.channels.SocketChannel
 
 /**
- * SOCKS5 代理（RFC1928 + RFC1929）。V1 仅支持 CONNECT；不支持 BIND / UDP ASSOCIATE。
+ * SOCKS5 代理（RFC1928 + RFC1929）：CONNECT、有界UDP ASSOCIATE及可路由接口上的BIND。
  *
  * 流程：greeting(方法协商) → [可选]用户名/密码子协商 → request(CONNECT) →
  * 经 [OutboundConnector] 连上游（走默认网=VPN）→ 回复 → [RelayEngine] 双向转发。
@@ -38,7 +43,27 @@ class Socks5ProxyServer(
     /** 非阻塞 relay 反应堆；为 null 或 [useNioRelay]=false 时走旧阻塞 [relay]。 */
     private val nioReactor: NioRelayReactor? = null,
     private val useNioRelay: Boolean = false,
+    private val udpSession: ConnectUdpSession? = null,
+    private val udpIngressFactory: SocksUdpIngressFactory? = null,
+    bindFactory: TcpBindListenerFactory? = null,
+    bindWaitMillis: Long = 30_000,
+    dnsMessages:DnsMessageQuery? = null,
+    echoMessages:EchoMessageQuery? = null,
+    proxyLocalTargets: (() -> Boolean)? = null,
 ) : TcpProxyServerBase(ProxyProtocol.SOCKS5, acceptDispatcher, accessController, registry, accounting) {
+    private val udpAccess = accessController
+    private val udpRegistry = registry
+    private val udpAccounting = accounting
+    private val bindHandler = if (udpSession != null && bindFactory != null)
+        SocksBindHandler(connector,bindFactory,udpSession,ruleEngine,relay,relayDispatcher,limitsProvider,bindWaitMillis) else null
+    private val httpControl=if(dnsMessages!=null||echoMessages!=null||proxyLocalTargets!=null)HttpProxyServer(acceptDispatcher,accessController,registry,connector,relay,
+        authProvider,limitsProvider,relayDispatcher,accounting,ruleEngine=ruleEngine,udpSession=udpSession,
+        socksCapabilities={capabilities()},dnsMessages=dnsMessages,echoMessages=echoMessages,proxyLocalTargets=proxyLocalTargets) else null
+
+    fun capabilities(): Socks5Capabilities? = boundPort.value?.takeIf { it in 1..65535 }?.let {
+        Socks5Capabilities(it,udpIngressFactory != null && udpSession?.isActive == true && udpSession.socksReactor?.isRunning == true,
+            bindHandler != null && udpSession?.isActive == true)
+    }
 
     override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
         val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
@@ -46,9 +71,12 @@ class Socks5ProxyServer(
         val input = client.getInputStream()
         val output = client.getOutputStream()
         val auth = authProvider()
+        val authorizationEpoch = udpSession?.currentEpoch
 
         // 1) greeting: VER NMETHODS METHODS...
-        if (input.read() != 0x05) return
+        val first=input.read()
+        if((first=='G'.code||first=='P'.code)&&httpControl!=null){httpControl.handleControl(channel,tracker,first);return}
+        if (first != 0x05) return
         val nMethods = input.read()
         if (nMethods <= 0) return
         val methods = ByteArray(nMethods)
@@ -69,7 +97,7 @@ class Socks5ProxyServer(
         // 3) request: VER CMD RSV ATYP DST.ADDR DST.PORT
         if (input.read() != 0x05) return
         val cmd = input.read()
-        input.read() // RSV
+        val reserved = input.read()
         val atyp = input.read()
         var host: String? = null
         var addr: InetAddress? = null
@@ -83,7 +111,18 @@ class Socks5ProxyServer(
         if (portHi < 0 || portLo < 0) return
         val port = ((portHi and 0xFF) shl 8) or (portLo and 0xFF)
 
-        if (cmd != 0x01) { reply(output, 0x07); return }   // 仅 CONNECT
+        if (cmd == 0x03) {
+            if (reserved != 0) { reply(output, 0x01); return }
+            handleUdp(channel, output, addr, port, authorizationEpoch)
+            return
+        }
+        if (cmd == 0x02) {
+            if (reserved != 0) { reply(output,0x01); return }
+            val bind = bindHandler ?: run { reply(output,0x07); return }
+            bind.handle(channel,output,host ?: addr?.hostAddress,port,authorizationEpoch,tracker)
+            return
+        }
+        if (cmd != 0x01) { reply(output, 0x07); return }
 
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         val ruleHost = host ?: addr?.hostAddress
@@ -169,6 +208,37 @@ class Socks5ProxyServer(
         }
     }
 
+    private suspend fun handleUdp(client: SocketChannel, output: OutputStream, requestedAddress: InetAddress?, sourcePort: Int,
+                                  authorizationEpoch: Long?) {
+        val session = udpSession
+        val reactor = session?.socksReactor
+        val factory = udpIngressFactory
+        if (session == null || reactor == null || factory == null) { reply(output, 0x07); return }
+        if (!reactor.isRunning || !session.isActive) { reply(output, 0x01); return }
+        // The TCP peer is authoritative. Client hints never authorize a different sender.
+        val peer = client.socket().inetAddress
+        if (requestedAddress != null && !requestedAddress.isAnyLocalAddress && requestedAddress != peer) { reply(output, 0x02); return }
+        val owner = currentCoroutineContext()[Job]
+        val lease = session.acquire(authorizationEpoch) { reason -> owner?.cancel(CancellationException("UDP $reason")); client.closeQuietly() }
+        if (lease == null) { reply(output, 0x01); return }
+        lease.use {
+            val ingress = try { factory.open(client.socket().localAddress) }
+            catch (failure: IOException) {
+                currentCoroutineContext().ensureActive()
+                RequestTrace.open("SOCKS5", client.socket().port).failed(peer.hostAddress ?: "?", "udp-ingress-unavailable", failure.javaClass.simpleName)
+                reply(output, 0x03); return
+            }
+            ingress.use {
+                currentCoroutineContext().ensureActive()
+                if (!lease.isCurrent) return
+                val bound = ingress.channel.localAddress as java.net.InetSocketAddress
+                output.write(SocksUdpCodec.boundReply(bound)); output.flush()
+                reactor.relay(client, ingress, session, lease, sourcePort, connector, ruleEngine, udpRegistry,
+                    udpAccounting, udpAccess, limitsProvider().idleTimeoutSeconds * 1000L)
+            }
+        }
+    }
+
     /** RFC1929：VER(0x01) ULEN UNAME PLEN PASSWD → VER(0x01) STATUS。 */
     private fun subnegotiateUserPass(input: InputStream, output: OutputStream, auth: Authenticator): Boolean {
         if (input.read() != 0x01) return false
@@ -176,7 +246,9 @@ class Socks5ProxyServer(
         val u = ByteArray(ulen); readFully(input, u)
         val plen = input.read(); if (plen < 0) return false
         val p = ByteArray(plen); readFully(input, p)
-        val ok = auth.verify(String(u, Charsets.UTF_8), String(p, Charsets.UTF_8))
+        val username = decodeCredentialUtf8(u)
+        val password = decodeCredentialUtf8(p)
+        val ok = username != null && password != null && auth.verify(username,password)
         output.write(byteArrayOf(0x01, (if (ok) 0 else 1).toByte()))
         output.flush()
         return ok
@@ -188,3 +260,6 @@ class Socks5ProxyServer(
         output.flush()
     }
 }
+
+/** Actual listener state, not a promise of Internet reachability through a carrier/VPN NAT. */
+data class Socks5Capabilities(val port: Int, val udpAssociate: Boolean, val bind: Boolean)

@@ -24,6 +24,7 @@ import com.mzstd.hxmyproxy.core.proxy.ConnectionRegistry
 import com.mzstd.hxmyproxy.core.proxy.FdBudget
 import com.mzstd.hxmyproxy.core.proxy.HttpProxyServer
 import com.mzstd.hxmyproxy.core.proxy.NioRelayReactor
+import com.mzstd.hxmyproxy.core.proxy.ConnectUdpSession
 import com.mzstd.hxmyproxy.core.proxy.OutboundConnector
 import com.mzstd.hxmyproxy.core.proxy.PacGenerator
 import com.mzstd.hxmyproxy.core.proxy.PacServer
@@ -140,6 +141,10 @@ class ProxyServerRepository @Inject constructor(
     @Volatile private var relayExecutor: ExecutorService? = null
     /** NIO 非阻塞 relay 反应堆（会话级：startServers 创建+start、stopServers stop）。 */
     @Volatile private var nioReactor: NioRelayReactor? = null
+    @Volatile private var udpSession: ConnectUdpSession? = null
+    @Volatile private var dnsMessages: com.mzstd.hxmyproxy.core.proxy.DnsMessageQuery? = null
+    @Volatile private var echoMessages: com.mzstd.hxmyproxy.core.proxy.EchoMessageQuery? = null
+    @Volatile private var udpIngress: com.mzstd.hxmyproxy.core.proxy.SocksUdpIngressFactory? = null
     @Volatile private var lastServerKey: String = ""
     @Volatile private var lastRecordedEntryKey: String = ""
     // 上次实际生效的准入网段(hostAddress 集)。①换网瞬间 scan 空时保留旧准入不清空;②evict 只在准入真变化时跑。
@@ -230,8 +235,7 @@ class ProxyServerRepository @Inject constructor(
             lastSeenClients = rememberedClients
             currentSettings = s
             applyTunables(s)
-            authenticator.username = credentials.username
-            authenticator.password = credentials.password
+            authenticator.updateCredentials(credentials.username,credentials.password)
             connectivityObserver.start()
             underlyingNetworkProvider.start()
         }
@@ -279,8 +283,12 @@ class ProxyServerRepository @Inject constructor(
         session.launch {
             connectivityObserver.networkChanges.collect {
                 // 换网后旧网络下解析的 IP 可能不可达：清自建 DNS 缓存，让新请求立刻走新网络解析。
-                connector.clearDnsCache()
-                refresh()
+                synchronized(lifecycleLock) {
+                    if (sessionScope !== session || !running) return@collect
+                    udpSession?.invalidate("network-changed")
+                    connector.clearDnsCache()
+                    refresh()
+                }
             }
         }
         session.launch {
@@ -313,8 +321,14 @@ class ProxyServerRepository @Inject constructor(
         // 凭据变更即时推入认证器（与 server 生命周期解耦，无需重启）。
         session.launch {
             credentialStore.credentials.collect { c ->
-                authenticator.username = c.username
-                authenticator.password = c.password
+                synchronized(lifecycleLock) {
+                    if (sessionScope !== session || !session.isActive) return@collect
+                    val changed = authenticator.enabled && (authenticator.username != c.username || authenticator.password != c.password)
+                    val datagrams = udpSession
+                    if (changed && datagrams != null) datagrams.changePolicy("credentials-changed") {
+                        authenticator.updateCredentials(c.username,c.password)
+                    } else authenticator.updateCredentials(c.username,c.password)
+                }
             }
         }
         // 实时速率 + 活跃连接（约 1s 窗口）
@@ -917,15 +931,26 @@ class ProxyServerRepository @Inject constructor(
         val nioWorkers = Runtime.getRuntime().availableProcessors().coerceIn(2, NIO_RELAY_WORKERS_MAX)
         val reactor = if (USE_NIO_RELAY) NioRelayReactor(workerCount = nioWorkers).also { it.start() } else null
         nioReactor = reactor
+        val datagrams = if (s.httpEnabled || s.socksEnabled) ConnectUdpSession(enableSocks = s.socksEnabled) else null
+        udpSession = datagrams
+        val dns=if(datagrams!=null)com.mzstd.hxmyproxy.core.proxy.AndroidDnsMessageQuery() else null
+        dnsMessages=dns
+        val echo=if(datagrams!=null)com.mzstd.hxmyproxy.core.proxy.AndroidEchoMessageQuery() else null
+        echoMessages=echo
+        val ingress = if (s.socksEnabled) com.mzstd.hxmyproxy.core.proxy.AndroidSocksUdpIngressFactory(appContext) else null
+        udpIngress = ingress
         val list = mutableListOf<ProxyServer>()
+        val socksServer = if (s.socksEnabled) Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay,
+            { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine, reactor, USE_NIO_RELAY,
+            datagrams, ingress, com.mzstd.hxmyproxy.core.proxy.AndroidTcpBindListenerFactory(appContext),dnsMessages=dns,echoMessages=echo,
+            proxyLocalTargets={ !egressGuard.blockPrivateLan }) else null
         if (s.httpEnabled) {
-            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine, reactor, USE_NIO_RELAY)
+            HttpProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, trafficSink, ruleEngine, reactor, USE_NIO_RELAY, datagrams,
+                socksCapabilities = { socksServer?.capabilities() },dnsMessages=dns,echoMessages=echo,
+                proxyLocalTargets={ !egressGuard.blockPrivateLan })
                 .also { it.start(scope, s.httpPort); list += it }
         }
-        if (s.socksEnabled) {
-            Socks5ProxyServer(acceptDispatcher, accessController, registry, connector, relay, { authenticator }, { currentSettings.limits }, relayDispatcher, accounting, ruleEngine, reactor, USE_NIO_RELAY)
-                .also { it.start(scope, s.socksPort); list += it }
-        }
+        socksServer?.also { it.start(scope,s.socksPort); list += it }
         if (s.pacEnabled) {
             PacServer(
                 acceptDispatcher, accessController, registry,
@@ -946,6 +971,15 @@ class ProxyServerRepository @Inject constructor(
     }
 
     private fun stopServers() {
+        val datagrams = udpSession
+        udpSession = null
+        datagrams?.close() // revoke pending and established work before resetting counters/executors
+        dnsMessages?.close()
+        dnsMessages=null
+        echoMessages?.close()
+        echoMessages=null
+        udpIngress?.close()
+        udpIngress = null
         serverObservers?.cancel()
         serverObservers = null
         // 先各 server.stop()（主动关在途 socket → 阻塞 read 抛错 → relay 协程退出、线程空出），
@@ -1036,12 +1070,23 @@ class ProxyServerRepository @Inject constructor(
         val backup: Boolean,
     )
     private var lastDnsRoute: DnsRouteConfig? = null
+    private data class DatagramPolicy(val dns: DnsRouteConfig, val fallback: com.mzstd.hxmyproxy.core.model.EgressFallback,
+        val blockPrivate: Boolean, val authentication: Boolean)
+    private var lastDatagramPolicy: DatagramPolicy? = null
     private fun applyTunables(s: ProxySettings) {
         val dnsRoute = DnsRouteConfig(s.egressChoice, s.directEgressChoice, s.dohEgressChoice, s.egressPriority.toList(), s.backupDnsEnabled)
+        val udpPolicy = DatagramPolicy(dnsRoute, s.egressFallback, s.blockPrivateLanEgress, s.authEnabled)
+        val changed = lastDatagramPolicy != null && lastDatagramPolicy != udpPolicy
+        val apply = { applyTunableValues(s,dnsRoute); lastDatagramPolicy = udpPolicy }
+        val datagrams = udpSession
+        if (changed && datagrams != null) datagrams.changePolicy("egress-policy-changed",apply) else apply()
+    }
+
+    private fun applyTunableValues(s: ProxySettings, dnsRoute: DnsRouteConfig) {
         if (lastDnsRoute != null && lastDnsRoute != dnsRoute) connector.invalidateDnsPolicy()
         lastDnsRoute = dnsRoute
         // 按系统 FD 预算反推安全上限：用户拉满 maxGlobal 时,2×FD/连接可能逼近 rlimit → EMFILE。
-        val fdCap = fdBudget.safeMaxGlobal()
+        val fdCap = fdBudget.safeMaxGlobal(if (s.httpEnabled || s.socksEnabled) ConnectUdpSession.EXTRA_FD_RESERVE else 0)
         val effectiveMax = s.limits.maxGlobalConnections.coerceAtMost(fdCap)
         if (effectiveMax < s.limits.maxGlobalConnections) {
             FileLog.w(TAG, "maxGlobal=${s.limits.maxGlobalConnections} exceeds FD safety cap $fdCap" +
@@ -1229,7 +1274,7 @@ class ProxyServerRepository @Inject constructor(
     }
 
     /** 动态 PAC（委托 [PacGenerator]）。 */
-    fun generatePac(): String = PacGenerator.generate(_state.value.recommendedEntries)
+    fun generatePac(): String = PacGenerator.generate(_state.value.recommendedEntries, !egressGuard.blockPrivateLan)
 
     private companion object {
         const val TOP_DOMAINS = 20

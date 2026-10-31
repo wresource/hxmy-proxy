@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy.core.proxy
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.IOException
 
 /**
  * HTTP/1.1 正向转发的报文定界与转发助手（支持 keep-alive：一个客户端连接承载多请求）。
@@ -82,27 +83,42 @@ internal object HttpForwarding {
 
     /** 原样转发 chunked 报文体（含 chunk 定界），直到 0 长度块（+ 可选 trailer）。 */
     fun copyChunked(input: InputStream, output: OutputStream, buf: ByteArray, onBytes: (Long) -> Unit) {
+        copyChunks(input,output,buf,onBytes,true)
+    }
+
+    /** Control endpoints consume the bounded payload, using the same validated chunk parser. */
+    fun copyDecodedChunks(input:InputStream,output:OutputStream,buf:ByteArray) {
+        copyChunks(input,output,buf,{},false)
+    }
+
+    private fun copyChunks(input:InputStream,output:OutputStream,buf:ByteArray,onBytes:(Long)->Unit,framing:Boolean) {
         while (true) {
-            val sizeLine = readAsciiLine(input) ?: return
+            val sizeLine = readAsciiLine(input) ?: throw EOFException("Missing chunk terminator")
+            val text = sizeLine.substringBefore(';').trim()
+            if (text.isEmpty() || text.any { it !in '0'..'9' && it !in 'a'..'f' && it !in 'A'..'F' })
+                throw IOException("Invalid chunk length")
+            val size = text.toLongOrNull(16) ?: throw IOException("Chunk length exceeds the supported range")
             val emitted = (sizeLine + "\r\n").toByteArray(Charsets.ISO_8859_1)
-            output.write(emitted); onBytes(emitted.size.toLong())
-            val size = sizeLine.substringBefore(';').trim().toIntOrNull(16) ?: return
-            if (size == 0) {
+            if(framing){output.write(emitted);onBytes(emitted.size.toLong())}
+            if (size == 0L) {
                 // trailer 段（含结束空行）原样转发
+                val budget = HttpHeaderBudget()
                 while (true) {
-                    val t = readAsciiLine(input) ?: break
+                    val t = readAsciiLine(input) ?: throw EOFException("Missing trailer terminator")
+                    if (t.isNotEmpty()) budget.observe(t)
                     val tb = (t + "\r\n").toByteArray(Charsets.ISO_8859_1)
-                    output.write(tb); onBytes(tb.size.toLong())
+                    if(framing){output.write(tb);onBytes(tb.size.toLong())}
                     if (t.isEmpty()) break
                 }
                 output.flush()
                 return
             }
-            copyLength(input, output, size.toLong(), buf, onBytes)
+            copyLength(input, output, size, buf, onBytes)
             // 块尾 CRLF
             val crlf = ByteArray(2)
             readFully(input, crlf)
-            output.write(crlf); onBytes(2)
+            if (crlf[0] != '\r'.code.toByte() || crlf[1] != '\n'.code.toByte()) throw IOException("Invalid chunk delimiter")
+            if(framing){output.write(crlf);onBytes(2)}
             output.flush()
         }
     }

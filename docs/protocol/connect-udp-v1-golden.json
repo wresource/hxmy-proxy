@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "datagrams": [
+    {"payload_hex": "", "wire_hex": "000100"},
+    {"payload_hex": "00", "wire_hex": "00020000"},
+    {"payload_hex": "6869", "wire_hex": "0003006869"},
+    {"payload_hex": "00ff01", "wire_hex": "00040000ff01"}
+  ],
+  "non_minimal_empty": "400040024000",
+  "unknown_then_empty": "0103aabbcc0003014243000100",
+  "unknown_then_empty_dropped_contexts": 1,
+  "invalid_or_truncated": ["00", "0000", "0002", "000200", "000140", "010201", "40"],
+  "varints": [
+    {"decimal": "0", "hex": "00"},
+    {"decimal": "63", "hex": "3f"},
+    {"decimal": "64", "hex": "4040"},
+    {"decimal": "16383", "hex": "7fff"},
+    {"decimal": "16384", "hex": "80004000"},
+    {"decimal": "1073741823", "hex": "bfffffff"},
+    {"decimal": "1073741824", "hex": "c000000040000000"},
+    {"decimal": "4611686018427387903", "hex": "ffffffffffffffff"}
+  ]
+}

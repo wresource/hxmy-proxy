@@ -129,6 +129,7 @@ fun ProtectionScreen(
                                     "refused" -> stringResource(R.string.direct_fail_reason_refused)
                                     "unreachable" -> stringResource(R.string.direct_fail_reason_unreachable)
                                     "denied" -> stringResource(R.string.direct_fail_reason_denied)
+                                    "local-network-disabled" -> stringResource(R.string.local_network_proxy_refused)
                                     else -> stringResource(R.string.direct_fail_reason_other)
                                 }
                                 Text(

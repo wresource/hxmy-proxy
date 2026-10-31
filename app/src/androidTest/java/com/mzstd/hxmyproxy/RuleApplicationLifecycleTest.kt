@@ -41,7 +41,33 @@ class RuleApplicationLifecycleTest {
     private fun await(label: String, timeout: Long = 15_000, predicate: () -> Boolean) {
         val end = SystemClock.elapsedRealtime() + timeout
         while (!predicate() && SystemClock.elapsedRealtime() < end) Thread.sleep(20)
-        assertTrue("$label: ${repository.state.value.ruleApplication}", predicate())
+        val passed = predicate()
+        if (!passed) {
+            // Capture the actual state before fixture finally restores settings. Do not retry
+            // the assertion or treat a later successful run as an explanation for a race.
+            val diagnostic = buildString {
+                appendLine(label);appendLine(repository.state.value)
+                appendLine("running=${repository.isRunning()} foreground=${foreground()}")
+                runCatching {
+                    val saved = runBlocking { kotlinx.coroutines.withTimeout(1500) { settings.settings.first() } }
+                    appendLine("persisted groups=${saved.enabledRuleGroups} directCount=${saved.userDirectRules.size} port=${saved.httpPort}")
+                    val current = repository.javaClass.getDeclaredField("currentSettings").apply { isAccessible = true }.get(repository) as ProxySettings
+                    appendLine("current groups=${current.enabledRuleGroups} directCount=${current.userDirectRules.size} port=${current.httpPort}")
+                    val scope = repository.javaClass.getDeclaredField("sessionScope").apply { isAccessible = true }.get(repository) as? kotlinx.coroutines.CoroutineScope
+                    fun jobs(job: kotlinx.coroutines.Job?, depth: Int) {
+                        appendLine("${" ".repeat(depth)}$job")
+                        if (depth < 4) job?.children?.take(80)?.forEach { jobs(it,depth+1) }
+                    }
+                    jobs(scope?.coroutineContext?.get(kotlinx.coroutines.Job),0)
+                }.onFailure { appendLine("diagnostic: $it") }
+                Thread.getAllStackTraces().forEach { (thread, stack) ->
+                    appendLine("THREAD ${thread.name} ${thread.state}")
+                    stack.take(30).forEach { appendLine("  $it") }
+                }
+            }
+            java.io.File(context.cacheDir,"rule-lifecycle-failure.txt").writeText(diagnostic)
+        }
+        assertTrue("$label: ${repository.state.value.ruleApplication}", passed)
     }
     private fun shell(command: String) = instrumentation.uiAutomation.executeShellCommand(command).use {
         ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().use { r -> r.readText() }

@@ -17,4 +17,8 @@
                 android:value="Isolated emulator VPN lifecycle verification" />
         </service>
     </application>
+    <instrumentation
+        android:name=".testsupport.UdpInteropInstrumentation"
+        android:targetPackage="com.mzstd.hxmyproxy"
+        android:functionalTest="true" />
 </manifest>

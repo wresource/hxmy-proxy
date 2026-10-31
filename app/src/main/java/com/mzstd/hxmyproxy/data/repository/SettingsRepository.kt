@@ -471,6 +471,7 @@ class SettingsRepository @Inject constructor(
         val CELLULAR_EGRESS_CONFIRMED = booleanPreferencesKey("cellular_egress_confirmed")
         val AUTH = booleanPreferencesKey("auth_enabled")
         val BLOCK_PRIVATE = booleanPreferencesKey("block_private_lan")
+        val ALLOW_LOCAL_TARGETS = booleanPreferencesKey("allow_local_network_targets")
         val PRESET = stringPreferencesKey("preset")
         val LIM_GLOBAL = intPreferencesKey("lim_global")
         val LIM_PER_CLIENT = intPreferencesKey("lim_per_client")
@@ -539,7 +540,7 @@ class SettingsRepository @Inject constructor(
             cellularEgressConfirmed = this[CELLULAR_EGRESS_CONFIRMED] ?: d.cellularEgressConfirmed,
             backupDnsEnabled = this[BACKUP_DNS] ?: d.backupDnsEnabled,
             authEnabled = this[AUTH] ?: d.authEnabled,
-            blockPrivateLanEgress = this[BLOCK_PRIVATE] ?: d.blockPrivateLanEgress,
+            blockPrivateLanEgress = LocalNetworkProxyPreference.isBlocked(this[ALLOW_LOCAL_TARGETS], this[BLOCK_PRIVATE]),
             preset = this[PRESET]?.let { runCatching { PerformancePreset.valueOf(it) }.getOrNull() } ?: d.preset,
             limits = limits,
             language = this[LANGUAGE]?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: d.language,
@@ -580,6 +581,7 @@ class SettingsRepository @Inject constructor(
         prefs[BACKUP_DNS] = backupDnsEnabled
         prefs[AUTH] = authEnabled
         prefs[BLOCK_PRIVATE] = blockPrivateLanEgress
+        prefs[ALLOW_LOCAL_TARGETS] = !blockPrivateLanEgress
         prefs[PRESET] = preset.name
         prefs[LIM_GLOBAL] = limits.maxGlobalConnections
         prefs[LIM_PER_CLIENT] = limits.maxPerClientConnections

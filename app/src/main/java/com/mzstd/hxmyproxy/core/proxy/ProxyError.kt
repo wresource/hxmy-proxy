@@ -29,8 +29,11 @@ sealed class ProxyError(val label: String) {
     data object EgressSidelined : ProxyError("egress temporarily unavailable")
     data object ConnectionRefused : ProxyError("connection refused")
     data object AccessDenied : ProxyError("denied by access control / egress guard")
+    data object LocalNetworkBlocked : ProxyError("local network proxying is disabled; configure client-side proxy bypass")
     data object TooManyConnections : ProxyError("too many connections")
     data class Unknown(val detail: String) : ProxyError(detail)
+
+    val isPolicyDenied: Boolean get() = this === AccessDenied || this === LocalNetworkBlocked
 
     /**
      * 稳定的机器可读标识，供 UI 查本地化文案。
@@ -47,6 +50,7 @@ sealed class ProxyError(val label: String) {
             DirectEgressUnavailable -> "direct-egress-unavailable"
             EgressSidelined -> "sidelined"
             AccessDenied -> "denied"
+            LocalNetworkBlocked -> "local-network-disabled"
             VpnUnavailable -> "vpn"
             LocalNetworkPermissionDenied -> "perm"
             PortInUse -> "port"
@@ -63,7 +67,7 @@ sealed class ProxyError(val label: String) {
             // unreachable)并不比 0x04 多传递任何信息。刻意保持与改动前一致，
             // 免得为一个零收益的语义调整改变既有 SOCKS5 客户端的行为。
             EgressSidelined -> 0x04
-            AccessDenied -> 0x02                     // not allowed by ruleset
+            AccessDenied, LocalNetworkBlocked -> 0x02 // not allowed by ruleset
             DirectEgressUnavailable -> 0x03          // selected network unreachable, not rule denial
             else -> 0x01                             // general SOCKS server failure
         }
@@ -71,7 +75,7 @@ sealed class ProxyError(val label: String) {
     /** 普通 HTTP 转发失败时的状态码。 */
     val httpStatus: Int
         get() = when (this) {
-            AccessDenied -> 403
+            AccessDenied, LocalNetworkBlocked -> 403
             RemoteTimeout -> 504
             // 503：我方此刻主动拒绝，且是暂时的。不用 502(它硬性要求「收到了上游的
             // 无效响应」，而摘网时我们一个响应都没收到)，也不用 504(那已经被

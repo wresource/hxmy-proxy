@@ -244,12 +244,15 @@ internal fun requestExplanation(record: RequestActivityRecord): Int = when {
         "refused" -> R.string.direct_fail_reason_refused
         "unreachable" -> R.string.direct_fail_reason_unreachable
         "denied" -> R.string.direct_fail_reason_denied
+        "local-network-disabled" -> R.string.local_network_proxy_refused
         "direct-egress-unavailable" -> R.string.ui_direct_missing
         "vpn" -> R.string.ui_vpn_missing
         "sidelined" -> R.string.ui_egress_sidelined
         else -> R.string.direct_fail_reason_other
     }
     record.outcome == RequestOutcome.RELAYED -> R.string.ui_explain_relayed
+    record.outcome == RequestOutcome.CONNECTED && record.stage == "udp-ready" -> R.string.ui_explain_udp_ready
+    record.outcome == RequestOutcome.CONNECTED && record.stage == "udp-reply" -> R.string.ui_explain_udp_reply
     record.outcome == RequestOutcome.CONNECTED -> R.string.ui_explain_connected
     else -> R.string.ui_explain_pending
 }

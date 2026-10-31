@@ -1,5 +1,6 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import com.mzstd.hxmyproxy.core.util.concurrentSnapshot
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.LogCat
 import kotlinx.coroutines.CancellableContinuation
@@ -269,7 +270,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
         } finally {
             // 每条单独兜底：一条隧道 close/resume 抛错（如 dispatcher 已关）不能中断其余隧道的收尾——
             // 否则剩余协程永不 resume（连接与 registry 计数一起泄漏）。
-            tunnels.toList().forEach { tunnel -> runCatching {
+            concurrentSnapshot(tunnels).forEach { tunnel -> runCatching {
                 if (workerFailure != null) tunnel.failure("worker-error", "select", null, workerFailure)
                 else tunnel.markClosing("worker-stop")
                 tunnel.close(this)
@@ -314,7 +315,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
     private fun sweepIdle(now: Long) {
         // externallyClosed：channel 被 selector 线程之外裸 close（如准入收缩 evict）不产生事件，
         // 静默隧道会悬死到 idle 超时——sweep 兜底检出并拆干净（resume 协程、释放对端）。
-        tunnels.toList().forEach {
+        concurrentSnapshot(tunnels).forEach {
             when {
                 it.idleExpired(now) -> { it.markClosing("idle"); it.close(this) }
                 it.externallyClosed() -> { it.markClosing("peer-closed"); it.close(this) }

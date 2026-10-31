@@ -10,9 +10,19 @@ import com.mzstd.hxmyproxy.core.rules.RuleEngine
 import com.mzstd.hxmyproxy.core.rules.RuleSrc
 import com.mzstd.hxmyproxy.core.security.AccessController
 import com.mzstd.hxmyproxy.core.security.Authenticator
+import com.mzstd.hxmyproxy.core.security.decodeCredentialUtf8
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import java.io.ByteArrayInputStream
+import java.io.SequenceInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -49,11 +59,25 @@ class HttpProxyServer(
     /** 非阻塞 relay 反应堆；为 null 或 [useNioRelay]=false 时 CONNECT 走旧阻塞 [relay]。 */
     private val nioReactor: NioRelayReactor? = null,
     private val useNioRelay: Boolean = false,
+    /** Owned by the sharing/listener generation. Null only for older/test constructions. */
+    private val udpSession: ConnectUdpSession? = null,
+    private val socksCapabilities: () -> Socks5Capabilities? = { null },
+    private val dnsMessages:DnsMessageQuery? = null,
+    private val echoMessages:EchoMessageQuery? = null,
+    /** The applied phone policy, not a companion-owned preference. */
+    private val proxyLocalTargets: (() -> Boolean)? = null,
 ) : TcpProxyServerBase(ProxyProtocol.HTTP, acceptDispatcher, accessController, registry, accounting) {
 
-    override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) {
+    override suspend fun handle(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?) = handleHttp(channel,tracker)
+
+    /** Same-port DNS/capability control on SOCKS, never an alternate HTTP proxy entry. */
+    internal suspend fun handleControl(channel:SocketChannel,tracker:TrafficAccounting.ConnTracker?,firstByte:Int) =
+        handleHttp(channel,tracker,firstByte,true,"SOCKS5")
+
+    private suspend fun handleHttp(channel: SocketChannel, tracker: TrafficAccounting.ConnTracker?,
+                                  firstByte:Int?=null,controlOnly:Boolean=false,traceProtocol:String="HTTP") {
         val client = channel.socket()   // 握手期阻塞流（channel 为 blocking 模式）
-        val input = client.getInputStream()
+        val input = if(firstByte==null)client.getInputStream() else SequenceInputStream(ByteArrayInputStream(byteArrayOf(firstByte.toByte())),client.getInputStream())
         val output = client.getOutputStream()
         val auth = authProvider()
         var first = true
@@ -62,6 +86,8 @@ class HttpProxyServer(
             client.soTimeout = if (first) ProxyTuning.HANDSHAKE_TIMEOUT_MS else ProxyTuning.KEEPALIVE_IDLE_MS
             val requestLine = try {
                 readAsciiLine(input)
+            } catch (_: HttpMetadataLimitException) {
+                writeStatus(output,414,"URI Too Long"); return
             } catch (e: SocketTimeoutException) {
                 return // 首请求慢速攻击 / keep-alive 空闲超时 → 关闭连接
             } ?: return
@@ -74,9 +100,51 @@ class HttpProxyServer(
             val target = parts[1]
             val version = parts[2]
             client.soTimeout = ProxyTuning.HANDSHAKE_TIMEOUT_MS
-            val headers = readHeaders(input)
+            val headers = try { readHeaders(input) }
+            catch (_: HttpMetadataLimitException) { writeStatus(output,431,"Request Header Fields Too Large"); return }
 
+            val authorizationEpoch = udpSession?.currentEpoch
             if (auth.enabled && !checkBasicAuth(headers, auth)) { writeProxyAuthRequired(output); return }
+
+            if ((target == ConnectUdpProtocol.CAPABILITIES_PATH || target.startsWith(ConnectUdpProtocol.UDP_PREFIX) || DnsHttpProtocol.recognizes(target) || EchoProtocol.recognizes(target)) &&
+                authorizationEpoch != null && udpSession.currentEpoch != authorizationEpoch) {
+                writeStatus(output, 409, "Conflict", body = "UDP authorization or route changed; reconnect")
+                return
+            }
+
+            if (target == ConnectUdpProtocol.CAPABILITIES_PATH) {
+                if (parts.size != 3 || !ConnectUdpProtocol.validControlGet(method, version, headers)) {
+                    writeStatus(output, 400, "Bad Request"); return
+                }
+                val session = udpSession
+                if (session == null) { writeStatus(output, 404, "Not Found"); return }
+                if (session.isStopped) return
+                if (!session.isActive) { writeStatus(output, 500, "Internal Server Error", body = "UDP relay unavailable"); return }
+                val body = session.policySnapshot(authorizationEpoch) { epoch ->
+                    ConnectUdpProtocol.capabilities(session.id, limitsProvider().idleTimeoutSeconds * 1000L,
+                        socksCapabilities(),dnsMessages!=null,!controlOnly,echoMessages,
+                        proxyLocalTargets?.invoke(),epoch)
+                }
+                if (body == null) { writeStatus(output,409,"Conflict",body="Policy changed; reconnect");return }
+                writeStatus(output, 200, "OK", "Content-Type: application/json", "Cache-Control: no-store", body = body)
+                return
+            }
+            if(DnsHttpProtocol.recognizes(target)) {
+                if(parts.size!=3){writeStatus(output,400,"Bad Request");return}
+                handleDns(channel,input,output,method,target,version,headers,tracker,authorizationEpoch,traceProtocol)
+                return
+            }
+            if(EchoProtocol.recognizes(target)) {
+                if(parts.size!=3){writeStatus(output,400,"Bad Request");return}
+                handleEcho(channel,input,output,method,target,version,headers,tracker,authorizationEpoch,traceProtocol)
+                return
+            }
+            if(controlOnly){writeStatus(output,404,"Not Found");return}
+            if (target.startsWith(ConnectUdpProtocol.UDP_PREFIX)) {
+                if (parts.size != 3) { writeStatus(output, 400, "Bad Request"); return }
+                handleUdp(channel, output, method, target, version, headers, tracker, authorizationEpoch)
+                return
+            }
 
             if (method.equals("CONNECT", ignoreCase = true)) {
                 handleConnect(channel, output, target, tracker) // 盲隧道，终结本连接
@@ -84,6 +152,212 @@ class HttpProxyServer(
             }
             val keepAlive = forwardPlainHttp(client, input, output, method, target, version, headers, tracker)
             if (!keepAlive) return
+        }
+    }
+
+    private suspend fun handleEcho(client:SocketChannel,input:InputStream,output:OutputStream,method:String,target:String,version:String,
+        headers:List<Pair<String,String>>,tracker:TrafficAccounting.ConnTracker?,epoch:Long?,protocol:String) {
+        val backend=echoMessages;val session=udpSession
+        if(backend==null||session==null){writeStatus(output,404,"Not Found");return}
+        if(ConnectUdpProtocol.hasSessionHeader(headers)&&ConnectUdpProtocol.session(headers)!=session.id){writeStatus(output,409,"Conflict");return}
+        val request=try{EchoProtocol.read(method,target,version,headers,input)}catch(error:ControlHttpBody.Error){writeStatus(output,error.status,error.reason);return}
+        if(if(request.v6)!backend.ipv6 else !backend.ipv4){writeStatus(output,501,"Not Implemented");return}
+        val host=request.target.hostAddress?:run{writeStatus(output,400,"Bad Request");return}
+        val decision=ruleEngine?.decideDetailed(host);val action=decision?.action?:RuleAction.PROXY
+        val trace=RequestTrace.open(protocol,client.socket().port);trace.rule(host,action,decision?.src);tracker?.bindHost(host,action==RuleAction.DIRECT)
+        if(action==RuleAction.REJECT){tracker?.recordBlocked(host);writeStatus(output,403,"Forbidden");trace.tunnelClosed(host,"echo-blocked",0,0);return}
+        val owner=currentCoroutineContext()[Job]
+        val lease=session.acquire(epoch){reason->owner?.cancel(CancellationException("Echo $reason"));client.closeQuietly()}
+        if(lease==null){trace.tunnelClosed(host,"echo-not-admitted",0,0);if(session.isStopped||owner?.isCancelled==true)return
+            writeStatus(output,if(epoch!=session.currentEpoch)409 else 429,if(epoch!=session.currentEpoch)"Conflict" else "Too Many Requests");return}
+        val cancelReason=java.util.concurrent.atomic.AtomicReference<String?>();var why="echo-response";var up=0L;var down=0L
+        lease.use {try{
+            val answer=coroutineScope {
+                val queryOwner=currentCoroutineContext()[Job]
+                val watcher=ruleEngine?.let{rules->launch(Dispatchers.Default){rules.version.collect{
+                    if(rules.decideDetailed(host).action!=action){cancelReason.set("echo-rule-changed");queryOwner?.cancel(CancellationException("Echo rule changed"));client.closeQuietly()}
+                }}}
+                try{connector.queryEchoMessage(request.target,request.wire,action==RuleAction.DIRECT,backend,tracker?.let{it::bindEgress})}finally{watcher?.cancel()}
+            }
+            currentCoroutineContext().ensureActive()
+            if(!lease.isCurrent||(ruleEngine?.decideDetailed(host)?.action?:RuleAction.PROXY)!=action)throw CancellationException("Echo policy changed")
+            if(!EchoProtocol.matches(request,answer.wire,request.id)||(!request.v6&&EchoProtocol.checksum(answer.wire)!=0)||
+                (request.v6&&(answer.wire[2]!=0.toByte()||answer.wire[3]!=0.toByte())))throw ProxyException(ProxyError.RemoteUnreachable,"echo-response-invalid")
+            trace.connected(host,host,0,answer.networkHandle);trace.echoReply(host,request.v6,answer.wire.size,answer.networkHandle)
+            output.write(("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nContent-Length: ${answer.wire.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+            output.write(answer.wire);output.flush();up=request.wire.size.toLong();down=answer.wire.size.toLong();tracker?.add(up,down)
+        }catch(cancel:CancellationException){why=lease.reason?:cancelReason.get()?:"echo-cancelled";throw cancel}
+        catch(failure:ProxyException){currentCoroutineContext().ensureActive();if(!lease.isCurrent)throw CancellationException("Echo ${lease.reason}")
+            why=failure.stage?:"echo-failed";trace.failed(host,why,failure.error)
+            when{failure.error==ProxyError.TooManyConnections->writeStatus(output,429,"Too Many Requests")
+                failure.stage=="echo-too-large"->writeStatus(output,413,"Content Too Large")
+                failure.stage=="echo-unavailable"->writeStatus(output,501,"Not Implemented")
+                else->writeStatus(output,failure.error.httpStatus,failure.error.httpReason)}
+        }catch(error:IOException){currentCoroutineContext().ensureActive();why="echo-io";trace.failed(host,why,error.javaClass.simpleName)}
+        finally{trace.tunnelClosed(host,why,up,down)}}
+    }
+
+    private suspend fun handleDns(client:SocketChannel,input:InputStream,output:OutputStream,method:String,target:String,
+        version:String,headers:List<Pair<String,String>>,tracker:TrafficAccounting.ConnTracker?,epoch:Long?,protocol:String) {
+        val backend=dnsMessages;val session=udpSession
+        if(backend==null||session==null){writeStatus(output,404,"Not Found");return}
+        if(ConnectUdpProtocol.hasSessionHeader(headers)&&ConnectUdpProtocol.session(headers)!=session.id){writeStatus(output,409,"Conflict");return}
+        val request=try{DnsHttpProtocol.read(method,target,version,headers,input)}catch(e:ControlHttpBody.Error){writeStatus(output,e.status,e.reason);return}
+        val question=try{DnsMessage.query(request.wire)}catch(_:DnsMessage.Malformed){writeStatus(output,400,"Bad Request");return}
+        val decision=ruleEngine?.decideDetailed(question.ruleHost);val action=decision?.action?:RuleAction.PROXY
+        val trace=RequestTrace.open(protocol,client.socket().port);trace.rule(question.ruleHost,action,decision?.src)
+        tracker?.bindHost(question.ruleHost,action==RuleAction.DIRECT)
+        val owner=currentCoroutineContext()[Job]
+        val lease=session.acquire(epoch){reason->owner?.cancel(CancellationException("DNS $reason"));client.closeQuietly()}
+        if(lease==null){
+            trace.tunnelClosed(question.ruleHost,"dns-not-admitted",0,0)
+            if(session.isStopped||owner?.isCancelled==true)return
+            writeStatus(output,if(epoch!=session.currentEpoch)409 else 429,if(epoch!=session.currentEpoch)"Conflict" else "Too Many Requests");return
+        }
+        var up=0L;var down=0L;var why="dns-response"
+        val cancelReason=java.util.concurrent.atomic.AtomicReference<String?>()
+        lease.use {
+            try {
+                val result=if(action==RuleAction.REJECT){tracker?.recordBlocked(question.ruleHost);OutboundConnector.DnsMessageAnswer(DnsMessage.refused(question),null)}
+                else coroutineScope {
+                    val queryOwner=currentCoroutineContext()[Job]
+                    val watcher=ruleEngine?.let { rules -> launch(Dispatchers.Default) { rules.version.collect {
+                        if(rules.decideDetailed(question.ruleHost).action!=action){cancelReason.set("dns-rule-changed");queryOwner?.cancel(CancellationException("DNS rule changed"));client.closeQuietly()}
+                    } } }
+                    try{connector.queryDnsMessage(question.ruleHost,request.wire,action==RuleAction.DIRECT,backend,tracker?.let{it::bindEgress},trace)}
+                    finally{watcher?.cancel()}
+                }
+                currentCoroutineContext().ensureActive()
+                if(!lease.isCurrent||(ruleEngine?.decideDetailed(question.ruleHost)?.action?:RuleAction.PROXY)!=action)
+                    throw CancellationException("DNS policy changed")
+                val answer=try{DnsMessage.forTransport(result.wire,question,request.udp)}catch(_:DnsMessage.Malformed){throw ProxyException(ProxyError.DnsFailure,"dns-response-invalid")}
+                val state=DnsMessage.response(answer,question)
+                val flags=state.flags;val rcode=((state.opt?.ttl?.ushr(24)?:0) shl 4) or (flags and 15)
+                trace.dnsMessageResult(question.ruleHost,question.type,rcode,result.networkHandle,(flags and 0x0200)!=0)
+                if(action!=RuleAction.REJECT) {
+                    if(rcode==0)trace.connected(question.ruleHost,null,53,result.networkHandle)
+                    else trace.failed(question.ruleHost,"dns-rcode-$rcode",ProxyError.DnsFailure)
+                }
+                output.write(("HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nCache-Control: no-store\r\nContent-Length: ${answer.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                output.write(answer);output.flush();up=request.wire.size.toLong();down=answer.size.toLong();tracker?.add(up,down)
+            }catch(cancel:CancellationException){why=lease.reason?:cancelReason.get()?:"dns-cancelled";throw cancel}
+            catch(failure:ProxyException){
+                currentCoroutineContext().ensureActive();if(!lease.isCurrent)throw CancellationException("DNS ${lease.reason}")
+                why=failure.stage?:"dns-failed";trace.failed(question.ruleHost,why,failure.error)
+                if(failure.error==ProxyError.TooManyConnections)writeStatus(output,429,"Too Many Requests")
+                else writeStatus(output,failure.error.httpStatus,failure.error.httpReason)
+            }catch(error:IOException){currentCoroutineContext().ensureActive();why="dns-io";trace.failed(question.ruleHost,why,error.javaClass.simpleName)}
+            finally{trace.tunnelClosed(question.ruleHost,why,up,down)}
+        }
+    }
+
+    private suspend fun handleUdp(
+        client: SocketChannel, output: OutputStream, method: String, path: String, version: String,
+        headers: List<Pair<String, String>>, tracker: TrafficAccounting.ConnTracker?,
+        authorizationEpoch: Long?,
+    ) {
+        val target = ConnectUdpProtocol.target(path)
+        if (target == null || !ConnectUdpProtocol.validUpgrade(method, version, headers)) {
+            writeStatus(output, 400, "Bad Request"); return
+        }
+        val session = udpSession
+        if (session == null) { writeStatus(output, 404, "Not Found"); return }
+        if (session.isStopped) return
+        // Optional discovery/affinity extension. Generic RFC clients need no private handshake;
+        // an explicitly supplied stale/ambiguous value still fails before DNS/socket allocation.
+        if (ConnectUdpProtocol.hasSessionHeader(headers) && ConnectUdpProtocol.session(headers) != session.id) {
+            writeStatus(output, 409, "Conflict", body = "UDP session changed"); return
+        }
+        if (!session.isActive) { writeStatus(output, 500, "Internal Server Error", body = "UDP relay unavailable"); return }
+        val decision = ruleEngine?.decideDetailed(target.host)
+        val action = decision?.action ?: RuleAction.PROXY
+        val trace = RequestTrace.open("HTTP", client.socket().port)
+        trace.rule(target.host, action, decision?.src)
+        tracker?.bindHost(target.host, direct = action == RuleAction.DIRECT)
+        if (action == RuleAction.REJECT) {
+            tracker?.recordBlocked(target.host)
+            writeStatus(output, 403, "Forbidden", ruleHeader(target.host, decision?.src), body = blockedBody(target.host, decision?.src)); return
+        }
+        val owner = currentCoroutineContext()[Job]
+        val lease = session.acquire(authorizationEpoch) { reason ->
+            owner?.cancel(CancellationException("UDP $reason"))
+            client.closeQuietly()
+        }
+        if (lease == null) {
+            if (session.isStopped || owner?.isCancelled == true) {
+                trace.udpClosed(target.host, "cancelled", null, null, null, 0, 0, 0, 0, 0); return
+            }
+            if (authorizationEpoch != session.currentEpoch) {
+                trace.udpClosed(target.host, "authorization-or-route-changed", null, null, null, 0, 0, 0, 0, 0)
+                writeStatus(output, 409, "Conflict", body = "UDP authorization or route changed; reconnect"); return
+            }
+            if (!session.isActive) {
+                trace.failed(target.host, "udp-unavailable", ProxyError.Unknown("UDP relay unavailable"))
+                writeStatus(output, 500, "Internal Server Error", body = "UDP relay unavailable"); return
+            }
+            trace.failed(target.host, "udp-capacity", ProxyError.TooManyConnections)
+            writeStatus(output, 429, "Too Many Requests", body = "UDP flow limit reached"); return
+        }
+        lease.use {
+            var handedToRelay = false
+            try {
+                val prepared = try {
+                    acquireUpstream(ProxyTuning.CONNECT_PHASE_TIMEOUT_MS) {
+                        connector.prepareDatagram(target.host, target.port, action == RuleAction.DIRECT, tracker?.let { it::bindEgress }, trace)
+                    } ?: throw ProxyException(ProxyError.RemoteTimeout, "udp-setup-timeout")
+                } catch (failure: ProxyException) {
+                    currentCoroutineContext().ensureActive()
+                    if (!lease.isCurrent) throw CancellationException("UDP ${lease.reason ?: "route-changed"}")
+                    trace.failed(target.host, failure.stage ?: "udp-setup", failure.error)
+                    writeStatus(output, failure.error.httpStatus, failure.error.httpReason,
+                        *retryAfterHeader(failure), body = failureBody(target.host, target.port, failure.error))
+                    return
+                }
+                prepared.use {
+                    currentCoroutineContext().ensureActive()
+                    if (!lease.isCurrent) {
+                        trace.udpClosed(target.host, lease.reason ?: "route-changed", null, null, null, 0, 0, 0, 0, 0)
+                        return
+                    }
+                    val now = ruleEngine?.decideDetailed(target.host)
+                    if ((now?.action ?: RuleAction.PROXY) != action) {
+                        if (now?.action == RuleAction.REJECT) {
+                            trace.rule(target.host, now.action, now.src); tracker?.recordBlocked(target.host)
+                            writeStatus(output, 403, "Forbidden", ruleHeader(target.host, now.src), body = blockedBody(target.host, now.src))
+                        } else {
+                            trace.udpClosed(target.host, "rule-changed", null, null, null, 0, 0, 0, 0, 0)
+                            writeStatus(output, 409, "Conflict", body = "UDP route policy changed")
+                        }
+                        return
+                    }
+                    output.write(("HTTP/1.1 101 Switching Protocols\r\n" +
+                        "Connection: Upgrade\r\nUpgrade: connect-udp\r\nCapsule-Protocol: ?1\r\n" +
+                        "${ConnectUdpProtocol.SESSION_HEADER}: ${session.id}\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                    output.flush()
+                    trace.udpReady(target.host, prepared.endpoint.peer, prepared.networkHandle)
+                    client.configureBlocking(false)
+                    handedToRelay = true
+                    session.reactor.relay(client, prepared.endpoint, lease, limitsProvider().idleTimeoutSeconds * 1000L,
+                        target.host, trace,
+                        policyValid = { (ruleEngine?.decideDetailed(target.host)?.action ?: RuleAction.PROXY) == action },
+                        onTraffic = tracker?.let { it::add } ?: onTraffic,
+                        onFirstReply = {
+                            trace.udpReply()
+                            if (action == RuleAction.DIRECT) DirectEgressFailures.recordSuccess(target.host)
+                        })
+                }
+            } catch (cancel: CancellationException) {
+                if (!handedToRelay) trace.udpClosed(target.host, lease.reason ?: "cancelled", null, null, null, 0, 0, 0, 0, 0)
+                throw cancel
+            } catch (failure: IOException) {
+                // After101, never write a second HTTP response into the capsule stream.
+                if (!handedToRelay) {
+                    if (!lease.isCurrent || owner?.isCancelled == true)
+                        trace.udpClosed(target.host, lease.reason ?: "cancelled", null, null, null, 0, 0, 0, 0, 0)
+                    else trace.failed(target.host, "udp-handoff", failure.javaClass.simpleName)
+                }
+                throw failure
+            }
         }
     }
 
@@ -273,6 +547,8 @@ class HttpProxyServer(
         var fwdUp = 0L
         var fwdDown = 0L
         var closeWhy = "http-done"
+        var responseStarted = false
+        var requestBodyComplete = false
         runCatching { trace.relayStarted(client, upstream) }
         try {
             val limits = limitsProvider()
@@ -302,6 +578,7 @@ class HttpProxyServer(
             client.soTimeout = idle
             HttpForwarding.copyBody(input, upOut, reqFraming, reqLen, buf) { fwdUp += it; tracker?.add(it, 0) ?: onTraffic(it, 0) }
             upOut.flush()
+            requestBodyComplete = true
 
             // 3) 上游响应行 + 头
             val statusLine = readAsciiLine(upIn) ?: run {
@@ -331,6 +608,7 @@ class HttpProxyServer(
                 rb.append(name).append(": ").append(value).append("\r\n")
             }
             rb.append("Connection: ").append(if (keepAlive) "keep-alive" else "close").append("\r\n\r\n")
+            responseStarted = true
             output.write(rb.toString().toByteArray(Charsets.ISO_8859_1)); output.flush()
 
             // 6) 响应体（upstream → client）
@@ -347,6 +625,10 @@ class HttpProxyServer(
             FileLog.w("hxmyproxy", "HTTP forward error $host:$port", e)
             closeWhy = "http-error"
             trace.failed(host, "http-forward", e.javaClass.simpleName)
+            if (e is HttpMetadataLimitException && !responseStarted) {
+                writeStatus(output,if(requestBodyComplete)502 else 400,if(requestBodyComplete)"Bad Gateway" else "Bad Request",
+                    body=if(wantsBody) {if(requestBodyComplete) "Upstream HTTP metadata exceeds the proxy limit" else "Request transfer metadata exceeds the proxy limit"} else null)
+            }
             return false
         } finally {
             // **明文 HTTP 也要落终局。** trace.tunnelClosed 此前只有 NioRelayReactor 一个调用点，
@@ -360,9 +642,11 @@ class HttpProxyServer(
 
     private fun readHeaders(input: InputStream): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()
+        val budget = HttpHeaderBudget()
         while (true) {
             val line = readAsciiLine(input) ?: break
             if (line.isEmpty()) break
+            budget.observe(line)
             val i = line.indexOf(':')
             if (i > 0) out.add(line.substring(0, i).trim() to line.substring(i + 1).trim())
         }
@@ -370,10 +654,10 @@ class HttpProxyServer(
     }
 
     private fun checkBasicAuth(headers: List<Pair<String, String>>, auth: Authenticator): Boolean {
-        val v = headers.firstOrNull { it.first.equals("Proxy-Authorization", true) }?.second ?: return false
+        val v = headers.filter { it.first.equals("Proxy-Authorization", true) }.singleOrNull()?.second ?: return false
         if (!v.startsWith("Basic ", ignoreCase = true)) return false
         val decoded = try {
-            String(Base64.getDecoder().decode(v.substring(6).trim()), Charsets.UTF_8)
+            decodeCredentialUtf8(Base64.getDecoder().decode(v.substring(6).trim())) ?: return false
         } catch (e: Exception) {
             return false
         }
@@ -409,7 +693,7 @@ class HttpProxyServer(
         val head = buildString {
             append("HTTP/1.1 ").append(code).append(' ').append(reason).append("\r\n")
             safe.forEach { append(it).append("\r\n") }
-            if (bodyBytes != null) append("Content-Type: text/plain; charset=utf-8\r\n")
+            if (bodyBytes != null && safe.none { it.startsWith("Content-Type:", ignoreCase = true) }) append("Content-Type: text/plain; charset=utf-8\r\n")
             append("Content-Length: ").append(bodyBytes?.size ?: 0).append("\r\n")
             append("Connection: close\r\n\r\n")
         }
@@ -443,6 +727,8 @@ class HttpProxyServer(
         "hxmy proxy: upstream connect failed\n" +
             "target: $host:$port\n" +
             "cause: ${err.label} (${err.code})\n" +
+            (if (err === ProxyError.LocalNetworkBlocked)
+                "action: Configure your client to bypass the proxy for local network targets, or enable Allow local network targets in hxmy proxy. Phone-side DIRECT is not client-side bypass.\n" else "") +
             (if (retryAfter != null) "retry after: ${retryAfter}s\n" else "")
 
     /** 规则拦截的说明正文；与 `X-Proxy-Rule` 头同源，便于不看 header 的客户端也能读到。 */
@@ -466,7 +752,7 @@ class HttpProxyServer(
     private fun writeProxyAuthRequired(output: OutputStream) {
         output.write(
             ("HTTP/1.1 407 Proxy Authentication Required\r\n" +
-                "Proxy-Authenticate: Basic realm=\"hxmy proxy\"\r\n" +
+                "Proxy-Authenticate: Basic realm=\"hxmy proxy\", charset=\"UTF-8\"\r\n" +
                 "Content-Length: 0\r\nConnection: close\r\n\r\n")
                 .toByteArray(Charsets.ISO_8859_1)
         )
