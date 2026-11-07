@@ -25,6 +25,8 @@ data class ProxySettings(
     val egressChoice: EgressNetworkChoice = EgressNetworkChoice.AUTO,
     /** 直连(DIRECT)出口。AUTO=以太网/USB→WiFi→蜂窝→fail-closed；其余手动指定。独立于 [egressChoice]。 */
     val directEgressChoice: DirectEgressChoice = DirectEgressChoice.AUTO,
+    /** Source IPs whose received requests use the phone's physical DIRECT egress, ahead of domain rules. */
+    val directClientIps: Set<String> = emptySet(),
     /**
      * 物理出口优先级(AUTO 挑网 + 降级挑替代路线都按它)。默认与旧硬编码顺序一致,
      * 所以升级上来的用户行为不变。存取都过 [normalizeEgressPriority]。

@@ -648,4 +648,14 @@
     <string name="top_domain_proxy">Use proxy egress</string>
     <string name="ui_explain_udp_ready">UDP session is ready. Receiving a reply has not yet been confirmed.</string>
     <string name="ui_explain_udp_reply">A UDP reply was received. Confirm the application result on the client.</string>
+    <string name="rule_source_client_direct">All direct for this client</string>
+    <string name="client_all_direct">All direct</string>
+    <string name="client_route_applying">Applying…</string>
+    <string name="client_route_next_session">Applies when sharing starts</string>
+    <string name="client_route_physical">Via the phone’s physical network</string>
+    <string name="client_route_rules">Uses the existing routing rules</string>
+    <string name="client_route_configured">Other addresses set to all direct</string>
+    <string name="client_route_hint">All direct sends this source IP’s requests through the phone’s Direct egress and temporarily overrides domain routing and blocking rules. Turning it off restores those rules. Switching reconnects this client. Set each address separately if the device uses another IP.</string>
+    <string name="rule_suffix_hint">Matches this suffix at every depth, for example .cn or .com.cn. More specific rules and existing rule-source priorities still apply.</string>
+    <string name="rule_suffix_confirm">Apply to every domain ending in %1$s, including all subdomain levels?</string>
 </resources>

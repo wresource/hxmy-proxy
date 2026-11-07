@@ -483,6 +483,7 @@ class SettingsRepository @Inject constructor(
         val HIDDEN_TABS = stringSetPreferencesKey("hidden_tabs")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_completed")
         val LOG_ENABLED = booleanPreferencesKey("log_enabled")
+        val DIRECT_CLIENT_IPS = stringSetPreferencesKey("direct_client_ips")
 
         /** 设置备份文件的应用标识与格式版本（导入时校验，防止导错文件）。 */
         const val BACKUP_APP_ID = "hxmy-proxy"
@@ -530,6 +531,7 @@ class SettingsRepository @Inject constructor(
             showIpv6 = this[SHOW_IPV6] ?: d.showIpv6,
             egressChoice = this[EGRESS_CHOICE]?.let { runCatching { EgressNetworkChoice.valueOf(it) }.getOrNull() } ?: d.egressChoice,
             directEgressChoice = this[DIRECT_EGRESS_CHOICE]?.let { runCatching { DirectEgressChoice.valueOf(it) }.getOrNull() } ?: d.directEgressChoice,
+            directClientIps = com.mzstd.hxmyproxy.core.rules.ClientAddress.normalize(this[DIRECT_CLIENT_IPS].orEmpty(), strict),
             // **必须是有序字符串,不能用 stringSet**——Set 不保序,存进去顺序就没了。
             egressPriority = com.mzstd.hxmyproxy.core.model.normalizeEgressPriority(
                 this[EGRESS_PRIORITY]?.split(',').orEmpty()
@@ -574,6 +576,7 @@ class SettingsRepository @Inject constructor(
         prefs[SHOW_IPV6] = showIpv6
         prefs[EGRESS_CHOICE] = egressChoice.name
         prefs[DIRECT_EGRESS_CHOICE] = directEgressChoice.name
+        prefs[DIRECT_CLIENT_IPS] = com.mzstd.hxmyproxy.core.rules.ClientAddress.normalize(directClientIps)
         prefs[EGRESS_PRIORITY] = egressPriority.joinToString(",") { it.name }
         prefs[DOH_EGRESS_CHOICE] = dohEgressChoice.name
         prefs[EGRESS_FALLBACK] = egressFallback.name

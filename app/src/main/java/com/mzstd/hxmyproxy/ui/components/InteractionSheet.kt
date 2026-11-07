@@ -39,6 +39,7 @@ fun InteractionSheet(
     dismissEnabled: Boolean = true,
     bodyScrollState: ScrollState? = null,
     scrollBody: Boolean = true,
+    stableHeight: Boolean = false,
     footer: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -61,7 +62,8 @@ fun InteractionSheet(
         dragHandle = null,
     ) {
       CompositionLocalProvider(LocalContext provides appContext, LocalConfiguration provides appConfiguration, LocalDensity provides appDensity) {
-        Column(Modifier.fillMaxWidth().heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.9f)
+        val availableHeight = LocalConfiguration.current.screenHeightDp.dp * 0.9f
+        Column(Modifier.fillMaxWidth().then(if (stableHeight) Modifier.height(availableHeight) else Modifier.heightIn(max = availableHeight))
             .testTag("interaction_sheet")) {
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)
                 .heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -77,7 +79,7 @@ fun InteractionSheet(
                     Icon(painterResource(R.drawable.ic_b_close), stringResource(R.string.ui_close))
                 }
             }
-            Column(Modifier.weight(1f, fill = false).fillMaxWidth().then(if (scrollBody) Modifier.verticalScroll(scroll) else Modifier)
+            Column(Modifier.weight(1f, fill = stableHeight).fillMaxWidth().then(if (scrollBody) Modifier.verticalScroll(scroll) else Modifier)
                 .padding(horizontal = 20.dp).padding(top = 8.dp, bottom = 16.dp).testTag("sheet_body"),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // Full long values remain readable/copyable. Ordinary titles are never repeated.

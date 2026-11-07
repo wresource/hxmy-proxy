@@ -57,7 +57,7 @@
     <string name="ui_direct_missing">所选物理出口不可用，直连流量不会回落到 VPN。</string>
     <string name="ui_disabled">未开启</string>
     <string name="ui_domain_input">域名、IP 或网址</string>
-    <string name="ui_domain_input_hint">网址只保留域名，直连和拦截规则会显示在对应名单中。</string>
+    <string name="ui_domain_input_hint">支持域名、网址、IP/CIDR和.cn这类后缀；网址只保留域名。</string>
     <string name="ui_domain_search">搜索域名或粘贴网址</string>
     <string name="ui_domains">访问域名</string>
     <string name="ui_egress_sidelined">出口在探测失败后被暂时隔离，请检查网络和相关日志。</string>

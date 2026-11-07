@@ -1074,6 +1074,12 @@ class ProxyServerRepository @Inject constructor(
         val blockPrivate: Boolean, val authentication: Boolean)
     private var lastDatagramPolicy: DatagramPolicy? = null
     private fun applyTunables(s: ProxySettings) {
+        val routeChanges = ruleEngine.updateDirectClients(s.directClientIps)
+        if (routeChanges.isNotEmpty()) {
+            servers.forEach { it.disconnectClients(routeChanges) }
+            Ev.k(LogCat.EGRESS, "client.routesApplied", "direct" to s.directClientIps.size, "changed" to routeChanges.size)
+        }
+        _state.update { it.copy(directClientIps = s.directClientIps) }
         val dnsRoute = DnsRouteConfig(s.egressChoice, s.directEgressChoice, s.dohEgressChoice, s.egressPriority.toList(), s.backupDnsEnabled)
         val udpPolicy = DatagramPolicy(dnsRoute, s.egressFallback, s.blockPrivateLanEgress, s.authEnabled)
         val changed = lastDatagramPolicy != null && lastDatagramPolicy != udpPolicy

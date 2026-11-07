@@ -50,16 +50,43 @@ class EgressHealth(
 ) {
     private val lock = Any()
     private val failures = HashMap<Long, MutableMap<String, Long>>()
-    /** netId → 下一次允许复检时刻。到期仍隔离，只有探测成功才能恢复。 */
+    /** netId → 下一次允许复检时刻。到期仍隔离，探测或同世代业务建连成功才能恢复。 */
     private val sidelined = HashMap<Long, Long>()
     private val lastProbeAt = HashMap<Long, Long>()
     /** 每个网络独立的探测票据；reset 后旧探测结果不能污染新一代状态。 */
     private val probing = HashMap<Long, Any>()
 
-    fun recordFailure(net: Network?, host: String): Boolean {
+    private var generation = Any()
+    private val successRevision = HashMap<Long, Long>()
+
+    class Attempt internal constructor(internal val netId: Long, internal val generation: Any,
+                                      internal val successRevision: Long)
+
+    fun beginAttempt(net: Network?): Attempt? {
+        val id = net?.networkHandle ?: return null
+        return synchronized(lock) { Attempt(id, generation, successRevision[id] ?: 0L) }
+    }
+
+    /** A completed TCP connect is the same reachability evidence as our probes. Never
+     * accept a late result from before reset, or attribute a physical fallback to its VPN. */
+    fun recordSuccess(attempt: Attempt?) {
+        if (attempt == null) return
+        val restored = synchronized(lock) {
+            if (attempt.generation !== generation) return
+            successRevision[attempt.netId] = (successRevision[attempt.netId] ?: 0L) + 1
+            failures.remove(attempt.netId)
+            sidelined.remove(attempt.netId) != null
+        }
+        if (restored) runCatching { Ev.kw(LogCat.NET, "egress.businessRestored", "net" to attempt.netId) }
+    }
+
+    private fun current(attempt: Attempt, id: Long) = attempt.netId == id && attempt.generation === generation &&
+        attempt.successRevision == (successRevision[id] ?: 0L)
+
+    fun recordFailure(net: Network?, host: String, attempt: Attempt? = beginAttempt(net)): Boolean {
         val id = net?.networkHandle ?: return false
         return synchronized(lock) {
-            if (id in sidelined || id in probing) return@synchronized false
+            if (attempt == null || !current(attempt, id) || id in sidelined || id in probing) return@synchronized false
             val now = nowMs()
             val recent = failures.getOrPut(id) { HashMap() }
             recent[host] = now
@@ -89,11 +116,14 @@ class EgressHealth(
     }
 
     /** 同一网络单飞；失败后重新等待完整复检周期，取消不等于探测失败。 */
-    suspend fun confirmOrSideline(net: Network) {
+    suspend fun confirmOrSideline(net: Network, attempt: Attempt? = null) {
         val id = net.networkHandle
         val ticket = Any()
+        val revision: Long
         synchronized(lock) {
+            if (attempt != null && !current(attempt, id)) return
             if (id in probing) return
+            revision = successRevision[id] ?: 0L
             val now = nowMs()
             val next = sidelined[id]
             if (next != null && now < next) return
@@ -110,7 +140,7 @@ class EgressHealth(
                 false
             }
             val transition = synchronized(lock) {
-                if (probing[id] !== ticket) return@synchronized null // reset 或后来的探测已接管
+                if (probing[id] !== ticket || (successRevision[id] ?: 0L) != revision) return@synchronized null // reset 或后来的探测已接管
                 if (ok) {
                     val restored = sidelined.remove(id) != null
                     failures.remove(id)
@@ -133,6 +163,8 @@ class EgressHealth(
     }
 
     fun reset() = synchronized(lock) {
+        generation = Any()
+        successRevision.clear()
         failures.clear()
         sidelined.clear()
         lastProbeAt.clear()
@@ -201,6 +233,9 @@ class EgressHealth(
             "101.226.4.6" to 443,   // 360 DoH
             "1.1.1.1" to 443,       // Cloudflare —— 物理网通常不可达，用于判 VPN 出口
             "8.8.8.8" to 443,       // Google —— 同上
+            // IPv4-only probes cannot declare a usable IPv6 path wholly unavailable.
+            "2606:4700:4700::1111" to 443,
+            "2001:4860:4860::8888" to 443,
         )
 
         /**

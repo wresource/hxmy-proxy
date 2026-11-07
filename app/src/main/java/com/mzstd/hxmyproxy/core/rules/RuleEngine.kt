@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy.core.rules
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.InetAddress
 
 /**
  * 规则判定结果。
@@ -23,6 +24,31 @@ enum class RuleAction { DIRECT, PROXY, REJECT }
  * 各组装载 / 开关变化时构造新 Snapshot 后 [update]。
  */
 class RuleEngine {
+    private data class DirectClients(val keys: Set<String>, val addresses: Set<InetAddress>, val revision: Long)
+    @Volatile private var directClients = DirectClients(emptySet(), emptySet(), 0)
+
+    /** Independent of domain snapshots: rebuilding or disabling domain rules must not reset client mode. */
+    @Synchronized
+    fun updateDirectClients(addresses: Set<String>): Set<String> {
+        val next = ClientAddress.normalize(addresses)
+        val previousState = directClients
+        val previous = previousState.keys
+        if (next == previous) return emptySet()
+        directClients = DirectClients(next, next.mapTo(hashSetOf()) { InetAddress.getByName(it) },
+            Math.incrementExact(previousState.revision))
+        _version.value += 1
+        return (previous - next) + (next - previous)
+    }
+
+    fun isClientDirect(address: InetAddress): Boolean = address in directClients.addresses
+
+    /** Read one applied snapshot: never mix a new revision with an old mode or publish
+     * saved-but-not-applied settings. Domain rule rebuilds do not change this revision. */
+    fun clientRouteFor(address: InetAddress): ClientRouteIntent {
+        val state = directClients
+        return ClientRouteIntent(ClientAddress.key(address), state.revision, address in state.addresses)
+    }
+
     /** 一组域名集合的不可变快照。未启用的组传空集（空集 matches 恒 false）即可。 */
     data class Snapshot(
         // per-host 三态覆盖：最高优先级（误拦救济/手动指定），支持泛域名/IP/CIDR。
@@ -50,6 +76,7 @@ class RuleEngine {
     /** 每次 [update] +1，供 UI 观察「规则已变、需重判」的刷新信号（decide 仍无锁读 snapshot）。 */
     val version: StateFlow<Int> = _version.asStateFlow()
 
+    @Synchronized
     fun update(newSnapshot: Snapshot) { snapshot = newSnapshot; _version.value += 1 }
 
     /**
@@ -63,7 +90,8 @@ class RuleEngine {
      * 排障时只知道结果（如 DIRECT）远远不够：用户移除了自己的规则后仍是 DIRECT，究竟是内置组还在管、
      * 还是父域规则盖住了子域，只有来源能回答。
      */
-    fun decideDetailed(host: String): RuleDecision {
+    fun decideDetailed(host: String, client: InetAddress? = null): RuleDecision {
+        if (client != null && isClientDirect(client)) return RuleDecision(RuleAction.DIRECT, RuleSrc.CLIENT_DIRECT)
         val s = snapshot
         // 保留覆盖高于列表的历史层级；覆盖层内部按锚定深度裁决。
         // 同锚定保留原动作平手顺序，作用域档位不参与优先级（dd16c59）。
@@ -107,6 +135,7 @@ class RuleEngine {
 
 /** 判定命中的来源表（优先级由高到低，与 [RuleEngine.decideDetailed] 的短路顺序一致）。 */
 enum class RuleSrc {
+    /** Explicit source-IP-wide mode. Authentication/admission/egress guards still apply. */ CLIENT_DIRECT,
     /** per-host 三态覆盖（防护页误拦救济/手动指定） */ OVERRIDE,
     /** 用户白名单（规则页「放行」） */ USER_ALLOW,
     /** 用户快速拦截（规则页「拦截」） */ USER_BLOCK,

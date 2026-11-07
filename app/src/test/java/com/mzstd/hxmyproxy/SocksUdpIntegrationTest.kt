@@ -116,6 +116,26 @@ class SocksUdpIntegrationTest {
         return checkNotNull(SocksUdpCodec.decode(ByteBuffer.wrap(packet.data, 0, packet.length)))
     }
 
+    @Test(timeout=15000) fun clientModeSwitchStopsTheAssociationAndDirectNeverFallsBackToDefault() {
+        Peer().use { peer -> Fixture().use { f ->
+            f.rules.updateDirectClients(setOf("127.0.0.1"))
+            val (control,relay)=f.associate()
+            control.use { udp().use { client ->
+                send(client,relay,"echo.example",peer.socket.localPort,byteArrayOf(1))
+                assertThrows(SocketTimeoutException::class.java) { received(client) }
+                assertEquals(0,f.opened.get());assertEquals(0,peer.packets.get())
+                f.server.disconnectClients(f.rules.updateDirectClients(emptySet()))
+                assertEquals(-1,control.getInputStream().read())
+            } }
+            assertTrue(ProxyTestKit.await(3000) { f.session.activeLeases==0 })
+            val (restored,next)=f.associate()
+            restored.use { udp().use { client ->
+                send(client,next,"echo.example",peer.socket.localPort,byteArrayOf(2,3))
+                assertArrayEquals(byteArrayOf(2,3),received(client).payload)
+            } }
+        } }
+    }
+
     @Test(timeout=15000) fun sameAssociationKeepsTheSourcePortAcrossStunAndANewPeer() {
         Peer().use { stun -> Peer().use { peer -> Fixture().use { f ->
             val (control,relay)=f.associate()

@@ -1,13 +1,15 @@
 <en-US>
-• Added UDP forwarding, SOCKS5 BIND and phone DNS/Echo interfaces for compatible clients.
-• Improved IPv4/IPv6 selection for direct TCP connections and reduced delays from slow DNS queries.
-• Added “Allow local network targets”, off by default. PAC bypasses local addresses and names; forced local requests show bypass guidance.
-• Preserved existing rules, traffic views and outgoing-network settings. No root or additional VPN service is required.
+• Added UDP forwarding, SOCKS5 BIND and DNS/Echo interfaces for compatible clients.
+• Improved direct IPv4/IPv6 selection, DNS recovery and backup-query scheduling.
+• Fixed connections that stalled despite being connected; improved two-way forwarding.
+• Improved logs for connection failures, timeouts and stopping sharing.
+• Added “Allow local network targets”, off by default, with clearer bypass guidance for local addresses and hostnames.
 </en-US>
 
 <zh-CN>
-• 新增UDP转发、SOCKS5 BIND及手机DNS/Echo接口，需要兼容客户端。
-• 改善直连TCP的IPv4/IPv6选择，减少慢DNS查询造成的等待。
-• 新增“允许代理局域网目标”，默认关闭。PAC绕过本地地址和主机名；仍发到手机的本地请求会提示配置客户端直连。
-• 保留原有规则、流量查看和出口设置，无需root或新增VPN服务。
+• 新增UDP转发、SOCKS5 BIND及DNS/Echo接口，需要兼容客户端。
+• 改善直连IPv4/IPv6选择，优化DNS故障恢复与备用查询调度。
+• 修复已建立连接却收不到回复的问题，改善双向转发稳定性。
+• 完善连接失败、超时及停止共享时的诊断日志。
+• 新增“允许代理局域网目标”，默认关闭，完善本地地址和主机名绕过提示。
 </zh-CN>

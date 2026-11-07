@@ -49,6 +49,7 @@ import com.mzstd.hxmyproxy.R
 import com.mzstd.hxmyproxy.core.model.ClientSession
 import com.mzstd.hxmyproxy.core.proxy.RequestOutcome
 import com.mzstd.hxmyproxy.core.rules.RuleAction
+import com.mzstd.hxmyproxy.core.rules.ClientAddress
 import com.mzstd.hxmyproxy.ui.MainUiState
 import com.mzstd.hxmyproxy.ui.MainViewModel
 import com.mzstd.hxmyproxy.ui.components.DetailScaffold
@@ -76,13 +77,15 @@ fun ActivityScreen(ui: MainUiState, viewModel: MainViewModel, onOpenDomains: () 
         onQuery = { viewModel.activityQuery.value = it }, onPause = viewModel::toggleActivityPaused,
         onAllDomains = onOpenDomains, onAllClients = onOpenClients, onAddRule = { editHost = query.text },
         onChanges = onChanges, onDomain = { selectedKey = it.key }, onClient = { clientIp = it.clientIp.hostAddress },
-        actionForHost = { host -> ruleVersion.let { viewModel.decideHost(host) } })
+        actionForHost = { host -> ruleVersion.let { viewModel.decideHost(host) } },
+        clientControl = { ClientRouteControl(ClientAddress.key(it.clientIp), ui, viewModel) })
     all.firstOrNull { it.key == selectedKey }?.let { selected ->
         DomainActivityDialog(selected, snapshot.paused, ui, viewModel, onDismiss = { selectedKey = null },
             onEdit = { selectedKey = null; editHost = selected.host }, onOpenLogs = onOpenLogs, onSettings = onSettings)
     }
     snapshot.clients.firstOrNull { it.clientIp.hostAddress == clientIp }?.let { client ->
-        ClientActivityDialog(client, snapshot.paused, onDismiss = { clientIp = null })
+        ClientActivityDialog(client, snapshot.paused, onDismiss = { clientIp = null },
+            control = { ClientRouteControl(ClientAddress.key(client.clientIp), ui, viewModel) })
     }
     editHost?.let { host -> DomainRuleEditor(viewModel, host, onDismiss = { editHost = null }) }
 }
@@ -92,7 +95,7 @@ internal fun ActivityContent(snapshot: ActivitySnapshot, query: ActivityQuery, l
     contentPadding: PaddingValues = PaddingValues(), onQuery: (ActivityQuery) -> Unit,
     onPause: () -> Unit, onAllDomains: () -> Unit, onAllClients: () -> Unit, onAddRule: () -> Unit,
     onChanges: () -> Unit, onDomain: (DomainActivity) -> Unit, onClient: (ClientSession) -> Unit,
-    actionForHost: (String) -> RuleAction) {
+    actionForHost: (String) -> RuleAction, clientControl: @Composable (ClientSession) -> Unit = {}) {
     val rows = remember(snapshot, query) { domainActivities(snapshot, query) }
     val maxBytes = rows.maxOfOrNull { it.bytes ?: 0 }?.coerceAtLeast(1) ?: 1
     LazyColumn(Modifier.fillMaxSize().testTag("activity_summary"),
@@ -109,7 +112,7 @@ internal fun ActivityContent(snapshot: ActivitySnapshot, query: ActivityQuery, l
         }
         if (snapshot.clients.isEmpty()) item("no-clients") { MonitorEmpty(stringResource(R.string.monitor_no_clients)) }
         items(snapshot.clients.take(CLIENT_PREVIEW_LIMIT), key = { "client:${it.clientIp.hostAddress}" }) { client ->
-            ClientTrafficRow(client, snapshot.paused) { onClient(client) }
+            ClientTrafficRow(client, snapshot.paused, control = { clientControl(client) }) { onClient(client) }
         }
         item("session-usage") {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -217,7 +220,7 @@ internal fun actionLabel(value: RuleAction) = when (value) {
 }
 
 @Composable
-internal fun ClientTrafficRow(client: ClientSession, paused: Boolean, onClick: () -> Unit) {
+internal fun ClientTrafficRow(client: ClientSession, paused: Boolean, control: @Composable () -> Unit = {}, onClick: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
         Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).heightIn(min = 72.dp)
             .padding(12.dp).testTag("client_${client.clientIp.hostAddress}"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -228,6 +231,7 @@ internal fun ClientTrafficRow(client: ClientSession, paused: Boolean, onClick: (
             Text("↓ ${formatBytes(client.downloadBytes)} · ↑ ${formatBytes(client.uploadBytes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(if (paused) stringResource(R.string.ui_paused_snapshot) else stringResource(R.string.ui_active_connections, client.activeConnections),
                 style = MaterialTheme.typography.bodySmall, color = if (client.activeConnections > 0 && !paused) StatusColors.good() else MaterialTheme.colorScheme.onSurfaceVariant)
+            control()
         }
     }
 }
@@ -274,8 +278,11 @@ internal fun activityTime(at: Long): String = if (at <= 0) "—" else java.text.
 internal fun MonitorEmpty(message: String) { Text(message, Modifier.fillMaxWidth().padding(vertical = 16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
 @Composable
-internal fun ClientActivityDialog(client: ClientSession, paused: Boolean, onDismiss: () -> Unit) {
+internal fun ClientActivityDialog(client: ClientSession, paused: Boolean, onDismiss: () -> Unit, control: @Composable () -> Unit = {}) {
     com.mzstd.hxmyproxy.ui.components.InteractionSheet(client.clientIp.hostAddress.orEmpty(), onDismiss) {
+        control()
+        Text(stringResource(R.string.client_route_hint), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         TrafficDetailSummary(stringResource(R.string.ui_traffic), client.uploadBytes + client.downloadBytes,
             client.downloadBytes, client.uploadBytes, stringResource(R.string.ui_active_connections, client.activeConnections))
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -290,12 +297,32 @@ internal fun ClientActivityDialog(client: ClientSession, paused: Boolean, onDism
 @Composable
 fun ClientsDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val snapshot by viewModel.activitySnapshot.collectAsStateWithLifecycle()
+    val ui by viewModel.uiState.collectAsStateWithLifecycle()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    val listed = snapshot.clients.map { ClientAddress.key(it.clientIp) }.toSet()
+    val otherConfigured = (ui.settings.directClientIps - listed).sorted()
     DetailScaffold(stringResource(R.string.ui_all_devices), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (snapshot.clients.isEmpty()) item { MonitorEmpty(stringResource(R.string.monitor_no_clients)) }
-            items(snapshot.clients, key = { it.clientIp.hostAddress.orEmpty() }) { client -> ClientTrafficRow(client, snapshot.paused) { selected = client.clientIp.hostAddress } }
+            items(snapshot.clients, key = { it.clientIp.hostAddress.orEmpty() }) { client ->
+                ClientTrafficRow(client, snapshot.paused,
+                    control = { ClientRouteControl(ClientAddress.key(client.clientIp), ui, viewModel) }) { selected = client.clientIp.hostAddress }
+            }
+            if (otherConfigured.isNotEmpty()) item("configured-addresses") {
+                Text(stringResource(R.string.client_route_configured), style = MaterialTheme.typography.titleSmall)
+            }
+            items(otherConfigured, key = { "configured:$it" }) { ip ->
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(ip, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                        ClientRouteControl(ip, ui, viewModel)
+                    }
+                }
+            }
         }
     }
-    snapshot.clients.firstOrNull { it.clientIp.hostAddress == selected }?.let { ClientActivityDialog(it, snapshot.paused) { selected = null } }
+    snapshot.clients.firstOrNull { it.clientIp.hostAddress == selected }?.let { client ->
+        ClientActivityDialog(client, snapshot.paused, onDismiss = { selected = null },
+            control = { ClientRouteControl(ClientAddress.key(client.clientIp), ui, viewModel) })
+    }
 }

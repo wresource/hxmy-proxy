@@ -225,7 +225,7 @@ fun RuleWorkbenchScreen(ui: MainUiState, main: MainViewModel, vm: RuleLibraryVie
 @Composable internal fun RuleEntryEditor(source: Library.Source, item: Library.Item?, vm: RuleLibraryViewModel,
     main: MainViewModel, onDismiss: () -> Unit) {
     val original = remember(item?.row?.value) { item?.row?.value?.let(RuleInput::parse) }
-    var value by rememberSaveable(item?.key) { mutableStateOf(original?.host ?: item?.row?.value?.takeIf { it.length <= 2048 }.orEmpty()) }
+    var value by rememberSaveable(item?.key) { mutableStateOf(original?.editText ?: item?.row?.value?.takeIf { it.length <= 2048 }.orEmpty()) }
     var tooLong by remember { mutableStateOf(false) }
     var scope by rememberSaveable(item?.key) { mutableStateOf(original?.scope ?: RuleScope.SINGLE) }
     var action by rememberSaveable(item?.key) { mutableStateOf(item?.action ?: source.action) }
@@ -245,21 +245,23 @@ fun RuleWorkbenchScreen(ui: MainUiState, main: MainViewModel, vm: RuleLibraryVie
     val sources by vm.sources.collectAsStateWithLifecycle()
     val key = parsed?.value?.let { it to action }
     val latestKey by rememberUpdatedState(key)
+    var inspectionGeneration by remember { mutableIntStateOf(0) }
     LaunchedEffect(key, refresh, sources) {
-        relationships = emptyList(); checkError = null; checkedKey = null; noIpEvidence = false
-        val request = key ?: return@LaunchedEffect
+        val inspectionTicket = ++inspectionGeneration
+        checkError = null; checkedKey = null; noIpEvidence = false; checking = key != null
+        val request = key ?: run { relationships = emptyList(); return@LaunchedEffect }
         val requestRefresh = refresh
         checking = true
         try {
             delay(180)
             val inspection = main.inspectRule(request.first, request.second)
-            if (latestKey == request && refresh == requestRefresh) {
+            if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) {
                 relationships = inspection.related.filterNot { it.item.source.id == source.id && it.item.row.value == item?.row?.value }
                 noIpEvidence = inspection.ipEvidenceMissing; checkedKey = request; checkedRefresh = requestRefresh
             }
         } catch (cancel: CancellationException) { throw cancel }
-        catch (error: Exception) { if (latestKey == request && refresh == requestRefresh) checkError = error.message ?: "check failed" }
-        finally { if (latestKey == request && refresh == requestRefresh) checking = false }
+        catch (error: Exception) { if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) checkError = error.message ?: "check failed" }
+        finally { if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) checking = false }
     }
     fun save() {
         attempted = true
@@ -269,27 +271,29 @@ fun RuleWorkbenchScreen(ui: MainUiState, main: MainViewModel, vm: RuleLibraryVie
             else vm.library.editItem(source, item?.row?.value, rule.value)
         }
     }
-    if (viewing != null) {
-        RuleValueDetails(viewing!!.item, { viewing = null })
-    } else InteractionSheet(stringResource(if (item == null) R.string.rl_add_entry else R.string.ruleset_edit), onDismiss,
-        dismissEnabled = !busy, footer = { SheetActions(stringResource(R.string.save), {
-            if (parsed?.isIp == false && scope == RuleScope.SUFFIX && original?.scope != RuleScope.SUFFIX) wide = true else save()
+    InteractionSheet(stringResource(if (item == null) R.string.rl_add_entry else R.string.ruleset_edit), onDismiss,
+        stableHeight = true, dismissEnabled = !busy && !wide && viewing == null && disabling == null,
+        footer = { SheetActions(stringResource(R.string.save), {
+            if (parsed?.isIp == false && parsed.scope == RuleScope.SUFFIX && original?.scope != RuleScope.SUFFIX) wide = true else save()
         }, stringResource(R.string.cancel), onDismiss, enabled = !busy, primaryEnabled = parsed != null && !tooLong && checkedKey == key && checkedRefresh == refresh && !checking && checkError == null,
             primaryTag = "rule_entry_save") }) {
         OutlinedTextField(value, { proposed -> val accepted = if (proposed.length <= 2048) proposed else RuleInput.parse(proposed)?.value?.takeIf { it.length <= 2048 }; tooLong = accepted == null; if (accepted != null) value = accepted }, Modifier.fillMaxWidth().testTag("rule_entry_input"), singleLine = true,
             label = { Text(stringResource(R.string.ui_domain_input)) }, enabled = !busy, isError = attempted && parsed == null, shape = MaterialTheme.shapes.medium)
         if (source.isManual && item != null) RuleActionChoices(action, { action = it }, enabled = !busy)
         else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { ActionBadge(source.action); Text(sourceName(source), style = MaterialTheme.typography.bodyMedium) }
-        if (parsed?.isIp != true) RuleScopePicker(scope, enabled = !busy) { scope = it }
+        if (parsed?.domainSuffix == true) RuleNotice(stringResource(R.string.rule_suffix_hint))
+        else if (parsed?.isIp != true) RuleScopePicker(scope, enabled = !busy) { scope = it }
         if (tooLong) Text(stringResource(R.string.rl_single_too_long), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         if (noIpEvidence) RuleNotice(stringResource(R.string.rl_no_ip_evidence))
         RelatedRules(relationships, checking, checkError, { viewing = it }, { relation ->
             if (relation.item.source.isManual) vm.command(onDone = { refresh++ }) { vm.library.disableRelated(relation) } else disabling = relation
-        }, { relation -> vm.command(onDone = { refresh++ }) { vm.library.enableRelated(relation) } }, { refresh++ }, !busy)
+        }, { relation -> vm.command(onDone = { refresh++ }) { vm.library.enableRelated(relation) } }, { refresh++ }, !busy && checkedKey == key && checkedRefresh == refresh && checkError == null)
         RuleMessage(vm)
     }
+    viewing?.let { RuleValueDetails(it.item, { viewing = null }) }
     if (wide) AppAlertDialog(onDismissRequest = { wide = false }, title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
-        text = { Text(stringResource(R.string.rules_scope_confirm_body, parsed?.host.orEmpty(), parsed?.host.orEmpty(), parsed?.host.orEmpty())) },
+        text = { Text(if (parsed?.domainSuffix == true) stringResource(R.string.rule_suffix_confirm, ".${parsed.host}")
+            else stringResource(R.string.rules_scope_confirm_body, parsed?.host.orEmpty(), parsed?.host.orEmpty(), parsed?.host.orEmpty())) },
         confirmButton = { TextButton(onClick = { wide = false; save() }) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onClick = { wide = false }) { Text(stringResource(R.string.cancel)) } })
     disabling?.let { relation -> AppAlertDialog(onDismissRequest = { disabling = null }, title = { Text(stringResource(R.string.rl_pause_set)) },

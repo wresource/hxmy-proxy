@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Cancellation may arrive off the selector thread; first actual terminal cause wins atomically. */
 internal class RelayCloseEvidence {
     data class Cause(val reason: String, val operation: String? = null, val side: String? = null,
-        val errorType: String? = null, val errno: Int? = null) {
+        val errorType: String? = null, val errno: Int? = null, val internalError: Boolean = false) {
         val failed: Boolean get() = errorType != null
     }
     private val terminal = AtomicReference<Cause?>()
@@ -20,7 +20,8 @@ internal class RelayCloseEvidence {
             if (current is android.system.ErrnoException) errno = (current as android.system.ErrnoException).errno
             current = current?.cause
         }
-        terminal.compareAndSet(null, Cause(reason, operation, side, error?.javaClass?.simpleName?.take(80), errno))
+        val internal = error != null && error !is java.io.IOException && error !is kotlinx.coroutines.CancellationException && error !is ProxyException
+        terminal.compareAndSet(null, Cause(reason, operation, side, error?.javaClass?.simpleName?.take(80), errno, internal))
     }
     fun cleanupFailure(operation: String, side: String, error: Throwable) {
         cleanupError.compareAndSet(null, "$operation:$side:${error.javaClass.simpleName.take(80)}")

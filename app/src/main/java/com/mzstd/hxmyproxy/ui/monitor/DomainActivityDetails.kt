@@ -229,6 +229,7 @@ private fun ConnectionDetailContent(host: String, record: RequestActivityRecord)
 }
 
 internal fun ruleSourceLabel(source: String?) = when (source) {
+    "CLIENT_DIRECT" -> R.string.rule_source_client_direct
     "OVERRIDE" -> R.string.rule_source_override; "USER_ALLOW" -> R.string.rule_source_allow
     "USER_BLOCK" -> R.string.rule_source_block; "BUILTIN_ADS" -> R.string.rule_source_ads
     "BUILTIN_APP", "BUILTIN_PROXY" -> R.string.rule_source_builtin

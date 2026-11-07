@@ -127,84 +127,88 @@ class Socks5ProxyServer(
         Log.i("hxmyproxy", "SOCKS5 -> ${host ?: addr?.hostAddress}:$port")
         val ruleHost = host ?: addr?.hostAddress
         val trace = RequestTrace.open("SOCKS5", channel.socket().port)
-        val action = if (ruleHost != null) {
-            ruleEngine?.decideDetailed(ruleHost)?.also {
-                logDecision("SOCKS5", ruleHost, it)
-                // PROXY 也记 —— 见 HttpProxyServer 同处注释
-                trace.rule(ruleHost, it.action, it.src)
-            }?.action
-        } else null
-        Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
-        tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
-        if (action == RuleAction.REJECT) {
-            tracker?.recordBlocked(ruleHost ?: "?")
-            reply(output, 0x02); return
-        }
-        val bypass = action == RuleAction.DIRECT
-        val limits = limitsProvider()
-        val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
-        // 实际出口由建连层回填（含降级后的真实网络），历史流量统计据此分类累加。
-        val onEgress = tracker?.let { it::bindEgress }
+        return requestBoundary(trace, ruleHost ?: "?", output, onFailure = { writable, error ->
+            if (writable != null) reply(writable, (error as? ProxyException)?.error?.socksReply ?: 1)
+        }) { output ->
+            val action = if (ruleHost != null) {
+                ruleEngine?.decideDetailed(ruleHost, client.inetAddress)?.also {
+                    logDecision("SOCKS5", ruleHost, it)
+                    // PROXY 也记 —— 见 HttpProxyServer 同处注释
+                    trace.rule(ruleHost, it.action, it.src)
+                }?.action
+            } else null
+            Log.i("hxmyproxy", "RULE SOCKS5 $ruleHost -> ${action ?: RuleAction.PROXY}")
+            tracker?.bindHost(host ?: addr?.hostAddress ?: "?", direct = action == RuleAction.DIRECT)
+            if (action == RuleAction.REJECT) {
+                tracker?.recordBlocked(ruleHost ?: "?")
+                reply(output, 0x02); return
+            }
+            val bypass = action == RuleAction.DIRECT
+            val limits = limitsProvider()
+            val onBytes: (Long, Long) -> Unit = if (tracker != null) tracker::add else { _, _ -> }
+            // 实际出口由建连层回填（含降级后的真实网络），历史流量统计据此分类累加。
+            val onEgress = tracker?.let { it::bindEgress }
 
-        // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
-        val connectDeadline = ConnectDeadline()
-        if (useNioRelay && nioReactor != null) {
-            // **失败必须落盘**：此前这条路径一次 trace.failed 都不调，0814 日志里 500 个
-            // SOCKS5 请求只有 evt=req.rule、之后什么都没有——排障时它和「请求压根没到手机」同形。
-            // 写法上刻意不抄 HttpProxyServer 那个 `.also{}`：这里的 `?: throw` 就在 try 内、
-            // 必被下面的 catch 接住，加 .also 会立刻产出同样的双写。
-            var timedOut = false
-            val upstreamCh = try {
-                // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
-                // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
+            // 优先 NIO 非阻塞 relay（flag 开 + reactor 可用）。connectChannel 抛 IOException（反射 fd 不可用）→ 回退阻塞。
+            val connectDeadline = ConnectDeadline()
+            if (useNioRelay && nioReactor != null) {
+                // **失败必须落盘**：此前这条路径一次 trace.failed 都不调，0814 日志里 500 个
+                // SOCKS5 请求只有 evt=req.rule、之后什么都没有——排障时它和「请求压根没到手机」同形。
+                // 写法上刻意不抄 HttpProxyServer 那个 `.also{}`：这里的 `?: throw` 就在 try 内、
+                // 必被下面的 catch 接住，加 .also 会立刻产出同样的双写。
+                var timedOut = false
+                val upstreamCh = try {
+                    // 建连阶段硬上限（不含之后的 relay）；超时折成 RemoteTimeout 走既有错误路径，
+                    // 由代理先于客户端放弃并回明确的 SOCKS 错误码。见 ProxyTuning.CONNECT_PHASE_TIMEOUT_MS。
+                    acquireUpstream(connectDeadline.remainingMs()) {
+                        if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+                        else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+                    } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
+                } catch (e: ProxyException) {
+                    trace.failed(ruleHost ?: "?", e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
+                    reply(output, e.error.socksReply); return
+                } catch (e: IOException) {
+                    // NIO 绑定失败已在 connector 节流记录，此处保留同一出口的 socketFactory 回退。
+                    null
+                }
+                if (upstreamCh != null) {
+                    upstreamCh.use {
+                        reply(output, 0x00)
+                        channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
+                        upstreamCh.configureBlocking(false)
+                        nioReactor.relay(
+                            channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
+                            host = host ?: addr?.hostAddress, trace = trace, onTraffic = onBytes,
+                        )
+                    }
+                    return
+                }
+            }
+
+            // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
+            var timedOutBlocking = false
+            val upstream = try {
                 acquireUpstream(connectDeadline.remainingMs()) {
-                    if (addr != null) connector.connectChannel(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-                    else connector.connectChannel(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-                } ?: run { timedOut = true; throw ProxyException(ProxyError.RemoteTimeout) }
+                    if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+                    else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
+                } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
             } catch (e: ProxyException) {
-                trace.failed(ruleHost ?: "?", e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
+                trace.failed(
+                    ruleHost ?: "?",
+                    e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect",
+                    e.error,
+                )
                 reply(output, e.error.socksReply); return
             } catch (e: IOException) {
-                // NIO 绑定失败已在 connector 节流记录，此处保留同一出口的 socketFactory 回退。
-                null
+                trace.failed(ruleHost ?: "?", "connect-io", e.javaClass.simpleName)
+                reply(output, ProxyError.RemoteUnreachable.socksReply); return
             }
-            if (upstreamCh != null) {
-                upstreamCh.use {
-                    reply(output, 0x00)
-                    channel.configureBlocking(false)            // 切非阻塞交给 reactor（握手已完成）
-                    upstreamCh.configureBlocking(false)
-                    nioReactor.relay(
-                        channel, upstreamCh, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000,
-                        host = host ?: addr?.hostAddress, trace = trace, onTraffic = onBytes,
-                    )
-                }
-                return
+            upstream.use {
+                reply(output, 0x00)
+                client.soTimeout = 0
+                relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes,
+                    host = ruleHost, trace = trace)
             }
-        }
-
-        // 阻塞 relay（flag 关 / NIO 反射回退）：channel 仍 blocking，用 channel.socket() 走旧引擎。
-        var timedOutBlocking = false
-        val upstream = try {
-            acquireUpstream(connectDeadline.remainingMs()) {
-                if (addr != null) connector.connect(addr, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-                else connector.connect(host!!, port, bypassVpn = bypass, onEgress = onEgress, trace = trace)
-            } ?: run { timedOutBlocking = true; throw ProxyException(ProxyError.RemoteTimeout) }
-        } catch (e: ProxyException) {
-            trace.failed(
-                ruleHost ?: "?",
-                e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect",
-                e.error,
-            )
-            reply(output, e.error.socksReply); return
-        } catch (e: IOException) {
-            trace.failed(ruleHost ?: "?", "connect-io", e.javaClass.simpleName)
-            reply(output, ProxyError.RemoteUnreachable.socksReply); return
-        }
-        upstream.use {
-            reply(output, 0x00)
-            client.soTimeout = 0
-            relay.relay(client, upstream, limits.relayBufferBytes, limits.idleTimeoutSeconds * 1000, relayDispatcher, onBytes,
-                host = ruleHost, trace = trace)
         }
     }
 

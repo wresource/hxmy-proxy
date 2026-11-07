@@ -148,7 +148,7 @@ class DeadRuleInputTest {
     @Test fun ambiguousAndMalformedValuesAreRejected() {
         listOf("user@arxiv.org", "https://user@arxiv.org", "\"arxiv.org\"", "'arxiv.org'",
             "<arxiv.org>", "(arxiv.org)", "arxiv.org,openreview.net", "arxiv.org;",
-            "arxiv.org|openreview.net", ".arxiv.org", "..arxiv.org", "arxiv..org",
+            "arxiv.org|openreview.net", "..arxiv.org", "arxiv..org",
             ".", "..", "*..arxiv.org", "arxiv.org..", "arxiv.org:65536", "arxiv.org:-1",
             "https:///arxiv.org", "https://", "ftp://arxiv.org").forEach(::assertRejected)
     }

@@ -54,6 +54,18 @@ class HttpProxyProtocolTest {
 
     // ---- CONNECT / 请求行边界 ----
 
+    @Test(timeout=15000) fun clientAllDirectOverridesHostRulesForHttpAndConnectAndRestoresThem() {
+        val engine=RuleEngine().apply { update(RuleEngine.Snapshot(userReject=RuleMatcher().apply { add("blocked.example") })) }
+        val server=proxy(rules=engine,connector=testConnector(allowAll))
+        val requests=listOf("CONNECT blocked.example:443 HTTP/1.1\r\nHost: blocked.example:443\r\n\r\n",
+            "GET http://blocked.example/ HTTP/1.1\r\nHost: blocked.example\r\nConnection: close\r\n\r\n")
+        for(request in requests)assertEquals(403,exchange(server,request).status)
+        engine.updateDirectClients(setOf("127.0.0.1"))
+        for(request in requests)assertEquals(503,exchange(server,request).status)
+        engine.updateDirectClients(emptySet())
+        for(request in requests)assertEquals(403,exchange(server,request).status)
+    }
+
     @Test(timeout = 20000) fun appleDirectMissingWifiIs503AndRemovingRuleAllowsProxyRoute() = runBlocking {
         val net = mockk<android.net.Network>(relaxed = true)
         every { net.networkHandle } returns 535981641741L

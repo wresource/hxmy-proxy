@@ -18,7 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Use independent public channel readiness waits only for channel-backed fallback sockets.
  * Ordinary network.socketFactory sockets retain their native streams and timeout behavior.
  * Owns selectors, never the socket; the enclosing relay retains close/half-close ownership. */
-internal class DuplexSocketStreams(socket: Socket, private val idleMillis: Int) : Closeable {
+internal class DuplexSocketStreams(socket: Socket, private val idleMillis: Int,
+                                   private val onRead: (() -> Unit)? = null,
+                                   private val onWrite: (() -> Unit)? = null) : Closeable {
     private val channel: SocketChannel? = socket.channel
     private var reads: Selector? = null
     private var writes: Selector? = null
@@ -29,8 +31,20 @@ internal class DuplexSocketStreams(socket: Socket, private val idleMillis: Int) 
     init {
         val ch = channel
         if (ch == null) {
-            input = socket.getInputStream()
-            output = socket.getOutputStream()
+            val source = socket.getInputStream()
+            val sink = socket.getOutputStream()
+            input = object : InputStream() {
+                override fun read(): Int = source.read().also { if (it >= 0) onRead?.invoke() }
+                override fun read(bytes: ByteArray, offset: Int, length: Int): Int =
+                    source.read(bytes, offset, length).also { if (it > 0) onRead?.invoke() }
+            }
+            output = object : OutputStream() {
+                override fun write(value: Int) { sink.write(value); onWrite?.invoke() }
+                override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                    sink.write(bytes, offset, length); if (length > 0) onWrite?.invoke()
+                }
+                override fun flush() = sink.flush()
+            }
         } else {
             try {
                 // Handshake has completed. No other owner may use SocketAdaptor streams now.
@@ -50,7 +64,7 @@ internal class DuplexSocketStreams(socket: Socket, private val idleMillis: Int) 
                         val deadline = if (idleMillis > 0) System.nanoTime() + idleMillis * 1_000_000L else null
                         while (true) {
                             val n = ch.read(buffer)
-                            if (n != 0) return n
+                            if (n != 0) { if (n > 0) onRead?.invoke(); return n }
                             awaitReady(reads!!, deadline)
                         }
                     }
@@ -61,6 +75,7 @@ internal class DuplexSocketStreams(socket: Socket, private val idleMillis: Int) 
                         val buffer = ByteBuffer.wrap(bytes, offset, length)
                         while (buffer.hasRemaining()) {
                             if (ch.write(buffer) == 0) awaitReady(writes!!, null)
+                            else onWrite?.invoke()
                         }
                     }
                 }

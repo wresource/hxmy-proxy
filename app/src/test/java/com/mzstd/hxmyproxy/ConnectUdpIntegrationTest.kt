@@ -120,6 +120,21 @@ class ConnectUdpIntegrationTest {
         return ByteArray((length - 1).toInt()).also { DataInputStream(input).readFully(it) }
     }
 
+    @Test(timeout=15000) fun clientAllDirectCannotSilentlyUseDefaultUdpAndCanBeRestored() {
+        Peer().use { peer -> Fixture().use { f ->
+            f.rules.updateDirectClients(setOf("127.0.0.1"))
+            val rejected=f.upgrade(peer.socket.localPort)
+            rejected.first.use { assertTrue(rejected.second.startsWith("HTTP/1.1 503")) }
+            assertEquals(0,f.opened.get())
+            f.rules.updateDirectClients(emptySet())
+            val restored=f.upgrade(peer.socket.localPort)
+            restored.first.use { socket ->
+                assertTrue(restored.second.startsWith("HTTP/1.1 101"))
+                send(socket,byteArrayOf(7,8,9));assertArrayEquals(byteArrayOf(7,8,9),receive(socket))
+            }
+        } }
+    }
+
     @Test(timeout = 15000) fun capabilitySessionAndAuthenticationAreCheckedBeforeDns() {
         Fixture(auth = SingleCredentialAuthenticator("user", "secret", true)).use { f ->
             val basic = "Proxy-Authorization: Basic ${Base64.getEncoder().encodeToString("user:secret".toByteArray())}\r\n"

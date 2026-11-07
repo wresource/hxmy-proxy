@@ -60,11 +60,14 @@ fun RuleManualScreen(main: MainViewModel, vm: RuleLibraryViewModel, onBack: () -
             item { RuleSearch(query, { query = it; offset = 0 }) }
             item { RuleTabs(listOf(stringResource(R.string.rl_all), stringResource(R.string.rl_proxy), stringResource(R.string.rl_direct), stringResource(R.string.rl_block)), filter, { filter = it; offset = 0 }) }
             if (notice != null) item { RuleMessage(vm) }
+            if (result.error != null) item("query-error") { RuleQueryError(vm) }
             when {
-                result.error != null -> item { RuleQueryError(vm) }
-                result.page == null -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                result.page == null -> if (result.error == null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 result.page.items.isEmpty() -> item { Text(stringResource(R.string.rl_empty)) }
-                else -> items(result.page.items, key = { it.key }) { item -> RuleCard { RuleItemRow(item, { selected = item }, { enabled -> vm.command { vm.library.setItemEnabled(item, enabled) } }, !busy) } }
+                else -> items(result.page.items, key = { result.page.displayKeys.getValue(it.key) }) { item -> RuleCard {
+                    RuleItemRow(item, { if (!result.refreshing && result.error == null) selected = item },
+                        { enabled -> vm.command { vm.library.setItemEnabled(item, enabled) } }, !busy && !result.refreshing && result.error == null)
+                } }
             }
         }
     }
@@ -97,11 +100,23 @@ fun RuleSourcesScreen(vm: RuleLibraryViewModel, onBack: () -> Unit, onSource: (S
     } } }
     val names = candidates.associate { it.id to sourceName(it) }
     val retry by vm.queryRevision.collectAsStateWithLifecycle()
+    val searchKey = Triple(mode, category, query)
+    var previousSearch by remember { mutableStateOf<Triple<Int, String?, String>?>(null) }
+    var refreshingSources by remember { mutableStateOf(false) }
+    var searchGeneration by remember { mutableIntStateOf(0) }
     val found by produceState<List<Library.Source>?>(null, candidates, query, names, retry) {
-        value = null; queryError = false
-        try { if (query.isNotBlank()) delay(120); value = vm.library.matchingSources(candidates, query, names) }
+        val ticket = ++searchGeneration
+        if (previousSearch != searchKey) value = null
+        previousSearch = searchKey
+        queryError = false; refreshingSources = true
+        try {
+            if (query.isNotBlank()) delay(120)
+            val matches = vm.library.matchingSources(candidates, query, names)
+            if (ticket == searchGeneration) value = matches
+        }
         catch (cancel: CancellationException) { throw cancel }
-        catch (_: Exception) { queryError = true; value = emptyList() }
+        catch (_: Exception) { if (ticket == searchGeneration) queryError = true }
+        finally { if (ticket == searchGeneration) refreshingSources = false }
     }
     val rows = found.orEmpty().drop(offset).take(50) // Only compact collection metadata; rule contents are queried separately.
     RuleDetailLayout(stringResource(R.string.ruleset_manager_title), onBack,
@@ -123,11 +138,11 @@ fun RuleSourcesScreen(vm: RuleLibraryViewModel, onBack: () -> Unit, onSource: (S
             item { RuleTabs(listOf(stringResource(R.string.rl_mine), stringResource(R.string.rl_builtin), stringResource(R.string.rl_subscriptions)), mode, { mode = it; offset = 0 }) }
             if (mode == 1) item { TextButton(onClick = { choosingCategory = true }) { Text(category?.let { stringResource(RuleCategory.valueOf(it).titleRes) } ?: stringResource(R.string.rl_all)) } }
             if (notice != null) item { RuleMessage(vm) }
+            if (queryError) item("query-error") { RuleQueryError(vm) }
             when {
-                queryError -> item { RuleQueryError(vm) }
-                found == null || loading && candidates.isEmpty() -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                found == null || loading && candidates.isEmpty() -> if (!queryError) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 rows.isEmpty() -> item { Text(stringResource(R.string.rl_empty)) }
-                else -> items(rows, key = { it.id }) { source -> RuleCard { RuleSourceRow(source) { onSource(source.id, query) } } }
+                else -> items(rows, key = { it.id }) { source -> RuleCard { RuleSourceRow(source) { if (!refreshingSources && !queryError) onSource(source.id, query) } } }
             }
         }
     }
@@ -225,12 +240,14 @@ fun RuleSourceScreen(id: String, initialQuery: String, ui: MainUiState, main: Ma
                 if (notice != null) item { RuleMessage(vm) }
                 item { RuleSearch(query, { query = it; offset = 0 }) }
                 item { RuleTabs(listOf(stringResource(R.string.rl_all), stringResource(R.string.rules_type_domain), "IPv4", "IPv6"), type, { type = it; offset = 0 }, "rule_type_filter") }
+                if (result.error != null) item("query-error") { RuleQueryError(vm) }
                 when {
-                    result.error != null -> item { RuleQueryError(vm) }
-                    result.page == null -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                    result.page == null -> if (result.error == null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                     result.page.items.isEmpty() -> item { Text(stringResource(R.string.rl_empty)) }
-                    else -> items(result.page.items, key = { it.key }) { item -> RuleCard {
-                        RuleItemRow(item, { selected = item }, if (source.isManual) ({ enabled -> vm.command { vm.library.setItemEnabled(item, enabled) } }) else null, !busy)
+                    else -> items(result.page.items, key = { result.page.displayKeys.getValue(it.key) }) { item -> RuleCard {
+                        RuleItemRow(item, { if (!result.refreshing && result.error == null) selected = item },
+                            if (source.isManual) ({ enabled -> vm.command { vm.library.setItemEnabled(item, enabled) } }) else null,
+                            !busy && !result.refreshing && result.error == null)
                     } }
                 }
             }

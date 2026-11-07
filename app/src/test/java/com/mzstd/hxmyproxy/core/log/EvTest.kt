@@ -217,11 +217,18 @@ class EvTest {
     fun `键表满时按LRU淘汰且抑制条数不得凭空消失`() {
         val (keys0, _, dropped0) = Ev.throttleStats()
         // 先造一个有抑制计数的键，且让它成为最久未用的那批之一
-        val victim = "test-evict-victim"
+        val nonce = System.nanoTime()
+        val victim = "test-evict-victim:$nonce"
         Ev.throttled(LogCat.CONN, "test.evict", victim, 600_000L)
         Ev.throttled(LogCat.CONN, "test.evict", victim, 600_000L)   // 抑制 +1，尚未补报
+        // Production eviction orders millisecond timestamps, not insertion sequence. A fast
+        // full-suite run can create all fillers in the same millisecond as the victim.
+        val victimTime = System.currentTimeMillis()
+        val deadline = System.nanoTime() + 1_000_000_000L
+        while (System.currentTimeMillis() <= victimTime && System.nanoTime() < deadline) Thread.sleep(1)
+        assertTrue("The victim must be strictly older than filler timestamps", System.currentTimeMillis() > victimTime)
         // 灌满键表触发淘汰（上限 512）
-        repeat(700) { Ev.throttled(LogCat.CONN, "test.evict.filler", "test-filler-$it", 600_000L) }
+        repeat(700) { Ev.throttled(LogCat.CONN, "test.evict.filler", "test-filler:$nonce:$it", 600_000L) }
         val (keys1, evictions, dropped1) = Ev.throttleStats()
         assertTrue("应发生过淘汰，实际 evictions=$evictions", evictions > 0)
         assertTrue("键表不得被清空到 0（那是整表 clear 的特征），实际 keys=$keys1", keys1 > 100)

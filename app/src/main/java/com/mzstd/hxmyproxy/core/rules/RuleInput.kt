@@ -6,16 +6,17 @@ import java.util.Locale
 
 /** Shared validation for adding, editing and importing rules. Never performs DNS. */
 object RuleInput {
-    data class Parsed(val host: String, val scope: RuleScope?, val fromUrl: Boolean = false) {
+    data class Parsed(val host: String, val scope: RuleScope?, val fromUrl: Boolean = false, val domainSuffix: Boolean = false) {
         val value: String get() = scope?.let { RuleScope.format(it, host) } ?: host
         val isIp: Boolean get() = scope == null
+        val editText: String get() = if (domainSuffix) ".$host" else host
     }
 
     fun normalize(input: String): String? = parse(input)?.value
 
     /** The UI's selected scope remains authoritative, including for digit-leading domain names. */
     fun forScope(input: String, scope: RuleScope): Parsed? = parse(input)?.let {
-        if (it.isIp) it else it.copy(scope = scope)
+        if (it.isIp || it.domainSuffix) it else it.copy(scope = scope)
     }
 
     fun parse(input: String): Parsed? {
@@ -23,12 +24,19 @@ object RuleInput {
         if (text.isEmpty() || text.length > 8192) return null
         val (rangeScope, rangeText) = RuleScope.parse(text)
         if (IpRange.hasRangeSyntax(rangeText)) {
-            if (rangeScope != RuleScope.SUFFIX) return null
+            if (rangeScope != RuleScope.SUFFIX || text.startsWith('.')) return null
             return IpRange.parse(rangeText)?.let { Parsed(it.value, null) }
         }
         // IDNA may discard format characters. Reject them before conversion, rather than
         // silently changing a pasted rule to a different target. Edge whitespace stays valid.
         if (text.any { it.isWhitespace() || it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }) return null
+        // An explicit leading dot denotes a suffix, including a single-label TLD. Ordinary
+        // host/URL validation remains strict, and protocol targets must reject this rule-only form.
+        if (text.startsWith('.')) {
+            val suffix = canonicalDomain(text.drop(1), allowSingleLabel = true) ?: return null
+            if (suffix.all { it in "0123456789." } || numericAddress(suffix) != null) return null
+            return Parsed(suffix, RuleScope.SUFFIX, domainSuffix = true)
+        }
         val (scope, raw) = RuleScope.parse(text)
         if (raw.isEmpty() || raw.startsWith('=') || raw.startsWith('*')) return null
         val hasScope = text.startsWith('=') || text.startsWith("*.")
@@ -83,7 +91,7 @@ object RuleInput {
     }
 
     /** UTS #46, non-transitional: e.g. faß.de must never become the different host fass.de. */
-    internal fun canonicalDomain(input: String): String? {
+    internal fun canonicalDomain(input: String, allowSingleLabel: Boolean = false): String? {
         var host = input.lowercase(Locale.ROOT)
         if (host.any { it.isWhitespace() || it.isISOControl() || Character.getType(it) == Character.FORMAT.toInt() }) return null
         if (host.any { it.code > 127 } || host.split('.').any { it.startsWith("xn--") }) {
@@ -98,7 +106,7 @@ object RuleInput {
         host = host.removeSuffix(".")
         if (host.length !in 1..253) return null
         val labels = host.split('.')
-        if (labels.size < 2 || labels.any { label ->
+        if ((!allowSingleLabel && labels.size < 2) || labels.any { label ->
                 label.length !in 1..63 || label.first() == '-' || label.last() == '-' ||
                     label.any { it !in 'a'..'z' && it !in '0'..'9' && it != '-' }
             }) return null

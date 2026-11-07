@@ -51,7 +51,7 @@ import kotlinx.coroutines.delay
 fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialAction: RuleAction = RuleAction.PROXY,
     initialScope: RuleScope = RuleScope.EXACT, onDismiss: () -> Unit, onSaved: (String) -> Unit = {}) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
-    var text by rememberSaveable(initial) { mutableStateOf(RuleInput.parse(initial)?.host ?: initial.takeIf { it.length <= 2048 }.orEmpty()) }
+    var text by rememberSaveable(initial) { mutableStateOf(RuleInput.parse(initial)?.editText ?: initial.takeIf { it.length <= 2048 }.orEmpty()) }
     var action by rememberSaveable { mutableStateOf(initialAction) }
     var scope by rememberSaveable { mutableStateOf(initialScope) }
     var inputTooLong by rememberSaveable { mutableStateOf(false) }
@@ -73,18 +73,20 @@ fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialActi
     val latestKey by rememberUpdatedState(key)
     var checkedKey by remember { mutableStateOf<Pair<String, RuleAction>?>(null) }
     var checkedRefresh by remember { mutableIntStateOf(-1) }
+    var inspectionGeneration by remember { mutableIntStateOf(0) }
     LaunchedEffect(key, refresh, ui.settings) {
-        checkedKey = null; checkError = null; related = emptyList(); noIpEvidence = false
-        val request = key ?: return@LaunchedEffect
+        val inspectionTicket = ++inspectionGeneration
+        checkedKey = null; checkError = null; noIpEvidence = false; checking = key != null
+        val request = key ?: run { related = emptyList(); return@LaunchedEffect }
         val requestRefresh = refresh
         checking = true
         try {
             delay(180)
             val inspection = viewModel.inspectRule(request.first, request.second)
-            if (latestKey == request && refresh == requestRefresh) { related = inspection.related; noIpEvidence = inspection.ipEvidenceMissing; checkedKey = request; checkedRefresh = requestRefresh }
+            if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) { related = inspection.related; noIpEvidence = inspection.ipEvidenceMissing; checkedKey = request; checkedRefresh = requestRefresh }
         } catch (cancel: CancellationException) { throw cancel }
-        catch (error: Exception) { if (latestKey == request && refresh == requestRefresh) checkError = error.message ?: "Rule check failed" }
-        finally { if (latestKey == request && refresh == requestRefresh) checking = false }
+        catch (error: Exception) { if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) checkError = error.message ?: "Rule check failed" }
+        finally { if (inspectionTicket == inspectionGeneration && latestKey == request && refresh == requestRefresh) checking = false }
     }
     fun relatedAction(relation: RuleLibraryRepository.Related, enable: Boolean) {
         changingRelated = true
@@ -101,21 +103,15 @@ fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialActi
             result.onSuccess { onDismiss(); onSaved(it) }.onFailure { failed = true }
         }
     }
-    if (viewing != null) {
-        RuleValueDetails(viewing!!.item, { viewing = null })
-    } else if (confirmWide) {
-        AlertDialog(onDismissRequest = { confirmWide = false }, title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
-            text = { Text(stringResource(R.string.rules_scope_confirm_body, parsed?.host.orEmpty(), parsed?.host.orEmpty(), parsed?.host.orEmpty())) },
-            confirmButton = { TextButton(onClick = { confirmWide = false; save(RuleScope.SUFFIX) }) { Text(stringResource(R.string.rules_scope_suffix)) } },
-            dismissButton = { TextButton(onClick = { confirmWide = false; scope = RuleScope.EXACT }) { Text(stringResource(R.string.rules_scope_exact)) } })
-    } else InteractionSheet(
+    InteractionSheet(
         title = stringResource(if (initial.isBlank()) R.string.ui_add_rule else R.string.ui_domain_rule),
-        onDismiss = onDismiss, dismissEnabled = !saving && !changingRelated,
+        onDismiss = onDismiss, stableHeight = true,
+        dismissEnabled = !saving && !changingRelated && !confirmWide && viewing == null && disabling == null,
         footer = {
             SheetActions(stringResource(R.string.save), {
                 attempted = true
                 if (parsed != null && !saving && !changingRelated && !inputTooLong && checkedKey == key && checkedRefresh == refresh && checkError == null) {
-                    if (!parsed.isIp && scope == RuleScope.SUFFIX) confirmWide = true else save(scope)
+                    if (!parsed.isIp && parsed.scope == RuleScope.SUFFIX) confirmWide = true else save(scope)
                 }
             }, stringResource(R.string.cancel), onDismiss, enabled = !saving && !changingRelated,
                 primaryEnabled = parsed != null && !inputTooLong && checkedKey == key && checkedRefresh == refresh && !checking && checkError == null, primaryTag = "domain_rule_save")
@@ -146,12 +142,13 @@ fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialActi
         if ((action == RuleAction.DIRECT && !ui.settings.userDirectEnabled) || (action == RuleAction.REJECT && !ui.settings.userRejectEnabled)) {
             Text(stringResource(R.string.ui_rule_list_disabled), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
-        if (parsed?.isIp != true) RuleScopePicker(scope, enabled = !saving && !changingRelated) { scope = it }
+        if (parsed?.domainSuffix == true) RuleNotice(stringResource(R.string.rule_suffix_hint))
+        else if (parsed?.isIp != true) RuleScopePicker(scope, enabled = !saving && !changingRelated) { scope = it }
         if (noIpEvidence) RuleNotice(stringResource(R.string.rl_no_ip_evidence))
         if (related.any { it.item.source.isManual && RuleInput.parse(it.item.row.value)?.host == parsed?.host }) RuleNotice(stringResource(R.string.rl_replaces_manual))
         RelatedRules(related, checking, checkError, { viewing = it }, { relation ->
             if (relation.item.source.isManual) relatedAction(relation, false) else disabling = relation
-        }, { relatedAction(it, true) }, { refresh++ }, !saving && !changingRelated)
+        }, { relatedAction(it, true) }, { refresh++ }, !saving && !changingRelated && checkedKey == key && checkedRefresh == refresh && checkError == null)
         if (undoId != null) RuleNotice(stringResource(R.string.rl_saved)) {
             TextButton(onClick = { val id = undoId ?: return@TextButton; changingRelated = true; viewModel.revertLibraryRuleChange(id) { result ->
                 changingRelated = false; if (result.getOrNull() == true) { undoId = null; refresh++ } else failed = true
@@ -159,6 +156,13 @@ fun DomainRuleEditor(viewModel: MainViewModel, initial: String = "", initialActi
         }
         if (failed) Text(stringResource(R.string.ui_save_failed), color = MaterialTheme.colorScheme.error)
     }
+    if (confirmWide) AlertDialog(onDismissRequest = { confirmWide = false },
+        title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
+        text = { Text(if (parsed?.domainSuffix == true) stringResource(R.string.rule_suffix_confirm, ".${parsed.host}")
+            else stringResource(R.string.rules_scope_confirm_body, parsed?.host.orEmpty(), parsed?.host.orEmpty(), parsed?.host.orEmpty())) },
+        confirmButton = { TextButton(onClick = { confirmWide = false; save(RuleScope.SUFFIX) }, modifier = Modifier.testTag("domain_rule_confirm_suffix")) { Text(stringResource(R.string.save)) } },
+        dismissButton = { TextButton(onClick = { confirmWide = false }) { Text(stringResource(R.string.cancel)) } })
+    viewing?.let { RuleValueDetails(it.item, { viewing = null }) }
     disabling?.let { relation -> AlertDialog(onDismissRequest = { disabling = null },
         title = { Text(stringResource(R.string.rl_pause_set)) },
         text = { Text(pluralStringResource(R.plurals.rl_pause_set_confirm, relation.item.source.count, sourceName(relation.item.source), relation.item.source.count)) },

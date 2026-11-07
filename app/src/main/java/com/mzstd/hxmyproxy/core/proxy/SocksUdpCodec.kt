@@ -25,7 +25,7 @@ internal object SocksUdpCodec {
                 val text = String(name, Charsets.US_ASCII)
                 if (text.any { it in "/?#@%\\=*:" }) return null
                 val parsed = RuleInput.parse(text) ?: return null
-                if (parsed.fromUrl || parsed.host.contains('/') || (parsed.isIp && '-' in text)) return null
+                if (parsed.fromUrl || parsed.domainSuffix || parsed.host.contains('/') || (parsed.isIp && '-' in text)) return null
                 parsed.host
             }
             else -> null

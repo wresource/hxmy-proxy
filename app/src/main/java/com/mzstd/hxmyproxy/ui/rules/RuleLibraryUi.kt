@@ -166,21 +166,26 @@ import kotlinx.coroutines.delay
         TextButton(onClick = { onPage(page.offset + limit) }, Modifier.testTag("rule_page_next"), enabled = page.offset + page.items.size < page.total) { Text(stringResource(R.string.rl_next)) }
     }
 }
-internal data class RulePageState(val page: Library.Page? = null, val error: String? = null)
+internal data class RulePageRequest(val sources: List<String>, val query: String, val offset: Int,
+    val limit: Int, val type: Int?, val action: RuleAction?)
+internal data class RulePageState(val page: Library.Page? = null, val error: String? = null,
+    val refreshing: Boolean = false, val request: RulePageRequest? = null)
 @Composable internal fun RuleQueryError(vm: RuleLibraryViewModel) {
     RuleNotice(stringResource(R.string.rl_operation_failed), true) { TextButton(onClick = vm::retryQuery) { Text(stringResource(R.string.rl_retry)) } }
 }
 @Composable internal fun rulePage(vm: RuleLibraryViewModel, sources: List<Library.Source>, query: String,
     offset: Int = 0, limit: Int = 50, type: Int? = null, action: RuleAction? = null): RulePageState {
     val retry by vm.queryRevision.collectAsStateWithLifecycle()
+    val request = RulePageRequest(sources.map { it.id }, query, offset, limit, type, action)
     val result by produceState(RulePageState(), sources, query, offset, limit, type, action, retry) {
-        value = RulePageState()
+        val previous = value.takeIf { it.request == request }?.page
+        value = RulePageState(previous, refreshing = true, request = request)
         if (query.isNotBlank()) delay(120)
-        try { value = RulePageState(vm.library.page(sources, query, offset, limit, type, action)) }
+        try { value = RulePageState(vm.library.page(sources, query, offset, limit, type, action), request = request) }
         catch (cancel: CancellationException) { throw cancel }
-        catch (error: Exception) { value = RulePageState(error = error.message ?: error.javaClass.simpleName) }
+        catch (error: Exception) { value = RulePageState(previous, error.message ?: error.javaClass.simpleName, request = request) }
     }
-    return result
+    return if (result.request == request) result else RulePageState(refreshing = true, request = request)
 }
 
 @Composable internal fun RuleDetailLayout(title: String, onBack: () -> Unit,
@@ -237,10 +242,13 @@ internal data class RulePageState(val page: Library.Page? = null, val error: Str
         else onEnable(relation)
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(stringResource(R.string.rl_relations), style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.rl_relations), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            if (checking) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
         when {
-            checking -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            checking && related.isEmpty() -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.rl_relations_checking), style = MaterialTheme.typography.bodyMedium)
             }
             error != null -> RuleNotice(stringResource(R.string.rl_relations_failed), true) { TextButton(onClick = onRetry) { Text(stringResource(R.string.rl_retry)) } }
@@ -248,16 +256,16 @@ internal data class RulePageState(val page: Library.Page? = null, val error: Str
             else -> {
                 Text(stringResource(R.string.rl_relations_limit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 related.take(3).forEach { relation ->
-                    RelatedRuleCard(relation, { onView(relation) }, { onDisable(relation) }, { enable(relation) }, enabled)
+                    RelatedRuleCard(relation, { onView(relation) }, { onDisable(relation) }, { enable(relation) }, enabled && !checking)
                 }
-                if (!expanded && related.size > 3) TextButton(onClick = { expanded = true }) { Text(stringResource(R.string.rl_view_all)) }
+                if (!expanded && related.size > 3) TextButton(onClick = { expanded = true }, enabled = enabled && !checking) { Text(stringResource(R.string.rl_view_all)) }
             }
         }
     }
     if (expanded) InteractionSheet(stringResource(R.string.rl_relations), { expanded = false }, scrollBody = false) {
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(related, key = { "${it.relation}:${it.item.key}:${it.peer}" }) { relation ->
-                RelatedRuleCard(relation, { expanded = false; onView(relation) }, { expanded = false; onDisable(relation) }, { expanded = false; enable(relation) }, enabled)
+                RelatedRuleCard(relation, { expanded = false; onView(relation) }, { expanded = false; onDisable(relation) }, { expanded = false; enable(relation) }, enabled && !checking)
             }
         }
     }

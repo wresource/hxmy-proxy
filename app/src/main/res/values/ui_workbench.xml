@@ -57,7 +57,7 @@
     <string name="ui_direct_missing">The selected physical network is unavailable. Direct traffic does not fall back to VPN.</string>
     <string name="ui_disabled">Off</string>
     <string name="ui_domain_input">Domain, IP or URL</string>
-    <string name="ui_domain_input_hint">URLs keep only the host. Direct and Block rules appear in their corresponding lists.</string>
+    <string name="ui_domain_input_hint">Domain, URL, IP/CIDR or suffix such as .cn. URLs use only the host.</string>
     <string name="ui_domain_search">Search a domain or URL</string>
     <string name="ui_domains">Domains</string>
     <string name="ui_egress_sidelined">The egress is temporarily isolated after failed checks. Review the network and logs.</string>

@@ -14,15 +14,26 @@ VPN app policies and the local network can affect compatibility.
 
 ## Download and latest update
 
-[**1.49.68 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.68/hxmy-proxy-1.49.68.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.68) ·
-[What's new](docs/releases/1.49.68.md)
+[**1.49.72 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.72/hxmy-proxy-1.49.72.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.72) ·
+[What's new](docs/releases/1.49.72.md)
 
-**1.49.68 (308)** adds HTTP/1.1 CONNECT-UDP, native SOCKS5 UDP,
-bounded SOCKS5 BIND for reachable secondary connections, phone-network DNS messages,
-and IPv4/IPv6 Echo using ordinary ping sockets. See the [transport profiles](docs/protocol/udp-proxy.md)
-for authentication, limits and active FTP/network requirements. The app remains
-an ordinary Android service, without root or a new VPN interface.
+**1.49.72 (312)** adds per-client **All direct** mode, suffix rules such as `.cn`,
+and steadier rule editing and paginated lists. All direct applies to the client's source IP:
+requests still pass through the phone and use its **Direct egress** network. It overrides that
+client's domain routing and blocking rules while keeping authentication, admission and local-target safeguards.
+Turning it off restores normal rules.
+
+DNS callback handling, fresh lookups after connection failures, network health recovery and
+bidirectional idle detection are hardened. Compatible companions can read the phone's applied
+client mode through the optional [client-route capability](docs/client-route-capabilities.md).
+The [Mac companion 2026.11.08.1](https://github.com/wresource/proxyshim/releases/tag/2026.11.08.1-companion)
+consumes this intent; ordinary manual HTTP/SOCKS clients do not require the companion.
+
+Supported transports include HTTP/1.1 CONNECT-UDP, native SOCKS5 UDP, bounded SOCKS5 BIND,
+phone-network DNS messages and IPv4/IPv6 Echo using ordinary ping sockets.
+See the [transport profiles](docs/protocol/udp-proxy.md) for limits and client requirements.
+The app remains an ordinary Android service without root or a new VPN interface.
 
 **Allow local network targets** is off by default under **Settings → Privacy → Privacy & security**.
 PAC clients bypass private addresses, simple hostnames and `.local` / `.home.arpa` targets;

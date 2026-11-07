@@ -466,6 +466,7 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
     var scope by remember { mutableStateOf(RuleScope.SINGLE) }
     // 待确认的全层级规则(非空=弹确认窗)。全层级会连同任意深度子域一起处理，误填代价大，故拦一道。
     var pendingSuffix by remember { mutableStateOf<String?>(null) }
+    var pendingExplicitSuffix by remember { mutableStateOf(false) }
     val dark = LocalDarkTheme.current
     val parsed = remember(input, scope) { com.mzstd.hxmyproxy.core.rules.RuleInput.forScope(input, scope) }
 
@@ -474,7 +475,8 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         if (value != null) {
             when {
                 value.isIp -> { onAdd(value.value); input = "" }
-                scope == RuleScope.SUFFIX -> pendingSuffix = value.host
+                value.domainSuffix -> { pendingExplicitSuffix = true; pendingSuffix = value.host }
+                scope == RuleScope.SUFFIX -> { pendingExplicitSuffix = false; pendingSuffix = value.host }
                 else -> { onAdd(value.value); input = "" }
             }
         }
@@ -485,19 +487,21 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
         AlertDialog(
             onDismissRequest = { pendingSuffix = null },
             title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
-            text = { Text(stringResource(R.string.rules_scope_confirm_body, bare, bare, bare)) },
+            text = { Text(if (pendingExplicitSuffix) stringResource(R.string.rule_suffix_confirm, ".$bare")
+                else stringResource(R.string.rules_scope_confirm_body, bare, bare, bare)) },
             confirmButton = {
                 // 推荐路径放主按钮：改用单级。
                 TextButton(onClick = {
-                    onAdd(RuleScope.format(RuleScope.SINGLE, bare))
-                    scope = RuleScope.SINGLE; input = ""; pendingSuffix = null
-                }) { Text(stringResource(R.string.rules_scope_confirm_use_single, bare)) }
+                    onAdd(RuleScope.format(if (pendingExplicitSuffix) RuleScope.SUFFIX else RuleScope.SINGLE, bare))
+                    if (!pendingExplicitSuffix) scope = RuleScope.SINGLE
+                    input = ""; pendingSuffix = null
+                }) { Text(if (pendingExplicitSuffix) stringResource(R.string.save) else stringResource(R.string.rules_scope_confirm_use_single, bare)) }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    onAdd(bare)   // 无前缀 = 全层级
-                    input = ""; pendingSuffix = null
-                }) { Text(stringResource(R.string.rules_scope_confirm_keep_suffix)) }
+                    if (!pendingExplicitSuffix) { onAdd(bare); input = "" }
+                    pendingSuffix = null
+                }) { Text(stringResource(if (pendingExplicitSuffix) R.string.cancel else R.string.rules_scope_confirm_keep_suffix)) }
             },
         )
     }
@@ -505,7 +509,7 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
     // 档位选择条：三档互斥，选中态用语义色填充。
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         RuleScope.entries.forEach { s ->
-            val on = scope == s
+            val on = (if (parsed?.domainSuffix == true) RuleScope.SUFFIX else scope) == s
             Text(
                 stringResource(
                     when (s) {
@@ -520,7 +524,7 @@ internal fun RulePillInputRow(accent: RuleAccent, onAdd: (String) -> Unit) {
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
                     .background(if (on) accent.container else MaterialTheme.colorScheme.surfaceContainerHighest)
-                    .clickable { scope = s }
+                    .clickable(enabled = parsed?.domainSuffix != true) { scope = s }
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }

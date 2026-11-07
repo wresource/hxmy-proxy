@@ -15,13 +15,14 @@ import javax.net.SocketFactory
 class EgressProbeFaultTest {
     private class FaultNetwork(private val destinationPort: Int) : SocketFactory() {
         @Volatile var httpsAvailable = false
+        var ipv6Only = false
         val targets = CopyOnWriteArrayList<InetSocketAddress>()
         val sockets = CopyOnWriteArrayList<Socket>()
         override fun createSocket(): Socket = object : Socket() {
             override fun connect(endpoint: SocketAddress, timeout: Int) {
                 val address = endpoint as InetSocketAddress
                 targets += address
-                if (address.port == 443 && !httpsAvailable) throw SocketTimeoutException("controlled 443 blackhole")
+                if (address.port == 443 && (!httpsAvailable || (ipv6Only && address.address !is Inet6Address))) throw SocketTimeoutException("controlled 443 blackhole")
                 check(address.port == 53 || address.port == 443)
                 super.connect(InetSocketAddress("127.0.0.1", destinationPort), timeout)
             }
@@ -47,16 +48,32 @@ class EgressProbeFaultTest {
             assertTrue(health.recordFailure(net, "fourth.example"))
             health.confirmOrSideline(net)
             assertTrue(health.isSidelined(net))
-            assertEquals(listOf(53) + List(5) { 443 }, transport.targets.map { it.port })
+            assertEquals(listOf(53) + List(EgressHealth.PROBE_TARGETS.size) { 443 }, transport.targets.map { it.port })
             assertTrue(transport.sockets.all { it.isClosed })
             transport.httpsAvailable = true
             now += EgressHealth.RECHECK_MS
             assertTrue(health.needsRecheck(net))
             health.confirmOrSideline(net)
             assertFalse(health.isSidelined(net))
-            assertEquals(EgressHealth.PROBE_TARGETS.map { it.first }.toSet(),
-                transport.targets.filter { it.port == 443 }.map { it.address.hostAddress }.toSet())
+            assertEquals(EgressHealth.PROBE_TARGETS.map { InetAddress.getByName(it.first) }.toSet(),
+                transport.targets.filter { it.port == 443 }.map { it.address }.toSet())
             assertTrue(transport.sockets.all { it.isClosed })
         }
     }
+    @Test fun ipv4ProbeFailuresCannotSidelineReachableIpv6() = runBlocking {
+        ServerSocket(0, 50, InetAddress.getByName("127.0.0.1")).use { server ->
+            val transport = FaultNetwork(server.localPort).apply { httpsAvailable = true; ipv6Only = true }
+            val net = mockk<Network> {
+                every { networkHandle } returns 78L
+                every { socketFactory } returns transport
+            }
+            val health = EgressHealth(nowMs = { 1000L })
+            health.confirmOrSideline(net)
+            assertFalse(health.isSidelined(net))
+            assertEquals(7, transport.targets.size)
+            assertEquals(2, transport.targets.count { it.address is Inet6Address })
+            assertTrue(transport.sockets.all { it.isClosed })
+        }
+    }
+
 }

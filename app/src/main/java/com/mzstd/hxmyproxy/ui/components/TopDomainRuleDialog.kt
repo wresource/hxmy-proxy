@@ -42,6 +42,7 @@ fun TopDomainRuleDialog(
     InteractionSheet(host, onDismiss) {
         Text(stringResource(R.string.top_domain_rule_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val sourceRes = when (source) {
+                    com.mzstd.hxmyproxy.core.rules.RuleSrc.CLIENT_DIRECT -> R.string.rule_source_client_direct
                     com.mzstd.hxmyproxy.core.rules.RuleSrc.OVERRIDE -> R.string.rule_source_override
                     com.mzstd.hxmyproxy.core.rules.RuleSrc.USER_ALLOW -> R.string.rule_source_allow
                     com.mzstd.hxmyproxy.core.rules.RuleSrc.USER_BLOCK -> R.string.rule_source_block

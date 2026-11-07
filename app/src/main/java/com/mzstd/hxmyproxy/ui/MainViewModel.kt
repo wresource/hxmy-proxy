@@ -94,6 +94,14 @@ class MainViewModel @Inject constructor(
         frozenActivity, com.mzstd.hxmyproxy.core.proxy.RequestActivity.store::snapshotState,
     ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.mzstd.hxmyproxy.ui.monitor.ActivitySnapshot())
 
+    fun setClientAllDirect(ip: String, enabled: Boolean, onDone: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        onDone(runCatching {
+            val key = requireNotNull(com.mzstd.hxmyproxy.core.rules.ClientAddress.parse(ip))
+            settingsRepository.update { settings -> settings.copy(directClientIps =
+                if (enabled) settings.directClientIps + key else settings.directClientIps - key) }
+        })
+    }
+
     fun toggleActivityPaused() {
         frozenActivity.value = if (activitySnapshot.value.paused) null else activitySnapshot.value.copy(paused = true)
     }
@@ -383,7 +391,8 @@ class MainViewModel @Inject constructor(
     /** 互斥比较按**裸域名**：同一域名的不同作用域写法（`a.com` / `*.a.com` / `=a.com`）视为同一条，
      *  否则「设直连」时移不掉 block 里前缀不同的同名规则，两边并存反而要靠具体度裁决。 */
     private fun sameHost(entryValue: String, bare: String): Boolean {
-        val target = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(bare)?.host ?: return false
+        val target = com.mzstd.hxmyproxy.core.rules.RuleInput.parse(bare)?.host
+            ?: bare.takeIf { com.mzstd.hxmyproxy.core.rules.RuleInput.parse(".$it")?.host == it } ?: return false
         return com.mzstd.hxmyproxy.core.rules.RuleInput.parse(entryValue)?.host == target
     }
 

@@ -393,6 +393,7 @@ private class Tunnel(
     private val up = Pipe(cCtx, uCtx, ByteBuffer.allocate(bufferBytes)) { upBytes += it; onTraffic(it, 0) }
     private val down = Pipe(uCtx, cCtx, ByteBuffer.allocate(bufferBytes)) { downBytes += it; onTraffic(0, it) }
     @Volatile private var lastActivity = System.nanoTime()
+    private val directionActivity = LongArray(4) { lastActivity }
 
     /**
      * 拆除原因。默认 `eof` = 正常收尾（任一端读到 -1 且两向都排空）。
@@ -432,7 +433,7 @@ private class Tunnel(
         when {
             n == -1 -> { evidence.observedEof(side(ctx)); pipe.srcEof = true; finishIfDrained(pipe, w) }
             n > 0 -> {
-                touch()
+                touch(if (ctx === cCtx) 0 else 2)
                 pipe.buf.flip()
                 pipe.draining = true
                 drain(pipe, w)
@@ -450,7 +451,7 @@ private class Tunnel(
     private fun drain(pipe: Pipe, w: SelectorWorker) {
         val wrote = io(pipe.dst, "write") { pipe.dst.channel.write(pipe.buf) }
         if (wrote > 0) {
-            touch()
+            touch(if (pipe.dst === cCtx) 1 else 3)
             try { pipe.onBytes(wrote.toLong()) }
             catch (e: Throwable) { failure("relay-error", "accounting", null, e); throw e }
         }
@@ -489,7 +490,7 @@ private class Tunnel(
     /** 任一端已被外部关闭（准入收缩 evict 等）——隧道应拆，由 sweep 周期兜底调用。 */
     fun externallyClosed(): Boolean = !cCtx.channel.isOpen || !uCtx.channel.isOpen
 
-    private fun touch() { lastActivity = System.nanoTime() }
+    private fun touch(direction: Int) { lastActivity = System.nanoTime(); directionActivity[direction] = lastActivity }
 
     /** 幂等关闭：cancel key + close 两 channel + untrack + resume 协程（仅一次）。在 selector 线程调用。 */
     fun close(w: SelectorWorker) {
@@ -507,7 +508,10 @@ private class Tunnel(
             runCatching { ctx.key?.cancel() }.onFailure { evidence.cleanupFailure("cancelKey", side(ctx), it) }
             runCatching { ctx.channel.close() }.onFailure { evidence.cleanupFailure("close", side(ctx), it) }
         }
-        try { runCatching { trace?.tunnelClosed(host, evidence, upBytes, downBytes) } }
+        try { runCatching { trace?.tunnelClosed(host, evidence, upBytes, downBytes,
+            if (evidence.cause().reason == "idle") RelayIdleSnapshot(idleMs, (endNs - lastActivity) / 1_000_000,
+                directionActivity.map { (endNs - it) / 1_000_000 },
+                if (up.draining) up.buf.remaining() else 0, if (down.draining) down.buf.remaining() else 0) else null) } }
         finally {
             w.untrack(this)
             if (cont.isActive) cont.resume(Unit)

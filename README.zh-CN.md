@@ -11,11 +11,16 @@ Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开�
 
 ## 下载与本次更新
 
-[**1.49.68 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.68/hxmy-proxy-1.49.68.apk) ·
-[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.68) ·
-[完整更新内容](docs/releases/1.49.68.md)
+[**1.49.72 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.72/hxmy-proxy-1.49.72.apk) ·
+[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.72) ·
+[完整更新内容](docs/releases/1.49.72.md)
 
-**1.49.68（308）** 新增 HTTP/1.1 CONNECT-UDP、原生 SOCKS5 UDP、有界 SOCKS5 BIND、手机网络 DNS 报文接口及普通 ping socket 的 IPv4/IPv6 Echo。
+**1.49.72（312）** 新增按客户端来源 IP 设置“全部直连”、`.cn` 等域名后缀规则，并改善规则编辑与分页列表的稳定性。
+“全部直连”仍经过手机，使用 **Direct egress**，覆盖该客户端的域名路由和拦截规则；认证、准入和局域网目标保护继续生效，关闭后恢复原规则。
+
+加固 DNS 回调、连接失败后的新鲜解析、出口健康恢复和双向空闲判定。兼容配套可通过[客户端路由接口](docs/client-route-capabilities.md)读取 App 已生效的模式；[Mac 配套 2026.11.08.1](https://github.com/wresource/proxyshim/releases/tag/2026.11.08.1-companion)已适配。普通手动 HTTP/SOCKS 客户端无需安装配套。
+
+原有 HTTP/1.1 CONNECT-UDP、原生 SOCKS5 UDP、有界 SOCKS5 BIND、手机网络 DNS 报文接口及 IPv4/IPv6 Echo 继续保留。
 认证、边界及主动 FTP 的回连条件见[协议接口说明](docs/protocol/udp-proxy.md)。App 仍是普通 Android 服务，不要求 root，也不新增 VPN 接口。
 
 **设置 → 隐私 → 隐私与安全** 的“允许代理局域网目标”默认关闭。PAC 让客户端绕过内网 IP、简单主机名、`.local` 和 `.home.arpa`；仍发到手机的内网请求会被拒绝，并提示配置客户端直连。有明确需求时才开启，不影响其他设备连接本机代理；回环与链路本地出口始终禁止。配套客户端可读取 App 已生效的策略，但不是使用 App 的前提，也不应因协议能力增加而擅自接管电脑全部流量。

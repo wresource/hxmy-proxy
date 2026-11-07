@@ -1,5 +1,7 @@
 package com.mzstd.hxmyproxy.core.proxy
 
+import java.io.IOException
+
 import com.mzstd.hxmyproxy.core.util.concurrentSnapshot
 import com.mzstd.hxmyproxy.core.model.ProxyProtocol
 import com.mzstd.hxmyproxy.core.rules.RuleAction
@@ -178,7 +180,7 @@ internal class SocksUdpReactor : Closeable {
                 }
                 // A cancelled native setup retains its real quota until its finally completes.
                 if (flows.containsKey(target) || flows.size >= 16) return@repeat
-                val decision = rules?.decideDetailed(packet.host)
+                val decision = rules?.decideDetailed(packet.host, remote.address)
                 val action = decision?.action ?: RuleAction.PROXY
                 if (action == RuleAction.REJECT) {
                     if (rejected != target || lastActivity - rejectedAt >= 1_000_000_000L) {
@@ -352,7 +354,8 @@ internal class SocksUdpReactor : Closeable {
                                 if (closed || !association.valid() || !lease.isCurrent || !valid()) { result?.close(); close(lease.reason ?: "cancelled"); releaseOwnership() }
                                 else if (error != null || result == null) {
                                     if (error is ProxyException) trace.failed(target.host, error.stage ?: "udp-setup", error.error)
-                                    else if (error !is CancellationException) trace.failed(target.host, "udp-setup", error?.javaClass?.simpleName ?: "no-result")
+                                    else if (error is IOException) trace.failed(target.host, "udp-setup", error.javaClass.simpleName)
+                                    else if (error !is CancellationException) trace.internalError(target.host, error ?: IllegalStateException("UDP setup produced no result"))
                                     result?.close(); close("setup-failed")
                                 } else {
                                     prepared = result
@@ -369,19 +372,19 @@ internal class SocksUdpReactor : Closeable {
         fun valid(): Boolean {
             if (closed) return false
             if (association.closed || !lease.isCurrent || !isRunning) { close(lease.reason ?: "stopped"); return false }
-            if ((association.rules?.decideDetailed(target.host)?.action ?: RuleAction.PROXY) != action) { close("rule-changed"); return false }
+            if ((association.rules?.decideDetailed(target.host, association.remote.address)?.action ?: RuleAction.PROXY) != action) { close("rule-changed"); return false }
             if (transferRuleHosts.any { !transferPolicyAllows(it) }) { close("transfer-rule-changed"); return false }
             return true
         }
         private fun transferPolicyAllows(host: String): Boolean {
-            val decision = association.rules?.decideDetailed(host) ?: return true
+            val decision = association.rules?.decideDetailed(host, association.remote.address) ?: return true
             // An observed reply port continues the original flow, including its explicit
             // domain route. A new explicit IP rule may deny it, but never silently switch it.
             return decision.src == RuleSrc.DEFAULT || decision.action == action
         }
         fun authorizeTransferHost(host: String): Boolean {
             if (!transferPolicyAllows(host)) {
-                association.rules?.decideDetailed(host)?.let { decision ->
+                association.rules?.decideDetailed(host, association.remote.address)?.let { decision ->
                     RequestTrace.open("SOCKS5", association.remote.port).rule(host, decision.action, decision.src)
                     if (decision.action == RuleAction.REJECT) tracker?.recordBlocked(host)
                 }

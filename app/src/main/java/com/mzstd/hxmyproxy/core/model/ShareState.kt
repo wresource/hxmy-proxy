@@ -69,6 +69,8 @@ data class LinkStats(
  * 应用对外暴露的聚合状态（单一数据源在 Core，节流后以不可变快照流向 UI）。
  */
 data class ShareState(
+    /** Actually applied source-IP-wide DIRECT selection, distinct from a settings write in flight. */
+    val directClientIps: Set<String> = emptySet(),
     val running: Boolean = false,
     val starting: Boolean = false,
     val startupFailed: Boolean = false,

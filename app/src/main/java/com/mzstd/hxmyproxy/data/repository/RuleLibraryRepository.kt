@@ -33,7 +33,16 @@ class RuleLibraryRepository @Inject constructor(@param:ApplicationContext privat
         val enabled get() = source.enabled && row.enabled
         val key get() = "${source.id}:${row.ordinal}:${row.value}"
     }
-    data class Page(val items: List<Item> = emptyList(), val total: Int = 0, val offset: Int = 0)
+    data class Page(val items: List<Item> = emptyList(), val total: Int = 0, val offset: Int = 0) {
+        // Content ordinals change on insertion/removal. Use value identity for ordinary rows,
+        // retaining ordinal disambiguation for legacy duplicates that must not be silently merged.
+        val displayKeys: Map<String, String> by lazy {
+            val counts = items.groupingBy { it.source.id to it.row.value }.eachCount()
+            items.associate { item -> item.key to
+                if (counts[item.source.id to item.row.value] == 1) "value:${item.source.id}:${item.row.value}"
+                else "duplicate:${item.key}" }
+        }
+    }
     enum class Relation { DUPLICATE, COVERED, OVERLAP, CONFLICT, RESOLVED_IP, DISABLED }
     data class Related(val relation: Relation, val item: Item, val peer: String? = null, val observedAt: Long? = null)
     data class Inspection(val related: List<Related>, val ipEvidenceMissing: Boolean)

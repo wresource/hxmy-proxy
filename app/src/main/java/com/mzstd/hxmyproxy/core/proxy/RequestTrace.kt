@@ -3,6 +3,7 @@ package com.mzstd.hxmyproxy.core.proxy
 import com.mzstd.hxmyproxy.core.log.Ev
 import com.mzstd.hxmyproxy.core.log.LogCat
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 一次请求的**全程可追溯**。
@@ -30,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class RequestTrace private constructor(val id: Int, val proto: String, val clientPort: Int) {
 
     private val activity = RequestActivity.store.open(id, proto)
+    private val terminal = AtomicBoolean(false)
+    private val failureRecorded = AtomicBoolean(false)
 
     private val startNs = System.nanoTime()
     private val startRealtimeMs = android.os.SystemClock.elapsedRealtime()
@@ -50,6 +53,7 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
 
     /** 规则判定结果。**PROXY 也记** —— 此前只记非 PROXY，导致「绝大多数流量走了哪条路」不可见。 */
     fun rule(host: String, action: Any?, src: Any?) {
+        if (action?.toString() == "REJECT") terminal.set(true)
         RequestActivity.store.rule(activity, host, action?.toString(), src?.toString())
         Ev.i(
             LogCat.RULE, "req.rule",
@@ -74,9 +78,9 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         )
     }
 
-    internal fun dnsRecovery(host: String, entry: Long?, source: DnsSource, outcome: String, elapsed: Long) {
+    internal fun dnsRecovery(host: String, entry: Long?, source: DnsSource, outcome: String, elapsed: Long, reason: String? = null) {
         Ev.i(LogCat.DNS, "req.dnsRecovery", "id" to id, "host" to host, "entry" to entry,
-            "source" to source.code, "outcome" to outcome, "recheckMs" to elapsed,
+            "source" to source.code, "outcome" to outcome, "reason" to reason, "recheckMs" to elapsed,
             "ms" to elapsedMs(), "rt" to realtimeMs())
     }
 
@@ -119,28 +123,52 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
 
     internal fun udpClosed(host: String, reason: String, operation: String?, side: String?, error: Throwable?,
         up: Long, down: Long, packetsUp: Long, packetsDown: Long, dropped: Long) {
+        if (error != null && error !is java.io.IOException && error !is kotlinx.coroutines.CancellationException && error !is ProxyException)
+            internalError(host, error)
+        terminal.set(true)
         val evidence = RelayCloseEvidence()
         evidence.terminate(reason, operation, side, error)
         val cause = evidence.cause()
-        if (cause.failed) RequestActivity.store.failed(activity,
+        if (cause.failed && failureRecorded.compareAndSet(false, true)) RequestActivity.store.failed(activity,
             listOfNotNull(reason, operation, side).joinToString(":"), cause.errorType, "other")
         RequestActivity.store.closed(activity, reason, up, down)
         val fields = arrayOf("id" to id, "host" to host, "transport" to "udp", "why" to reason,
             "op" to operation, "side" to side, "err" to cause.errorType, "errno" to cause.errno,
             "up" to up, "down" to down, "packetsUp" to packetsUp, "packetsDown" to packetsDown,
             "dropped" to dropped, "ms" to elapsedMs(), "rt" to realtimeMs())
-        if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
+        if (cause.internalError) Ev.e(LogCat.RELAY, "req.closed", null, *fields)
+        else if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
         else Ev.i(LogCat.RELAY, "req.closed", *fields)
     }
 
     /** 终局（失败或关闭）。[why] 是阶段名，便于回答「卡在哪一步」。 */
     fun failed(host: String, why: String, err: Any?) {
+        terminal.set(true)
+        if (!failureRecorded.compareAndSet(false, true)) return
         RequestActivity.store.failed(activity, why, err?.toString(), (err as? ProxyError)?.code)
         Ev.w(
             LogCat.EGRESS, "req.failed",
             "id" to id, "host" to host, "at" to why, "err" to err,
             "ms" to elapsedMs(), "rt" to realtimeMs(),
         )
+    }
+
+    /** Diagnostic failure must never prevent socket/lease cleanup or create a new activity row. */
+    internal fun internalError(host: String, error: Throwable) {
+        terminal.set(true)
+        val first = failureRecorded.compareAndSet(false, true)
+        if (first) runCatching { RequestActivity.store.failed(activity, "internal-error", error.javaClass.simpleName, "other") }
+        runCatching { Ev.e(LogCat.EGRESS, if (first) "req.failed" else "req.internalError", error,
+            "id" to id, "host" to host, "at" to "internal-error", "err" to error.javaClass.simpleName,
+            "ms" to elapsedMs(), "rt" to realtimeMs()) }
+    }
+
+    internal fun closeIfOpen(host: String, why: String) {
+        if (terminal.compareAndSet(false, true)) runCatching { tunnelClosed(host, why, 0, 0) }
+    }
+
+    internal fun failIfOpen(host: String, why: String, error: Throwable) {
+        if (!terminal.get()) runCatching { failed(host, why, error.javaClass.simpleName) }
     }
 
     /**
@@ -154,6 +182,7 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
      * 字段随之移除——它的使命就是证明那条判据在误杀，证完即止。
      */
     fun tunnelClosed(host: String?, reason: String, up: Long, down: Long) {
+        terminal.set(true)
         RequestActivity.store.closed(activity, reason, up, down)
         Ev.i(
             LogCat.RELAY, "req.closed",
@@ -172,16 +201,22 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
             "upstreamLocal" to endpoint(upstream.localSocketAddress), "upstreamPeer" to endpoint(upstream.remoteSocketAddress))
     }
 
-    internal fun tunnelClosed(host: String?, evidence: RelayCloseEvidence, up: Long, down: Long) {
+    internal fun tunnelClosed(host: String?, evidence: RelayCloseEvidence, up: Long, down: Long, idle: RelayIdleSnapshot? = null) {
+        terminal.set(true)
         val cause = evidence.cause()
         val stage = listOfNotNull(cause.reason, cause.operation, cause.side).joinToString(":")
-        if (cause.failed) RequestActivity.store.failed(activity, stage, cause.errorType, "other")
+        if (cause.failed && failureRecorded.compareAndSet(false, true)) RequestActivity.store.failed(activity, stage, cause.errorType, "other")
         RequestActivity.store.closed(activity, cause.reason, up, down)
         val fields = arrayOf("id" to id, "host" to host, "why" to cause.reason,
             "op" to cause.operation, "side" to cause.side, "err" to cause.errorType, "errno" to cause.errno,
             "firstEof" to evidence.firstEof, "cleanup" to evidence.cleanup,
+            "idleMs" to idle?.idleMs, "idleLimitMs" to idle?.limitMs,
+            "clientReadAgoMs" to idle?.directionAgesMs?.get(0), "clientWriteAgoMs" to idle?.directionAgesMs?.get(1),
+            "upstreamReadAgoMs" to idle?.directionAgesMs?.get(2), "upstreamWriteAgoMs" to idle?.directionAgesMs?.get(3),
+            "pendingUp" to idle?.pendingUp, "pendingDown" to idle?.pendingDown,
             "up" to up, "down" to down, "ms" to elapsedMs(), "rt" to realtimeMs())
-        if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
+        if (cause.internalError) Ev.e(LogCat.RELAY, "req.closed", null, *fields)
+        else if (cause.failed) Ev.w(LogCat.RELAY, "req.closed", *fields)
         else Ev.i(LogCat.RELAY, "req.closed", *fields)
     }
 

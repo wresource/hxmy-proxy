@@ -68,6 +68,24 @@ class SocksBindIntegrationTest {
         }
     }
 
+    @Test(timeout=15000) fun clientAllDirectSelectsPhysicalEgressForBothConnectAndBind() {
+        Fixture().use { f ->
+            f.rules.updateDirectClients(setOf("127.0.0.1"))
+            f.request().use { assertEquals(3,reply(it).code) }
+            Socket(loopback,f.port).use { socket ->
+                socket.soTimeout=3000
+                socket.getOutputStream().write(byteArrayOf(5,1,0))
+                val input=DataInputStream(socket.getInputStream());assertEquals(5,input.readUnsignedByte());assertEquals(0,input.readUnsignedByte())
+                val name="known.example".toByteArray()
+                socket.getOutputStream().write(byteArrayOf(5,1,0,3,name.size.toByte())+name+byteArrayOf(1,(-69).toByte()))
+                assertEquals(3,reply(socket).code)
+            }
+            assertEquals(0,f.opens.get())
+            f.rules.updateDirectClients(emptySet())
+            f.request().use { assertEquals(0,reply(it).code) }
+        }
+    }
+
     @Test(timeout=15000) fun twoRepliesPreserveEarlyClientDataAndBothHalfCloses() {
         Fixture().use { f -> f.request().use { client ->
             val first=reply(client);assertEquals(0,first.code);assertTrue(first.peer.port>0)

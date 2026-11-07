@@ -6,6 +6,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicLong
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -14,7 +16,7 @@ import java.net.SocketTimeoutException
  * 双向字节泵：在 client <-> upstream 间转发，直到任一方向 EOF/空闲/出错。
  *
  * - 某方向读到 EOF → `shutdownOutput()` 对端写端（半关闭），另一方向继续直到自身结束。
- * - 任一方向空闲超过 idle 超时 → 关闭两端，强制拆除（避免半开连接长期占用 FD）。
+ * - 双向都无读写活动超过 idle 超时 → 关闭两端，避免半开连接长期占用 FD。
  * - 两个方向都结束后保证关闭两端（FD 不泄漏）。
  */
 class RelayEngine(
@@ -38,6 +40,7 @@ class RelayEngine(
         initialClientBytes: ByteArray = ByteArray(0),
     ) {
         val evidence = RelayCloseEvidence()
+        val idle = RelayIdleClock(idleMillis)
         val up = AtomicLong(); val down = AtomicLong()
         var clientStreams: DuplexSocketStreams? = null
         var upstreamStreams: DuplexSocketStreams? = null
@@ -52,25 +55,35 @@ class RelayEngine(
                 val to = if (idleMillis > 0) idleMillis else 0
                 client.soTimeout = to
                 upstream.soTimeout = to
-                val cStreams = DuplexSocketStreams(client, to).also { clientStreams = it }
-                val uStreams = DuplexSocketStreams(upstream, to).also { upstreamStreams = it }
+                val cStreams = DuplexSocketStreams(client, to, { idle.progress(0) }, { idle.progress(1) }).also { clientStreams = it }
+                val uStreams = DuplexSocketStreams(upstream, to, { idle.progress(2) }, { idle.progress(3) }).also { upstreamStreams = it }
                 // stop() cancels the parent before externally closing accepted sockets. A pump
                 // may observe that close before this scope's join-finally gets CPU time.
                 val relayJob = coroutineContext[Job]
                 val cancelled = { relayJob?.isCancelled == true }
+                // Also covers both pumps blocked writing, or a half-closed flow with no reader.
+                // A suspended timer uses no dedicated thread and is cancelled with the relay.
+                val idleWatch = if (idleMillis > 0) launch(Dispatchers.Default) {
+                    while (isActive) {
+                        delay(idle.remainingMs())
+                        if (cancelled()) break
+                        if (idle.claimTimeout()) { evidence.terminate("idle"); closeAll(); break }
+                    }
+                } else null
                 // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。
                 // 与 handle 的建连派发器分离：新连接的握手/建连不会被搬字节占满线程而饿死（队头阻塞）。
                 val upJob = launch(relayDispatcher) {
-                    pump(cStreams, uStreams, upstream, "client", "upstream", bufferBytes, evidence, cancelled, closeAll, initialClientBytes) { up.addAndGet(it); onTraffic(it, 0) }
+                    pump(cStreams, uStreams, upstream, "client", "upstream", bufferBytes, evidence, idle, cancelled, closeAll, initialClientBytes) { up.addAndGet(it); onTraffic(it, 0) }
                 }
                 val downJob = launch(relayDispatcher) {
-                    pump(uStreams, cStreams, client, "upstream", "client", bufferBytes, evidence, cancelled, closeAll) { down.addAndGet(it); onTraffic(0, it) }
+                    pump(uStreams, cStreams, client, "upstream", "client", bufferBytes, evidence, idle, cancelled, closeAll) { down.addAndGet(it); onTraffic(0, it) }
                 }
                 try {
                     upJob.join()
                     downJob.join()
                     evidence.terminate("eof") // both pumps finished; earlier errors keep precedence
                 } finally {
+                    idleWatch?.cancel()
                     // Close before coroutineScope joins blocking children on cancellation.
                     if (!isActive) evidence.terminate("cancelled")
                     closeAll()
@@ -84,7 +97,8 @@ class RelayEngine(
             throw e
         } finally {
             closeAll()
-            runCatching { trace?.tunnelClosed(host, evidence, up.get(), down.get()) }
+            runCatching { trace?.tunnelClosed(host, evidence, up.get(), down.get(),
+                if (evidence.cause().reason == "idle") idle.snapshot() else null) }
         }
     }
 
@@ -96,6 +110,7 @@ class RelayEngine(
         toSide: String,
         bufferBytes: Int,
         evidence: RelayCloseEvidence,
+        idle: RelayIdleClock,
         cancelled: () -> Boolean,
         closeAll: () -> Unit,
         initialBytes: ByteArray = ByteArray(0),
@@ -119,7 +134,8 @@ class RelayEngine(
                     input.read(buf)
                 } catch (e: SocketTimeoutException) {
                     if (cancelled()) evidence.terminate("cancelled")
-                    else evidence.terminate("idle", "read", fromSide)
+                    else if (idle.claimTimeout()) evidence.terminate("idle", "read", fromSide)
+                    else continue // Other direction is active; this read timeout is not whole-flow idle.
                     closeAll(); break       // 空闲超时 → 拆除整条连接
                 }
                 if (n < 0) {                 // EOF：半关闭对端写端

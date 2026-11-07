@@ -48,6 +48,20 @@ class DnsMessageIntegrationTest {
             assertTrue(ProxyTestKit.await(5000){registry.activeGlobal==0&&session.activeLeases==0&&active.get()==0})}
     }
 
+    @Test(timeout=15000) fun clientAllDirectAffectsBothDnsPortsWithoutBypassingAuthenticationOrPhysicalFailure() {
+        Fixture().use { f ->
+            f.rules.updateDirectClients(setOf("127.0.0.1"))
+            for (port in f.ports) {
+                f.send(port, authenticate=false).use { assertEquals(407, response(it).code) }
+                f.send(port).use { assertEquals(503, response(it).code) }
+            }
+            assertEquals(0, f.calls.get())
+            f.rules.updateDirectClients(emptySet())
+            for (port in f.ports) f.send(port).use { assertEquals(200, response(it).code) }
+            assertEquals(2, f.calls.get())
+        }
+    }
+
     @Test(timeout=15000) fun bothPortsExposeAuthenticatedRawDnsAndAccurateCapabilitiesWithoutAHandshake() {
         Fixture().use{f->for((index,port) in f.ports.withIndex()) {
             f.send(port,authenticate=false).use{assertEquals(407,response(it).code)}

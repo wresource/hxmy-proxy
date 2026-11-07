@@ -59,7 +59,7 @@ fun RuleEditDialog(
 ) {
     val (origScope, origBare) = remember(entry.value) { RuleScope.parse(entry.value) }
     val origIsIp = remember(entry.value) { RuleInput.parse(entry.value)?.isIp == true }
-    var bare by remember(entry.value) { mutableStateOf(origBare) }
+    var bare by remember(entry.value) { mutableStateOf(RuleInput.parse(entry.value)?.editText ?: origBare) }
     var scope by remember(entry.value) { mutableStateOf(origScope) }
     // 待确认的「升级为全层级」；非空时先弹确认。
     var confirmSuffix by remember { mutableStateOf(false) }
@@ -69,32 +69,10 @@ fun RuleEditDialog(
     val result = parsed?.value
     val changed = result != null && result != entry.value
 
-    if (confirmSuffix) {
-        val b = parsed?.host ?: return
-        // 复用添加路径那套文案与选项（同一道防线、同一种措辞，用户不必学两遍）:
-        // 确认=保持全层级并保存；另一个按钮=退回单级,回到编辑继续调,不直接保存。
-        AlertDialog(
-            onDismissRequest = { confirmSuffix = false },
-            title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
-            text = { Text(stringResource(R.string.rules_scope_confirm_body, b, b, b)) },
-            confirmButton = {
-                TextButton(onClick = { confirmSuffix = false; onSave(RuleScope.format(RuleScope.SUFFIX, b)) }) {
-                    Text(stringResource(R.string.rules_scope_confirm_keep_suffix))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { scope = RuleScope.SINGLE; confirmSuffix = false }) {
-                    Text(stringResource(R.string.rules_scope_confirm_use_single, b))
-                }
-            },
-        )
-        return
-    }
-
-    InteractionSheet(stringResource(R.string.rules_edit_title), onDismiss,
+    InteractionSheet(stringResource(R.string.rules_edit_title), onDismiss, dismissEnabled = !confirmSuffix,
         footer = {
             SheetActions(stringResource(R.string.ruleset_save), {
-                if (!isIp && scope == RuleScope.SUFFIX && (origScope != RuleScope.SUFFIX || origIsIp)) confirmSuffix = true
+                if (!isIp && parsed?.scope == RuleScope.SUFFIX && (origScope != RuleScope.SUFFIX || origIsIp)) confirmSuffix = true
                 else result?.let(onSave)
             }, stringResource(R.string.cancel), onDismiss, primaryEnabled = changed)
         }) {
@@ -105,7 +83,7 @@ fun RuleEditDialog(
                 modifier = Modifier.fillMaxWidth().testTag("rule_edit_input"), placeholder = { Text(stringResource(R.string.rules_add_domain)) }, shape = MaterialTheme.shapes.medium)
         }
         if (!isIp) {
-            RuleScopePicker(scope) { scope = it }
+            RuleScopePicker(if (parsed?.domainSuffix == true) RuleScope.SUFFIX else scope, enabled = parsed?.domainSuffix != true) { scope = it }
             if (result != null) Text(stringResource(R.string.rules_edit_result, result),
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.primary)
         }
@@ -119,4 +97,27 @@ fun RuleEditDialog(
             Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
         }
     }
+    if (confirmSuffix) {
+        val b = parsed?.host ?: return
+        // 复用添加路径那套文案与选项（同一道防线、同一种措辞，用户不必学两遍）:
+        // 确认=保持全层级并保存；另一个按钮=退回单级,回到编辑继续调,不直接保存。
+        AlertDialog(
+            onDismissRequest = { confirmSuffix = false },
+            title = { Text(stringResource(R.string.rules_scope_confirm_title)) },
+            text = { Text(if (parsed?.domainSuffix == true) stringResource(R.string.rule_suffix_confirm, ".$b")
+                else stringResource(R.string.rules_scope_confirm_body, b, b, b)) },
+            confirmButton = {
+                TextButton(onClick = { confirmSuffix = false; onSave(RuleScope.format(RuleScope.SUFFIX, b)) }) {
+                    Text(stringResource(if (parsed?.domainSuffix == true) R.string.save else R.string.rules_scope_confirm_keep_suffix))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (parsed?.domainSuffix != true) scope = RuleScope.SINGLE; confirmSuffix = false }) {
+                    Text(if (parsed?.domainSuffix == true) stringResource(R.string.cancel) else stringResource(R.string.rules_scope_confirm_use_single, b))
+                }
+            },
+        )
+    }
+
+
 }

@@ -86,6 +86,9 @@ interface ProxyServer {
 
     /** 主动断开不再满足准入的在途连接（准入集合收缩时调用；监听与仍合法的连接不受影响）。 */
     fun evictNotAdmitted(admit: (local: InetAddress, remote: InetAddress) -> Boolean) {}
+
+    /** Reconnect only peers whose explicit routing mode changed; listeners and other peers stay live. */
+    fun disconnectClients(addresses: Set<String>) {}
 }
 
 /**
@@ -346,6 +349,19 @@ abstract class TcpProxyServerBase(
                 "more" to (evicted - victims.size).takeIf { it > 0 },
             )
         }
+    }
+
+    override fun disconnectClients(addresses: Set<String>) {
+        if (addresses.isEmpty()) return
+        var closed = 0
+        concurrentSnapshot(inFlight).forEach { channel ->
+            val peer = runCatching { (channel.remoteAddress as? InetSocketAddress)?.address }.getOrNull()
+            if (peer != null && com.mzstd.hxmyproxy.core.rules.ClientAddress.key(peer) in addresses) {
+                channel.closeQuietly()
+                closed++
+            }
+        }
+        if (closed > 0) Ev.k(LogCat.CONN, "client.routeReconnect", "proto" to protocol, "connections" to closed)
     }
 
     /**

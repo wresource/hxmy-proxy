@@ -1,6 +1,7 @@
 package com.mzstd.hxmyproxy.core.proxy
 
 import com.mzstd.hxmyproxy.core.rules.RuleInput
+import com.mzstd.hxmyproxy.core.rules.ClientRouteIntent
 import java.net.URLDecoder
 import java.net.URI
 import java.util.Locale
@@ -25,7 +26,7 @@ internal object ConnectUdpProtocol {
         if (host.isEmpty() || host.any { it.isWhitespace() || it.isISOControl() || it in "/?#@%\\=*" }) return null
         if (host.contains('\uFFFD')) return null
         val parsed = RuleInput.parse(host) ?: return null
-        if (parsed.fromUrl || parsed.host.contains('/') || (parsed.isIp && '-' in host)) return null
+        if (parsed.fromUrl || parsed.domainSuffix || parsed.host.contains('/') || (parsed.isIp && '-' in host)) return null
         val portText = parts[1]
         if (portText.isEmpty() || portText.any { it !in '0'..'9' }) return null
         val port = portText.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
@@ -111,7 +112,8 @@ internal object ConnectUdpProtocol {
     private val BARE_ITEM = Regex("(?:\\?[01]|-?[0-9]{1,15}|-?[0-9]{1,12}\\.[0-9]{1,3}|:[A-Za-z0-9+/=]*:|[A-Za-z*][A-Za-z0-9!#$%&'*+.^_`|~:/-]*)")
 
     fun capabilities(session: String, idleMs: Long, socks: Socks5Capabilities? = null, dns:Boolean=false,connectUdpH1:Boolean=true,
-                     echo:EchoMessageQuery?=null, proxyLocalTargets:Boolean?=null, policyRevision:Long=0): String =
+                     echo:EchoMessageQuery?=null, proxyLocalTargets:Boolean?=null, policyRevision:Long=0,
+                     clientRoute:ClientRouteIntent?=null): String =
         "{\"version\":1,\"session_id\":\"$session\",\"connect_udp_h1\":$connectUdpH1," +
             "\"connect_udp_no_fragment\":$connectUdpH1,"+
             "\"max_udp_payload\":$MAX_PAYLOAD,\"idle_timeout_ms\":$idleMs,\"socks5\":" +
@@ -120,5 +122,6 @@ internal object ConnectUdpProtocol {
             ",\"dns_query\":"+(if(dns) "{\"path\":\"/dns-query\",\"get\":true,\"post\":true,\"udp_transport\":true,\"max_query\":65535}" else "null")+
             ",\"icmp_echo\":"+(if(echo!=null&&(echo.ipv4||echo.ipv6)) "{\"path\":\"/icmp-echo\",\"post\":true,\"max_message\":65507,"+
                 "\"ipv4\":${echo.ipv4},\"ipv6\":${echo.ipv6},\"reply_id\":\"original\",\"ipv6_checksum\":\"recompute\",\"timeout_ms\":3000,\"max_concurrent\":4}" else "null")+
-            (proxyLocalTargets?.let { ",\"client_policy\":{\"version\":1,\"revision\":$policyRevision,\"proxy_local_targets\":$it}" } ?: "")+"}"
+            (proxyLocalTargets?.let { ",\"client_policy\":{\"version\":1,\"revision\":$policyRevision,\"proxy_local_targets\":$it}" } ?: "")+
+            (clientRoute?.let { ",\"client_route\":{\"version\":1,\"scope\":\"source-ip\",\"source_ip\":\"${it.sourceIp}\",\"revision\":${it.revision},\"mode\":\"${if(it.direct) "DIRECT" else "RULES"}\"}" } ?: "")+"}"
 }

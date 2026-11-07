@@ -45,11 +45,14 @@ enum class RuleScope(val prefix: String) {
             return when {
                 r.startsWith("=") -> EXACT to r.removePrefix("=").trim()
                 r.startsWith("*.") -> SINGLE to r.removePrefix("*.").trim()
+                r.startsWith(".") -> SUFFIX to r.removePrefix(".")
                 else -> SUFFIX to r
             }
         }
 
         /** 反向：把 (作用域, 裸域名) 拼回存储/展示用的规则文本。 */
-        fun format(scope: RuleScope, bare: String): String = scope.prefix + bare
+        fun format(scope: RuleScope, bare: String): String =
+            if (scope == SUFFIX && bare.isNotEmpty() && '.' !in bare && ':' !in bare && '/' !in bare) ".$bare"
+            else scope.prefix + bare
     }
 }

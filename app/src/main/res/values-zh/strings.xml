@@ -634,4 +634,14 @@
     <string name="top_domain_proxy">使用代理出口</string>
     <string name="ui_explain_udp_ready">UDP会话已就绪，尚未确认收到目标回包。</string>
     <string name="ui_explain_udp_reply">已收到UDP回包，请在客户端确认应用的实际结果。</string>
+    <string name="rule_source_client_direct">客户端全部直连</string>
+    <string name="client_all_direct">全部直连</string>
+    <string name="client_route_applying">正在应用…</string>
+    <string name="client_route_next_session">启动共享后生效</string>
+    <string name="client_route_physical">经手机物理网络直连</string>
+    <string name="client_route_rules">按原有规则分流</string>
+    <string name="client_route_configured">其他已设为全部直连的地址</string>
+    <string name="client_route_hint">全部直连会将此来源IP的请求统一交给手机的Direct egress，暂时覆盖域名分流和拦截规则；关闭后恢复原规则。切换会让该客户端重新连接。同一设备更换或使用其他IP时，需要单独设置。</string>
+    <string name="rule_suffix_hint">匹配此后缀下的所有层级，例如.cn或.com.cn。具体域名例外与原有规则来源优先级继续生效。</string>
+    <string name="rule_suffix_confirm">应用于所有以%1$s结尾的域名，包括各级子域名？</string>
 </resources>
