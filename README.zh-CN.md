@@ -11,11 +11,13 @@ Android 10+（minSdk 29 / targetSdk 37），包名 `com.mzstd.hxmyproxy`，开�
 
 ## 下载与本次更新
 
-[**1.49.72 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.72/hxmy-proxy-1.49.72.apk) ·
-[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.72) ·
-[完整更新内容](docs/releases/1.49.72.md)
+[**1.5.0 · Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.5.0/hxmy-proxy-1.5.0.apk) ·
+[发布说明与 AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.5.0) ·
+[完整更新内容](docs/releases/1.5.0.md)
 
-**1.49.72（312）** 新增按客户端来源 IP 设置“全部直连”、`.cn` 等域名后缀规则，并改善规则编辑与分页列表的稳定性。
+**1.5.0（315）** 接续1.49.72，优化DNS缓存淘汰、异常解析的有界恢复与提示，修复共享重启时的监听状态竞态，并减少重复通知刷新。兼容配套可读取[可选失败诊断](docs/proxy-failure-diagnostics.md)，原路由和成功隧道保持。
+
+按客户端来源IP设置“全部直连”、`.cn`等域名后缀规则及稳定分页编辑继续保留。
 “全部直连”仍经过手机，使用 **Direct egress**，覆盖该客户端的域名路由和拦截规则；认证、准入和局域网目标保护继续生效，关闭后恢复原规则。
 
 加固 DNS 回调、连接失败后的新鲜解析、出口健康恢复和双向空闲判定。兼容配套可通过[客户端路由接口](docs/client-route-capabilities.md)读取 App 已生效的模式；[Mac 配套 2026.11.08.1](https://github.com/wresource/proxyshim/releases/tag/2026.11.08.1-companion)已适配。普通手动 HTTP/SOCKS 客户端无需安装配套。

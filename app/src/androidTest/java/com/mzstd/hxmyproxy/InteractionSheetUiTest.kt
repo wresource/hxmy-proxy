@@ -158,13 +158,18 @@ class InteractionSheetUiTest {
         lateinit var suffix: String
         lateinit var save: String
         lateinit var confirmation: String
+        lateinit var windowContext: android.content.Context
         compose.setContent { Host(false, AppLanguage.CHINESE) {
             val context = LocalContext.current
-            suffix = context.getString(R.string.rules_scope_suffix)
-            save = context.getString(R.string.ruleset_save)
-            confirmation = context.getString(R.string.rules_scope_confirm_title)
+            SideEffect { windowContext = context }
             RuleEditDialog(RuleEntry("=example.com"), {}, {}, {})
         } }
+        // Expected values come from the actual window Context, outside the UI composition.
+        compose.runOnIdle {
+            suffix = windowContext.getString(R.string.rules_scope_suffix)
+            save = windowContext.getString(R.string.ruleset_save)
+            confirmation = windowContext.getString(R.string.rules_scope_confirm_title)
+        }
         compose.onNodeWithTag("rule_scope").performScrollTo().performClick()
         compose.onNodeWithText(suffix).performClick()
         compose.onNodeWithText(save).performClick()

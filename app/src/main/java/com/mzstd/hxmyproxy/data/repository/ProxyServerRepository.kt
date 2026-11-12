@@ -823,6 +823,12 @@ class ProxyServerRepository @Inject constructor(
                     "rej:${d.rejected},to:${d.timedOut},fly:${d.inflight},cache:${d.cached}"
                 } else null
             },
+            // Capacity pressure must be distinguishable from network/policy invalidation.
+            "dnsCache" to connector.dnsStats().let { d ->
+                if (d.cacheHits + d.cacheMisses > 0)
+                    "size:${d.cached},hit:${d.cacheHits},miss:${d.cacheMisses},expired:${d.cacheExpired},evicted:${d.cacheEvicted}"
+                else null
+            },
             // 成功解析的耗时分布（0806 补）。此前只记失败，于是「DNS_STEP_TIMEOUT_MS 该定多少」
             // 无从判断——0806 日志里 102 次等满 1500ms，而救援中位只要 510ms，
             // 但没有成功样本就不知道调短会不会误伤。hedge= 是对冲抢答生效的次数。

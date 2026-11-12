@@ -243,6 +243,8 @@
     <string name="direct_fail_switch">走代理</string>
     <string name="direct_fail_reason_timeout">连接超时</string>
     <string name="direct_fail_reason_dns">DNS 解析失败</string>
+    <string name="dns_temporarily_busy">DNS 暂时繁忙，请稍后重试。</string>
+    <string name="dns_private_address_refused">域名被解析为内网地址，已拦截。请检查网络登录页面或 DNS 设置。</string>
     <string name="direct_fail_reason_refused">连接被拒绝</string>
     <string name="direct_fail_reason_unreachable">主机不可达</string>
     <string name="direct_fail_reason_denied">被出口护栏拦下</string>

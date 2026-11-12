@@ -126,6 +126,8 @@ fun ProtectionScreen(
                                 val reason = when (f.lastError) {
                                     "timeout" -> stringResource(R.string.direct_fail_reason_timeout)
                                     "dns" -> stringResource(R.string.direct_fail_reason_dns)
+                                    "dns-busy" -> stringResource(R.string.dns_temporarily_busy)
+                                    "dns-local-address" -> stringResource(R.string.dns_private_address_refused)
                                     "refused" -> stringResource(R.string.direct_fail_reason_refused)
                                     "unreachable" -> stringResource(R.string.direct_fail_reason_unreachable)
                                     "denied" -> stringResource(R.string.direct_fail_reason_denied)

@@ -247,6 +247,8 @@
     <string name="direct_fail_switch">Via proxy</string>
     <string name="direct_fail_reason_timeout">connection timed out</string>
     <string name="direct_fail_reason_dns">DNS lookup failed</string>
+    <string name="dns_temporarily_busy">DNS is temporarily busy. Try again shortly.</string>
+    <string name="dns_private_address_refused">This domain resolved to a private network address and was blocked. Check the network sign-in page or DNS settings.</string>
     <string name="direct_fail_reason_refused">connection refused</string>
     <string name="direct_fail_reason_unreachable">host unreachable</string>
     <string name="direct_fail_reason_denied">blocked by egress guard</string>

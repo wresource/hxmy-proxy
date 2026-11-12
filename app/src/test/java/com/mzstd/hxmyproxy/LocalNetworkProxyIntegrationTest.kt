@@ -121,6 +121,22 @@ class LocalNetworkProxyIntegrationTest {
         } }
     }
 
+    @Test(timeout = 15000) fun publicNameWithPrivateAnswerExplainsDnsInsteadOfRecommendingLanOptIn() {
+        Fixture().use { f ->
+            for (request in listOf(
+                "CONNECT public.example:443 HTTP/1.1\r\nHost: public.example:443\r\n\r\n",
+                "GET http://public.example/ HTTP/1.1\r\nHost: public.example\r\nConnection: close\r\n\r\n",
+                "GET /.well-known/masque/udp/public.example/443/ HTTP/1.1\r\nHost: test\r\nConnection: Upgrade\r\nUpgrade: connect-udp\r\nCapsule-Protocol: ?1\r\n\r\n",
+            )) {
+                val (header, body) = f.request(f.ports[0], request)
+                assertTrue(header.startsWith("HTTP/1.1 403"))
+                assertTrue(body, body.contains("dns-local-address"))
+                assertFalse(body, body.contains("enable Allow local network targets"))
+            }
+            verify(exactly = 0) { f.factory.createSocket() }
+        }
+    }
+
     @Test(timeout = 10000) fun denialAppliesToBothRoutesNativeUdpAndBindButNotPublicTargets() = runBlocking {
         Fixture().use { f ->
             for (direct in listOf(false, true)) {

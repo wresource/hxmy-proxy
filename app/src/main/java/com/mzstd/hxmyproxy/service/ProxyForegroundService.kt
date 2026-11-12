@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.mzstd.hxmyproxy.MainActivity
 import com.mzstd.hxmyproxy.R
@@ -27,6 +28,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -49,6 +52,18 @@ class ProxyForegroundService : Service() {
     private var acceptingStart = false
     private var stateObserver: Job? = null
     private var languageObserver: Job? = null
+    private enum class NotificationKind { STARTING, STARTUP_FAILED, STOPPED, RULE_FAILED, UNREACHABLE, NO_ENTRY, RUNNING }
+    private data class NotificationContent(
+        val kind: NotificationKind, val title: String, val text: String, val stopLabel: String,
+    )
+    private var notificationMode: Triple<NotificationKind, String, String>? = null
+    private val notificationUpdates = NotificationUpdates(
+        CoroutineScope(scope.coroutineContext + Dispatchers.Main.immediate),
+        SystemClock::elapsedRealtime,
+        { content: NotificationContent ->
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(content))
+        },
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -63,11 +78,14 @@ class ProxyForegroundService : Service() {
             return START_NOT_STICKY
         }
         acceptingStart = true
+        val starting = content(NotificationKind.STARTING, localized().getString(R.string.notif_starting))
         startForeground(
             NOTIF_ID,
-            buildNotification(localized().getString(R.string.notif_starting)),
+            buildNotification(starting),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+        notificationUpdates.foregroundPublished(starting)
+        notificationMode = Triple(starting.kind, starting.title, starting.stopLabel)
         // 收集器只随服务实例启动一次（重复 collect 会叠加通知推送）。
         if (!started) {
             started = true
@@ -80,16 +98,19 @@ class ProxyForegroundService : Service() {
                     lastState = state
                     if (!acceptingStart && repository.state.value === state && !state.running && !state.starting &&
                         (state.startupFailed || state.ruleApplication.stoppedForFailure)) {
+                        notificationUpdates.stop()
                         ServiceState.setWasSharing(this@ProxyForegroundService, false)
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf(latestStartId)
                     } else if (state.running || state.starting) pushNotification()
                 }
             }
-            languageObserver = scope.launch { settingsRepository.settings.collect {
-                language = it.language
-                if (lastState.running || lastState.starting) pushNotification()
-            } }
+            languageObserver = scope.launch(Dispatchers.Main.immediate) {
+                settingsRepository.settings.map { it.language }.distinctUntilChanged().collect {
+                    language = it
+                    if (lastState.running || lastState.starting) pushNotification()
+                }
+            }
         }
         // 引擎是否启动**看引擎自己的真实状态**，不只看 started 标志：标志是服务级的，曾经出过残留
         // （stopSelf→onDestroy 窗口），一旦残留就会整段跳过 repository.start()，连带跳过其中的
@@ -117,6 +138,8 @@ class ProxyForegroundService : Service() {
         // 仍为 true 而跳过 repository.start()——startForeground 已执行、通知在、UI 却停在未共享，
         // 正是「开关共享开关也没用」的一种真实成因。
         started = false
+        notificationUpdates.stop()
+        notificationMode = null
         stateObserver?.cancel()
         languageObserver?.cancel()
         // 用户**主动**停止 → 清标记，开机/更新后不再自动恢复（绝不擅自开启共享）。同步写，不留悬挂协程。
@@ -130,6 +153,8 @@ class ProxyForegroundService : Service() {
 
     override fun onDestroy() {
         started = false   // 防御：系统直接销毁（未走 shutdown）时同样复位
+        notificationUpdates.stop()
+        notificationMode = null
         Ev.k(LogCat.SVC, "fgs.destroy")
         FileLog.flush()   // 常驻 BufferedWriter：服务销毁前把缓冲落盘，否则末尾几行会丢
         repository.stop(preserveStartupFailure = true)
@@ -142,10 +167,20 @@ class ProxyForegroundService : Service() {
     private fun localized() = localizedFor(language)
 
     private fun pushNotification() {
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(statusText()))
+        val value = notificationContent()
+        val mode = Triple(value.kind, value.title, value.stopLabel)
+        // Lifecycle/important state and language changes remain immediate. Rates and counts
+        // are coalesced independently; unrelated ShareState fields never cause a notify call.
+        val important = notificationMode != mode
+        notificationMode = mode
+        notificationUpdates.offer(value, important)
     }
 
-    private fun statusText(): String {
+    private fun content(kind: NotificationKind, text: String) = localized().let { loc ->
+        NotificationContent(kind, loc.getString(R.string.app_name), text, loc.getString(R.string.notif_stop))
+    }
+
+    private fun notificationContent(): NotificationContent {
         val loc = localized()
         val state = lastState
         // 通知栏优先展示 HTTP 入口（最通用、客户端配置最简单），其次 SOCKS5、PAC;都没有再取列表首个兜底。
@@ -153,24 +188,24 @@ class ProxyForegroundService : Service() {
             .firstNotNullOfOrNull { p -> state.recommendedEntries.firstOrNull { it.protocol == p } }
             ?: state.recommendedEntries.firstOrNull()
         return when {
-            state.starting -> loc.getString(R.string.notif_starting)
-            state.startupFailed -> loc.getString(R.string.startup_failed)
-            !state.running -> loc.getString(R.string.notif_stopped)
+            state.starting -> content(NotificationKind.STARTING, loc.getString(R.string.notif_starting))
+            state.startupFailed -> content(NotificationKind.STARTUP_FAILED, loc.getString(R.string.startup_failed))
+            !state.running -> content(NotificationKind.STOPPED, loc.getString(R.string.notif_stopped))
             state.ruleApplication.phase == com.mzstd.hxmyproxy.core.rules.RuleApplyPhase.FAILED ->
-                loc.getString(R.string.rule_apply_failed)
+                content(NotificationKind.RULE_FAILED, loc.getString(R.string.rule_apply_failed))
             // 失联告警借用常驻通知（不新弹）：客户端曾在、现探测不可达且无真实入站——
             // 用户不用等自己发现断网,瞥一眼通知即知,点开 app 可手动刷新/看指引。
             state.unreachableClients.isNotEmpty() ->
-                loc.getString(R.string.notif_client_unreachable, state.unreachableClients.joinToString(", "))
-            entry == null -> loc.getString(R.string.notif_running_no_entry)
-            else -> loc.resources.getQuantityString(
+                content(NotificationKind.UNREACHABLE, loc.getString(R.string.notif_client_unreachable, state.unreachableClients.joinToString(", ")))
+            entry == null -> content(NotificationKind.NO_ENTRY, loc.getString(R.string.notif_running_no_entry))
+            else -> content(NotificationKind.RUNNING, loc.resources.getQuantityString(
                 R.plurals.notif_running, state.activeConnections,
                 // displayEndpoint:HTTP/SOCKS 仍是 host:port,PAC 给完整 http://ip:port/proxy.pac,通知里也不误导。
                 entry.displayEndpoint,
                 state.activeConnections,
                 com.mzstd.hxmyproxy.ui.formatRate(state.downloadRateBps),
                 com.mzstd.hxmyproxy.ui.formatRate(state.uploadRateBps),
-            )
+            ))
         }
     }
 
@@ -181,8 +216,7 @@ class ProxyForegroundService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String): Notification {
-        val loc = localized()
+    private fun buildNotification(content: NotificationContent): Notification {
         val contentIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
@@ -199,11 +233,11 @@ class ProxyForegroundService : Service() {
             .setColor(com.mzstd.hxmyproxy.ui.theme.BRAND_BLUE_ARGB)
             // 前台服务通知：整条通知背景染品牌蓝（系统自动处理文字对比度），品牌感最强。
             .setColorized(true)
-            .setContentTitle(loc.getString(R.string.app_name))
-            .setContentText(text)
+            .setContentTitle(content.title)
+            .setContentText(content.text)
             .setOngoing(true)
             .setContentIntent(contentIntent)
-            .addAction(0, loc.getString(R.string.notif_stop), stopIntent)
+            .addAction(0, content.stopLabel, stopIntent)
             .build()
     }
 

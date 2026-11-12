@@ -127,6 +127,9 @@ abstract class TcpProxyServerBase(
 
     @Volatile private var serverChannel: ServerSocketChannel? = null
     @Volatile private var acceptJob: Job? = null
+    /** State publication belongs to one listener generation; retired jobs may finish later. */
+    private var listenerGeneration: Any? = null
+    private var listenerSequence = 0L
 
     /**
      * 在途已准入的 client 连接（NIO [SocketChannel]，握手期 blocking、relay 期可切非阻塞）。stop() 时主动
@@ -134,7 +137,10 @@ abstract class TcpProxyServerBase(
      */
     private val inFlight = ConcurrentHashMap.newKeySet<SocketChannel>()
 
-    override fun start(scope: CoroutineScope, port: Int, bindAddress: InetAddress?) {
+    @Synchronized override fun start(scope: CoroutineScope, port: Int, bindAddress: InetAddress?) {
+        if (acceptJob != null) stop()
+        val generation = Any().also { listenerGeneration = it }
+        val listenerId = ++listenerSequence
         val listenAddress = bindAddress ?: InetAddress.getByName("0.0.0.0")
         _bindError.value = null
         acceptJob = scope.launch(Dispatchers.IO) {
@@ -159,17 +165,28 @@ abstract class TcpProxyServerBase(
             val server = bound ?: run {
                 // bind 仍失败（端口被占用/无效）：暴露为状态而非抛进 scope（否则冒泡到全局 handler 崩溃 App），
                 // UI 据此提示用户换端口。
-                _bindError.value = ProxyError.PortInUse
-                _boundPort.value = null
+                synchronized(this@TcpProxyServerBase) {
+                    if (listenerGeneration !== generation) return@launch
+                    _bindError.value = ProxyError.PortInUse
+                    _boundPort.value = null
+                }
                 // 已有 listen.up 表示监听起来了；失败侧同样走结构化门面，两者可对着 grep。
-                Ev.kw(LogCat.SVC, "listen.bindFailed", "proto" to protocol, "port" to port, "err" to lastError?.toString())
+                Ev.kw(LogCat.SVC, "listen.bindFailed", "proto" to protocol, "listener" to listenerId, "port" to port, "err" to lastError?.toString())
                 return@launch
             }
-            serverChannel = server
-            _boundPort.value = (server.localAddress as InetSocketAddress).port
-            _bindError.value = null
+            val localPort = (server.localAddress as InetSocketAddress).port
+            val published = synchronized(this@TcpProxyServerBase) {
+                if (listenerGeneration !== generation || !isActive) false
+                else {
+                    serverChannel = server
+                    _boundPort.value = localPort
+                    _bindError.value = null
+                    true
+                }
+            }
+            if (!published) { server.closeQuietly(); return@launch }
             // 以前只有 bind **失败**落盘，成功不落——导致「监听到底起没起来」在导出日志里无法判定。
-            Ev.k(LogCat.SVC, "listen.up", "proto" to protocol, "port" to _boundPort.value, "bind" to listenAddress.hostAddress)
+            Ev.k(LogCat.SVC, "listen.up", "proto" to protocol, "listener" to listenerId, "port" to localPort, "bind" to listenAddress.hostAddress)
             try {
                 while (isActive) {
                     val client = try {
@@ -302,14 +319,21 @@ abstract class TcpProxyServerBase(
                 }
             } finally {
                 server.closeQuietly()
-                _boundPort.value = null
+                synchronized(this@TcpProxyServerBase) {
+                    if (listenerGeneration === generation) {
+                        _boundPort.value = null
+                        serverChannel = null
+                    }
+                }
             }
         }
     }
 
-    override fun stop() {
+    @Synchronized override fun stop() {
+        val listenerId = listenerSequence.takeIf { listenerGeneration != null }
+        listenerGeneration = null
         // 监听下线也要留痕：只有 listen.up 而无 down 时，「代理什么时候不再监听的」在导出日志里无法判定。
-        Ev.k(LogCat.SVC, "listen.down", "proto" to protocol, "port" to _boundPort.value, "inFlight" to inFlight.size)
+        Ev.k(LogCat.SVC, "listen.down", "proto" to protocol, "listener" to listenerId, "port" to _boundPort.value, "inFlight" to inFlight.size)
         serverChannel?.closeQuietly()
         acceptJob?.cancel()
         acceptJob = null

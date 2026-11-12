@@ -81,7 +81,8 @@ class DnsCancellationTest {
             allEntered.await()
             val error = runCatching { connector.connect("overflow.example", 9) }.exceptionOrNull()
             assertTrue(error is ProxyException)
-            assertSame(ProxyError.DnsFailure, (error as ProxyException).error)
+            // Admission failure is local pressure, not a negative DNS response.
+            assertSame(ProxyError.DnsBusy, (error as ProxyException).error)
             assertEquals("满载后不得再起旁路系统查询", 12, entered.get())
             assertEquals(12, connector.dnsStats().inflight)
         } finally {

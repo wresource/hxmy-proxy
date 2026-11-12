@@ -19,6 +19,16 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import com.mzstd.hxmyproxy.core.log.Ev
+import com.mzstd.hxmyproxy.core.log.LogCat
+import com.mzstd.hxmyproxy.core.proxy.TcpProxyServerBase
+import io.mockk.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /** 验证监听器 start→停→重启重绑（协议热重启依赖的机制）。 */
 class ServerLifecycleTest {
@@ -43,6 +53,40 @@ class ServerLifecycleTest {
     private fun awaitBindError(s: ProxyServer): ProxyError? {
         repeat(300) { val e = s.bindError.value; if (e != null) return e; Thread.sleep(10) }
         return null
+    }
+
+    @Test(timeout = 15000)
+    fun retiredListenerCannotClearTheNewListenerState() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val server = newServer()
+        val published = CountDownLatch(1); val releaseOld = CountDownLatch(1); val calls = AtomicInteger()
+        mockkObject(Ev)
+        every { Ev.k(LogCat.SVC, "listen.up", *anyVararg()) } answers {
+            if (calls.incrementAndGet() == 1) {
+                published.countDown()
+                check(releaseOld.await(8, TimeUnit.SECONDS))
+            }
+            Unit
+        }
+        try {
+            server.start(scope, 0, ProxyTestKit.loopback)
+            assertTrue(published.await(4, TimeUnit.SECONDS))
+            val oldJob = TcpProxyServerBase::class.java.getDeclaredField("acceptJob")
+                .apply { isAccessible = true }.get(server) as Job
+            server.stop()
+            server.start(scope, 0, ProxyTestKit.loopback)
+            val newPort = awaitPort(server)
+            releaseOld.countDown()
+            runBlocking { withTimeout(3000) { oldJob.join() } }
+            assertEquals("old finally must not erase the replacement listener", newPort, server.boundPort.value)
+            java.net.Socket(ProxyTestKit.loopback, newPort).use { client ->
+                client.soTimeout = 2000
+                client.getOutputStream().write(byteArrayOf(5, 1, 0))
+                assertEquals(5, client.getInputStream().read()); assertEquals(0, client.getInputStream().read())
+            }
+        } finally {
+            releaseOld.countDown(); server.stop(); scope.cancel(); unmockkObject(Ev)
+        }
     }
 
     @Test(timeout = 15000)

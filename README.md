@@ -14,12 +14,17 @@ VPN app policies and the local network can affect compatibility.
 
 ## Download and latest update
 
-[**1.49.72 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.49.72/hxmy-proxy-1.49.72.apk) ·
-[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.49.72) ·
-[What's new](docs/releases/1.49.72.md)
+[**1.5.0 — Android APK**](https://github.com/wresource/hxmy-proxy/releases/download/v1.5.0/hxmy-proxy-1.5.0.apk) ·
+[Release notes and AAB](https://github.com/wresource/hxmy-proxy/releases/tag/v1.5.0) ·
+[What's new](docs/releases/1.5.0.md)
 
-**1.49.72 (312)** adds per-client **All direct** mode, suffix rules such as `.cn`,
-and steadier rule editing and paginated lists. All direct applies to the client's source IP:
+**1.5.0 (315)** follows 1.49.72 with better DNS cache retention, bounded recovery and
+clearer messages for unusual DNS answers, reliable listener restart status, and fewer redundant
+notification updates. Compatible companions can read optional [failure diagnostics](docs/proxy-failure-diagnostics.md)
+without changing routing or successful tunnel traffic.
+
+Per-client **All direct** mode, suffix rules such as `.cn`, and paginated rule editing remain available.
+All direct applies to the client's source IP:
 requests still pass through the phone and use its **Direct egress** network. It overrides that
 client's domain routing and blocking rules while keeping authentication, admission and local-target safeguards.
 Turning it off restores normal rules.

@@ -9,6 +9,8 @@ sealed class ProxyError(val label: String) {
     data object LocalNetworkPermissionDenied : ProxyError("local network permission denied")
     data object PortInUse : ProxyError("port in use")
     data object DnsFailure : ProxyError("DNS resolution failed")
+    data object DnsBusy : ProxyError("DNS resolver temporarily busy; retry later")
+    data object ResolvedLocalNetworkBlocked : ProxyError("domain resolved to a private network address; check DNS or network sign-in")
     data object RemoteTimeout : ProxyError("remote connect timeout")
     data object RemoteUnreachable : ProxyError("remote unreachable")
     /** A selected DIRECT network is offline; the rule allowed the target. */
@@ -33,7 +35,7 @@ sealed class ProxyError(val label: String) {
     data object TooManyConnections : ProxyError("too many connections")
     data class Unknown(val detail: String) : ProxyError(detail)
 
-    val isPolicyDenied: Boolean get() = this === AccessDenied || this === LocalNetworkBlocked
+    val isPolicyDenied: Boolean get() = this === AccessDenied || this === LocalNetworkBlocked || this === ResolvedLocalNetworkBlocked
 
     /**
      * 稳定的机器可读标识，供 UI 查本地化文案。
@@ -45,6 +47,8 @@ sealed class ProxyError(val label: String) {
         get() = when (this) {
             RemoteTimeout -> "timeout"
             DnsFailure -> "dns"
+            DnsBusy -> "dns-busy"
+            ResolvedLocalNetworkBlocked -> "dns-local-address"
             ConnectionRefused -> "refused"
             RemoteUnreachable -> "unreachable"
             DirectEgressUnavailable -> "direct-egress-unavailable"
@@ -62,12 +66,12 @@ sealed class ProxyError(val label: String) {
     val socksReply: Int
         get() = when (this) {
             ConnectionRefused -> 0x05
-            RemoteUnreachable, DnsFailure -> 0x04   // host unreachable
+            RemoteUnreachable, DnsFailure, DnsBusy -> 0x04   // host unreachable
             // RFC 1928 的 REP 码里没有「暂时不可用」这个概念，最接近的 0x03(network
             // unreachable)并不比 0x04 多传递任何信息。刻意保持与改动前一致，
             // 免得为一个零收益的语义调整改变既有 SOCKS5 客户端的行为。
             EgressSidelined -> 0x04
-            AccessDenied, LocalNetworkBlocked -> 0x02 // not allowed by ruleset
+            AccessDenied, LocalNetworkBlocked, ResolvedLocalNetworkBlocked -> 0x02 // not allowed by ruleset
             DirectEgressUnavailable -> 0x03          // selected network unreachable, not rule denial
             else -> 0x01                             // general SOCKS server failure
         }
@@ -75,12 +79,12 @@ sealed class ProxyError(val label: String) {
     /** 普通 HTTP 转发失败时的状态码。 */
     val httpStatus: Int
         get() = when (this) {
-            AccessDenied, LocalNetworkBlocked -> 403
+            AccessDenied, LocalNetworkBlocked, ResolvedLocalNetworkBlocked -> 403
             RemoteTimeout -> 504
             // 503：我方此刻主动拒绝，且是暂时的。不用 502(它硬性要求「收到了上游的
             // 无效响应」，而摘网时我们一个响应都没收到)，也不用 504(那已经被
             // 「目标连接超时」占着，混用会让两件事在日志里再也分不开)。
-            EgressSidelined, DirectEgressUnavailable -> 503
+            EgressSidelined, DirectEgressUnavailable, DnsBusy -> 503
             else -> 502
         }
 

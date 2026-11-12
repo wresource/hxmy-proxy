@@ -50,6 +50,9 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 /**
  * 创建到目标的上游 TCP 连接。
@@ -98,7 +101,12 @@ class OutboundConnector(
      * 按 netId 分桶之后两个分支可以共用同一套读写：不同网络的结果本来就该分开存，
      * 而不是「整条分支干脆不缓存」。
      */
-    private val dnsCache = ConcurrentHashMap<DnsKey, CachedAddrs>()
+    // Access order is protected by dnsLock, including reads (LinkedHashMap.get mutates LRU order).
+    private val dnsCache = java.util.LinkedHashMap<DnsKey, CachedAddrs>(16, 0.75f, true)
+    private var dnsCacheHits = 0L
+    private var dnsCacheMisses = 0L
+    private var dnsCacheExpired = 0L
+    private var dnsCacheEvicted = 0L
 
     /** 同一代网络、同一 host 的并发查询单飞；后来的请求只等待已有查询。 */
     private val dnsLock = Any()
@@ -106,6 +114,16 @@ class OutboundConnector(
     private val recoveringDns = HashMap<DnsKey, DnsFlight<DnsRecovery>>()
     private var dnsScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private class DnsFlight<T>(val task: Deferred<T>, var waiters: Int = 0)
+    /** One shared lookup, not process-wide counters: sibling rescue work inherits this context. */
+    private class DnsLookupEvidence : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<DnsLookupEvidence>
+        val systemBusy = AtomicInteger()
+        val systemTimeout = AtomicInteger()
+        val dohBusy = AtomicInteger()
+        fun noAnswer(): ProxyException = if (systemBusy.get() + dohBusy.get() > 0)
+            ProxyException(ProxyError.DnsBusy, "dns-backup-busy")
+        else ProxyException(ProxyError.DnsFailure, "dns-no-answer")
+    }
     private data class DnsRecovery(val answer: DnsAnswer?, val reason: String)
     private data class DnsAnswer(
         val addrs: DnsAddressSnapshot, val source: DnsSource, val resolverNetId: Long?,
@@ -348,6 +366,7 @@ class OutboundConnector(
                     if (bypassVpn) DirectEgressFailures.recordSuccess(host)
                 }
         } catch (e: ProxyException) {
+            if (e.error === ProxyError.DnsBusy) throw e
             // DIRECT(bypass) fail-closed：建连失败也**不**降级默认网络(=VPN)，宁可断、不泄漏。
             if (bypassVpn) {
                 // 计数给 UI：fail-closed 的失败对用户是静默的（只表现为"这个 app 有时候卡"），
@@ -437,7 +456,7 @@ class OutboundConnector(
             // TCP race policy without a safe fallback. IPv6 literals and IPv6-only
             // answers remain supported; never duplicate business datagrams as probes.
             val address = orderAddresses(answer.addrs).firstOrNull { egressGuard.isAllowed(it) && datagramTargetAllowed(it) }
-                ?: throw ProxyException(denialFor(answer.addrs), "udp-target-denied")
+                ?: throw ProxyException(denialForResolvedHost(host, answer.addrs), "udp-target-denied")
             var owned: DatagramEndpoint? = null
             try {
                 val endpoint = try {
@@ -468,12 +487,13 @@ class OutboundConnector(
             )
             prepareOn(network)
         } catch (failure: ProxyException) {
+            if (failure.error === ProxyError.DnsBusy) throw failure
             if (bypassVpn) {
                 if (failure.stage == "no-physical-egress") DirectEgressFailures.recordNoEgress()
                 else if (!failure.error.isPolicyDenied) DirectEgressFailures.recordFailure(host, failure.error.code)
                 throw failure
             }
-            if (failure.error.isPolicyDenied || failure.stage == "egress-unavailable" || network == null ||
+            if (failure.error.isPolicyDenied || failure.error === ProxyError.DnsBusy || failure.stage == "egress-unavailable" || network == null ||
                 egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) throw failure
             val alternate = underlyingNetworkProvider?.fallbackEgress(network) ?: throw failure
             // This is setup only: no UDP payload has been accepted or replayed.
@@ -555,7 +575,7 @@ class OutboundConnector(
             val answer = resolveDetailed(host,selected,trace,if (bypassVpn) "DIRECT" else "PROXY:$egressFallback")
             val allowed = orderAddresses(answer.addrs, bypassVpn).filter { egressGuard.isAllowed(it) && !it.isAnyLocalAddress &&
                 !it.isMulticastAddress && !(it is Inet4Address && it.address.all { octet -> octet == (-1).toByte() }) }
-            if (allowed.isEmpty()) throw ProxyException(denialFor(answer.addrs),"bind-peer-denied")
+            if (allowed.isEmpty()) throw ProxyException(denialForResolvedHost(host, answer.addrs),"bind-peer-denied")
             for (address in allowed) {
                 var owned: TcpBindListener? = null
                 try {
@@ -579,7 +599,7 @@ class OutboundConnector(
             if (egressUnusable(network,bypassVpn)) throw ProxyException(ProxyError.EgressSidelined,"egress-down",egressHealth.retryAfterSeconds(network))
             openOn(network)
         } catch (failure: ProxyException) {
-            if (bypassVpn || failure.error.isPolicyDenied || failure.stage == "egress-unavailable" || network == null ||
+            if (bypassVpn || failure.error.isPolicyDenied || failure.error === ProxyError.DnsBusy || failure.stage == "egress-unavailable" || network == null ||
                 egressFallback == com.mzstd.hxmyproxy.core.model.EgressFallback.STRICT) throw failure
             openOn(underlyingNetworkProvider?.fallbackEgress(network) ?: throw failure)
         }
@@ -593,42 +613,47 @@ class OutboundConnector(
             return dnsAnswer(listOf(it), DnsSource.LITERAL, network?.networkHandle)
         }
         val key = dnsKeyOf(network, name, route)
-        cachedAt(key)?.let { cached ->
-            val r = cached.answer
+        var cached: CachedAddrs? = null
+        var joined = false
+        val acquired = synchronized(dnsLock) {
+            // Cache lookup and joining/creating a flight form one transaction. A result
+            // published between an earlier miss and admission must not be queried again.
+            cached = cachedAt(key)
+            if (cached != null) {
+                dnsCacheHits++
+                null
+            } else {
+                dnsCacheMisses++
+                val existing = inflightDns[key]
+                val entry = if (existing != null) {
+                    joined = true
+                    existing
+                } else {
+                    if (inflightDns.size + recoveringDns.size >= DNS_MAX_SHARED_QUERIES) {
+                        dnsRejected.incrementAndGet()
+                        throw ProxyException(ProxyError.DnsBusy, "dns-shared-busy")
+                    }
+                    DnsFlight(dnsScope.async(start = CoroutineStart.LAZY) {
+                        val answer = resolveTracked(name, network, key)
+                        val r = answer.copy(lease = DnsLease(key, dnsAnswerSequence.incrementAndGet()))
+                        currentCoroutineContext().ensureActive()
+                        synchronized(dnsLock) {
+                            if (key.generation == dnsGeneration.get()) cacheAnswer(key, r)
+                        }
+                        r
+                    }).also { inflightDns[key] = it }
+                }
+                entry.waiters++
+                entry
+            }
+        }
+        cached?.let { hit ->
+            val r = hit.answer
             trace?.dns(host, DnsSource.CACHE_SAME_NET, r.resolverNetId, r.addrs.size,
-                "entry=${r.lease?.id};generation=${key.generation};source=${r.source.code};age=${(System.currentTimeMillis() - cached.atMs) / 1000}s;${r.detail.orEmpty()}", r.addrs.first().hostAddress)
+                "entry=${r.lease?.id};generation=${key.generation};source=${r.source.code};age=${(System.currentTimeMillis() - hit.atMs) / 1000}s;${r.detail.orEmpty()}", r.addrs.first().hostAddress)
             return r
         }
-        var joined = false
-        val flight = synchronized(dnsLock) {
-            val existing = inflightDns[key]
-            val entry = if (existing != null) {
-                joined = true
-                existing
-            } else {
-                if (inflightDns.size + recoveringDns.size >= DNS_MAX_SHARED_QUERIES) {
-                    dnsRejected.incrementAndGet()
-                    throw ProxyException(ProxyError.DnsFailure, "dns-busy")
-                }
-                DnsFlight(dnsScope.async(start = CoroutineStart.LAZY) {
-                    val answer = withTimeoutOrNull(DNS_QUERY_TIMEOUT_MS) {
-                        resolveUncached(name, network, key.backupEnabled)
-                    } ?: throw ProxyException(ProxyError.DnsFailure, "dns-total-timeout")
-                    if (answer.addrs.isEmpty()) throw ProxyException(ProxyError.DnsFailure, "dns-no-answer")
-                    val r = answer.copy(lease = DnsLease(key, dnsAnswerSequence.incrementAndGet()))
-                    currentCoroutineContext().ensureActive()
-                    synchronized(dnsLock) {
-                        if (key.generation == dnsGeneration.get()) {
-                            if (dnsCache.size >= DNS_MAX_CACHE_ENTRIES) dnsCache.clear()
-                            dnsCache[key] = CachedAddrs(r, System.currentTimeMillis())
-                        }
-                    }
-                    r
-                }).also { inflightDns[key] = it }
-            }
-            entry.waiters++
-            entry
-        }
+        val flight = checkNotNull(acquired)
         flight.task.start()
         try {
             val r = flight.task.await()
@@ -644,6 +669,26 @@ class OutboundConnector(
                 } else false
             }
             if (last) withContext(NonCancellable) { flight.task.cancelAndJoin() }
+        }
+    }
+
+    private suspend fun resolveTracked(host: String, network: Network?, key: DnsKey): DnsAnswer {
+        val evidence = DnsLookupEvidence()
+        return withContext(evidence) {
+            try {
+                val answer = withTimeoutOrNull(DNS_QUERY_TIMEOUT_MS) {
+                    resolveUncached(host, network, key.backupEnabled)
+                } ?: throw ProxyException(ProxyError.DnsFailure, "dns-total-timeout")
+                if (answer.addrs.isEmpty()) throw evidence.noAnswer()
+                answer
+            } catch (failure: ProxyException) {
+                // One event per shared lookup. req.failed remains owned by each request boundary.
+                Ev.w(LogCat.DNS, "dns.lookupFailed", "host" to host, "netId" to network?.networkHandle,
+                    "generation" to key.generation, "route" to key.route, "at" to failure.stage,
+                    "systemBusy" to evidence.systemBusy.get(), "systemTimeout" to evidence.systemTimeout.get(),
+                    "dohBusy" to evidence.dohBusy.get())
+                throw failure
+            }
         }
     }
 
@@ -667,9 +712,16 @@ class OutboundConnector(
             describe(original, 1)
             return dial(original.addrs).also { recordDnsConnection(original) }
         } catch (failure: ProxyException) {
-            if (!failure.dnsRecoveryEligible || preferAlternate()) throw failure
+            // An explicit local name/IP was rejected before DNS. Here a public name may have
+            // received a captive/private answer. Never dial that address. Keep explicitly
+            // configured DEGRADE's existing first opportunity; otherwise refresh on this network.
+            val resolvedPrivate = failure.error === ProxyError.LocalNetworkBlocked &&
+                numericAddressOrNull(host) == null && !DnsNamePolicy.isLocalNetworkName(host)
+            val reported = if (resolvedPrivate)
+                ProxyException(ProxyError.ResolvedLocalNetworkBlocked, "dns-local-address") else failure
+            if ((!resolvedPrivate && !failure.dnsRecoveryEligible) || preferAlternate()) throw reported
             val started = System.nanoTime()
-            val recovery = try { refreshFailedAnswer(original, network) }
+            val recovery = try { refreshFailedAnswer(original, network, requireAllowedAddress = resolvedPrivate) }
             catch (e: CancellationException) {
                 trace?.dnsRecovery(host, original.lease?.id, original.source, "cancelled", (System.nanoTime() - started) / 1_000_000L)
                 throw e
@@ -677,12 +729,16 @@ class OutboundConnector(
             val next = recovery.answer
             trace?.dnsRecovery(host, original.lease?.id, original.source,
                 if (next == null || next === original) "not-replaced" else "new-result", (System.nanoTime() - started) / 1_000_000L, recovery.reason)
-            if (next == null) throw failure
-            if (next === original || next.addrs == original.addrs) throw failure
+            if (next == null) throw reported
+            if (next === original || next.addrs == original.addrs) throw reported
             trace?.dns(host, next.source, next.resolverNetId, next.addrs.size,
                 "attempt=2;recovery=primary;${next.detail.orEmpty()}", next.addrs.first().hostAddress)
             describe(next, 2)
-            return dial(next.addrs).also { recordDnsConnection(next) }
+            return try { dial(next.addrs).also { recordDnsConnection(next) } }
+            catch (nextFailure: ProxyException) {
+                if (resolvedPrivate && nextFailure.error === ProxyError.LocalNetworkBlocked) throw reported
+                throw nextFailure
+            }
         }
     }
 
@@ -697,7 +753,7 @@ class OutboundConnector(
         }
     }
 
-    private suspend fun refreshFailedAnswer(failed: DnsAnswer, network: Network?): DnsRecovery {
+    private suspend fun refreshFailedAnswer(failed: DnsAnswer, network: Network?, requireAllowedAddress: Boolean = false): DnsRecovery {
         if (failed.source == DnsSource.LITERAL) return DnsRecovery(null, "literal")
         val lease = failed.lease ?: return DnsRecovery(null, "no-lease")
         val key = lease.key
@@ -720,16 +776,21 @@ class OutboundConnector(
                         key.backupEnabled != backupDnsEnabled -> DnsRecovery(null, "policy-changed")
                         lease.connected.get() -> DnsRecovery(failed, "already-connected")
                         cachedAt(key)?.answer !== failed -> DnsRecovery(null, "entry-changed")
-                        addresses.isEmpty() || addresses.toSet() == failed.addrs.toSet() -> {
+                        addresses.isEmpty() || addresses.toSet() == failed.addrs.toSet() ||
+                            (requireAllowedAddress && addresses.none(egressGuard::isAllowed)) -> {
                             // Same candidates, even reordered, do not justify a new lease/TTL.
                             lease.recoverAfterNs = System.nanoTime() + DNS_STEP_TIMEOUT_MS * 1_000_000L
-                            DnsRecovery(failed, if (addresses.isEmpty()) "no-answer" else "same-answer")
+                            DnsRecovery(failed, when {
+                                addresses.isEmpty() -> "no-answer"
+                                requireAllowedAddress && addresses.none(egressGuard::isAllowed) -> "address-still-blocked"
+                                else -> "same-answer"
+                            })
                         }
                         else -> {
                             val refreshed = dnsAnswer(addresses,
                                 if (network == null) DnsSource.SYS_DEFAULT else DnsSource.SYS_EGRESS,
                                 network?.networkHandle, "fresh-primary-recheck", DnsLease(key, dnsAnswerSequence.incrementAndGet()))
-                            dnsCache[key] = CachedAddrs(refreshed, System.currentTimeMillis())
+                            cacheAnswer(key, refreshed)
                             DnsRecovery(refreshed, "fresh-answer")
                         }
                     }
@@ -768,13 +829,34 @@ class OutboundConnector(
         return runCatching { InetAddress.getByName(host) }.getOrNull()
     }
 
-    private fun cachedAt(key: DnsKey): CachedAddrs? {
-        val c = dnsCache[key] ?: return null
+    private fun cachedAt(key: DnsKey): CachedAddrs? = synchronized(dnsLock) {
+        val c = dnsCache[key] ?: return@synchronized null
         if (System.currentTimeMillis() - c.atMs >= DNS_TTL_MS) {
-            dnsCache.remove(key, c)
-            return null
+            dnsCache.remove(key)
+            dnsCacheExpired++
+            return@synchronized null
         }
-        return c
+        c
+    }
+
+    /** Caller holds dnsLock. Capacity eviction never renews a survivor's TTL or lease. */
+    private fun cacheAnswer(key: DnsKey, answer: DnsAnswer) {
+        val now = System.currentTimeMillis()
+        if (key !in dnsCache && dnsCache.size >= DNS_MAX_CACHE_ENTRIES) {
+            val expired = dnsCache.entries.iterator()
+            while (expired.hasNext()) {
+                if (now - expired.next().value.atMs >= DNS_TTL_MS) {
+                    expired.remove()
+                    dnsCacheExpired++
+                }
+            }
+            while (dnsCache.size >= DNS_MAX_CACHE_ENTRIES) {
+                val oldest = dnsCache.entries.iterator()
+                oldest.next(); oldest.remove()
+                dnsCacheEvicted++
+            }
+        }
+        dnsCache[key] = CachedAddrs(answer, now)
     }
 
     /**
@@ -796,6 +878,8 @@ class OutboundConnector(
             val primary = PrimaryDnsQuery()
             primary.job = launch(start = CoroutineStart.LAZY) {
                 try {
+                    // A busy system resolver says nothing about the independent DoH capacity.
+                    // Keep the established bounded rescue path; diagnose busy only if it cannot answer.
                     primary.result.complete(resolveOnOrEmpty(network, host, DNS_QUERY_TIMEOUT_MS))
                 } catch (error: CancellationException) {
                     if (primary.preempted.get() && requestContext.isActive) primary.result.complete(emptyList())
@@ -834,7 +918,8 @@ class OutboundConnector(
                 val p = if (primary.result.isCompleted && !primary.result.isCancelled) primary.result.getCompleted() else emptyList()
                 if (p.isNotEmpty()) return primaryAnswer(p)
                 return answer.takeIf { it.addrs.isNotEmpty() }?.also { dnsRescueUses.incrementAndGet() }
-                    ?: throw ProxyException(ProxyError.DnsFailure, "dns-no-answer")
+                    ?: throw (requestContext[DnsLookupEvidence]?.noAnswer()
+                        ?: ProxyException(ProxyError.DnsFailure, "dns-no-answer"))
             }
             try {
                 val first = select<List<InetAddress>?> {
@@ -921,6 +1006,7 @@ class OutboundConnector(
         if (!admitted) { yieldRetainedDnsPrimaries(); admitted = dnsSlots.tryAcquire() }
         if (!admitted) {
             val n = dnsRejected.incrementAndGet()
+            currentCoroutineContext()[DnsLookupEvidence]?.systemBusy?.incrementAndGet()
             throttledFileLog("dns-busy", "DNS inflight full ($DNS_MAX_INFLIGHT), failing fast; $n total")
             return null
         }
@@ -930,6 +1016,7 @@ class OutboundConnector(
             val result = withTimeoutOrNull(timeoutMs) { block() }
             if (result == null) {
                 val n = dnsTimedOut.incrementAndGet()
+                currentCoroutineContext()[DnsLookupEvidence]?.systemTimeout?.incrementAndGet()
                 throttledFileLog("dns-timeout", "DNS step timeout (${timeoutMs}ms); $n total; async=true")
             } else {
                 recordDnsOk((System.nanoTime() - start) / 1_000_000L)
@@ -995,15 +1082,23 @@ class OutboundConnector(
         /** DoH 兜底:调用次数 / 其中按预算取消的次数。 */
         val dohCalls: Long,
         val dohTimeouts: Long,
+        /** Lookup hits/misses are requests (including shared waiters), not DNS wire queries. */
+        val cacheHits: Long = 0,
+        val cacheMisses: Long = 0,
+        val cacheExpired: Long = 0,
+        val cacheEvicted: Long = 0,
     )
 
     fun dnsStats(): DnsStats {
         val n = dnsOkCount.get()
+        val cache = synchronized(dnsLock) {
+            longArrayOf(dnsCache.size.toLong(), dnsCacheHits, dnsCacheMisses, dnsCacheExpired, dnsCacheEvicted)
+        }
         return DnsStats(
             rejected = dnsRejected.get(),
             timedOut = dnsTimedOut.get(),
             inflight = DNS_MAX_INFLIGHT - dnsSlots.availablePermits(),
-            cached = dnsCache.size,
+            cached = cache[0].toInt(),
             okCount = n,
             okAvgMs = if (n == 0L) 0 else dnsOkTotalMs.get() / n,
             okP50Ms = bucketPercentile(0.50),
@@ -1012,6 +1107,7 @@ class OutboundConnector(
             rescueUses = dnsRescueUses.get(),
             dohCalls = dohCalls.get(),
             dohTimeouts = dohTimeouts.get(),
+            cacheHits = cache[1], cacheMisses = cache[2], cacheExpired = cache[3], cacheEvicted = cache[4],
         )
     }
 
@@ -1020,7 +1116,8 @@ class OutboundConnector(
      * **非解析类异常不静默吞掉**——它意味着救援机制本身坏了（句柄失效/权限），
      * 而不是「这个域名解析不出来」，两者混为一谈会让这条路径变成又一个黑箱。
      */
-    private suspend fun resolveOnOrEmpty(net: Network?, host: String, timeoutMs: Long = DNS_STEP_TIMEOUT_MS, fresh: Boolean = false): List<InetAddress> =
+    private suspend fun resolveOnOrEmpty(net: Network?, host: String, timeoutMs: Long = DNS_STEP_TIMEOUT_MS,
+                                       fresh: Boolean = false): List<InetAddress> =
         try {
             dnsStep(timeoutMs) {
                 DnsAddressSnapshot.capture(if (fresh) systemDns.resolveFresh(net, host) else systemDns.resolve(net, host),
@@ -1028,6 +1125,8 @@ class OutboundConnector(
                     net?.networkHandle, dnsGeneration.get())
             }.orEmpty()
         } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProxyException) {
             throw e
         } catch (_: UnknownHostException) {
             emptyList()
@@ -1065,6 +1164,7 @@ class OutboundConnector(
             throw e
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             dnsRejected.incrementAndGet()
+            currentCoroutineContext()[DnsLookupEvidence]?.dohBusy?.incrementAndGet()
             throttledFileLog("doh-busy", "DoH workers busy; backup skipped without queuing")
             null
         }
@@ -1103,6 +1203,7 @@ class OutboundConnector(
                     } catch (e: CancellationException) { throw e }
                     catch (_: java.util.concurrent.RejectedExecutionException) {
                         dnsRejected.incrementAndGet()
+                        currentCoroutineContext()[DnsLookupEvidence]?.dohBusy?.incrementAndGet()
                         throttledFileLog("doh-busy", "DoH workers/queue full; backup task rejected")
                         null
                     }
@@ -1259,6 +1360,7 @@ class OutboundConnector(
                     if (bypassVpn) DirectEgressFailures.recordSuccess(host)
                 }
         } catch (e: ProxyException) {
+            if (e.error === ProxyError.DnsBusy) throw e
             // DIRECT(bypass) fail-closed：不降级默认(=VPN)。仅捕 ProxyException——IOException 须继续冒泡
             // 让调用方走「NIO绑定不可用 → 同一出口的阻塞路径」的既有逻辑。
             if (bypassVpn) {
@@ -1348,6 +1450,12 @@ class OutboundConnector(
         if ((egressGuard as? com.mzstd.hxmyproxy.core.security.DefaultEgressGuard)
                 ?.let { guard -> addrs.any(guard::isPrivateNetworkBlocked) } == true)
             ProxyError.LocalNetworkBlocked else ProxyError.AccessDenied
+
+    private fun denialForResolvedHost(host: String, addrs: List<InetAddress>): ProxyError {
+        val denied = denialFor(addrs)
+        return if (denied === ProxyError.LocalNetworkBlocked && numericAddressOrNull(host) == null &&
+            !DnsNamePolicy.isLocalNetworkName(host)) ProxyError.ResolvedLocalNetworkBlocked else denied
+    }
 
     internal fun tcpCandidates(addrs: List<InetAddress>, bypassVpn: Boolean = false): List<InetAddress> {
         // Normally already frozen. This last runtime check also protects other callers,

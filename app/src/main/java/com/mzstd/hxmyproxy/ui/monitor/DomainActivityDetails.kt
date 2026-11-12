@@ -186,9 +186,11 @@ private fun DomainDetailContent(state: DomainDetailState, onEdit: () -> Unit, on
     }
 }
 
+private val dnsIssueCodes = setOf("dns", "dns-busy", "dns-local-address")
+
 private fun hasRecommendedFix(record: RequestActivityRecord?) = record != null &&
     (record.outcome == RequestOutcome.BLOCKED || record.outcome == RequestOutcome.FAILED &&
-        (record.errorCode == "dns" || record.action == "DIRECT" || record.errorCode in setOf("vpn", "sidelined")))
+        (record.errorCode in dnsIssueCodes || record.action == "DIRECT" || record.errorCode in setOf("vpn", "sidelined")))
 
 @Composable
 private fun DomainDetailActions(state: DomainDetailState, onEdit: () -> Unit, onLogs: () -> Unit,
@@ -196,12 +198,12 @@ private fun DomainDetailActions(state: DomainDetailState, onEdit: () -> Unit, on
     val record = state.row.displayedRequest
     val (label, action) = when {
         record?.outcome == RequestOutcome.BLOCKED -> R.string.ui_allow_proxy to { onApply(RuleAction.PROXY) }
-        record?.outcome == RequestOutcome.FAILED && record.errorCode == "dns" -> R.string.ui_check_dns to { onSettings("dns") }
+        record?.outcome == RequestOutcome.FAILED && record.errorCode in dnsIssueCodes -> R.string.ui_check_dns to { onSettings("dns") }
         record?.outcome == RequestOutcome.FAILED && record.action == "DIRECT" -> R.string.ui_check_direct to { onSettings("direct-egress") }
         record?.outcome == RequestOutcome.FAILED && record.errorCode in setOf("vpn", "sidelined") -> R.string.ui_check_egress to { onSettings("proxy-egress") }
         else -> R.string.ui_change_domain_rule to onEdit
     }
-    val directFailure = record?.outcome == RequestOutcome.FAILED && record.action == "DIRECT" && record.errorCode != "dns"
+    val directFailure = record?.outcome == RequestOutcome.FAILED && record.action == "DIRECT" && record.errorCode !in dnsIssueCodes
     val secondary = if (directFailure) R.string.ui_use_proxy else if (hasRecommendedFix(record)) R.string.ui_change_domain_rule else R.string.ui_related_logs
     SheetActions(stringResource(label), action, stringResource(secondary),
         if (directFailure) ({ onApply(RuleAction.PROXY) }) else if (hasRecommendedFix(record)) onEdit else onLogs,
@@ -241,6 +243,8 @@ internal fun requestExplanation(record: RequestActivityRecord): Int = when {
     record.outcome == RequestOutcome.BLOCKED -> R.string.ui_explain_blocked
     record.outcome == RequestOutcome.FAILED -> when (record.errorCode) {
         "dns" -> R.string.direct_fail_reason_dns
+        "dns-busy" -> R.string.dns_temporarily_busy
+        "dns-local-address" -> R.string.dns_private_address_refused
         "timeout" -> R.string.direct_fail_reason_timeout
         "refused" -> R.string.direct_fail_reason_refused
         "unreachable" -> R.string.direct_fail_reason_unreachable

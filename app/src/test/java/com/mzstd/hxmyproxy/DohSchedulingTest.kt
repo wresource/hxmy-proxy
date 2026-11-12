@@ -72,7 +72,10 @@ class DohSchedulingTest {
 
     /** Thread-local JSON is an explicit JVM Android-JSON boundary; actual scheduling/priority
      * and worker admission remain production. Each fake HTTP result has a different address. */
-    private inner class Fixture(val response: (URL) -> Pair<Int, String>?) : AutoCloseable {
+    private inner class Fixture(
+        lookup: SystemDnsLookup = SystemDnsLookup { _, _ -> emptyList() },
+        val response: (URL) -> Pair<Int, String>?,
+    ) : AutoCloseable {
         val calls = ConcurrentLinkedQueue<String>()
         val active = AtomicInteger(); val peak = AtomicInteger()
         val json = ThreadLocal<JSONArray?>()
@@ -81,7 +84,7 @@ class DohSchedulingTest {
             every { current() } returns null
             every { dohSelection() } returns UnderlyingNetworkProvider.DohEgressSelection(com.mzstd.hxmyproxy.core.model.DohEgressChoice.WIFI, net)
         }
-        val c = testConnector(allowed, underlyingNetworkProvider = provider, systemDns = SystemDnsLookup { _, _ -> emptyList() })
+        val c = testConnector(allowed, underlyingNetworkProvider = provider, systemDns = lookup)
         var connect: (URL) -> Unit = {}
         init {
             mockkConstructor(JSONObject::class)
@@ -115,6 +118,26 @@ class DohSchedulingTest {
             c.cancelPendingDns()
             assertTrue("all actual HTTP workers finish", ProxyTestKit.await(3000) { active.get() == 0 })
             unmockkConstructor(JSONObject::class)
+        }
+    }
+
+    @Test(timeout = 12000) fun saturatedSystemDnsStillUsesAnAvailableIndependentBackup() = runBlocking {
+        val count = AtomicInteger(); val ready = CompletableDeferred<Unit>()
+        val lookup = SystemDnsLookup { _, host ->
+            check(host.startsWith("held-")) { "Saturated system DNS should not start another native query" }
+            if (count.incrementAndGet() == 12) ready.complete(Unit)
+            awaitCancellation()
+        }
+        Fixture(lookup) { _ -> 1 to "192.0.2.96" }.use { f ->
+            val held = List(12) { i -> async { runCatching { resolve(f.c, "held-$i.example") } } }
+            try {
+                withTimeout(3000) { ready.await() }
+                val answer = withTimeout(1000) { resolve(f.c, "overflow-with-backup.example") }
+                assertEquals(listOf(InetAddress.getByName("192.0.2.96")), answer)
+                assertEquals(12, count.get()); assertTrue(f.peak.get() <= 4)
+                assertTrue("available backup must actually be used", f.calls.isNotEmpty())
+            } finally { held.forEach { it.cancel() }; held.joinAll() }
+            assertEquals(0, f.c.dnsStats().inflight)
         }
     }
 

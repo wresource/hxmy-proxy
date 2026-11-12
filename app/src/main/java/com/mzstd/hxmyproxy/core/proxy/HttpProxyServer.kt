@@ -167,8 +167,9 @@ class HttpProxyServer(
         val trace=RequestTrace.open(protocol,client.socket().port)
         return requestBoundary(trace, host, output, onFailure = { writable, error ->
             if (writable != null) {
-                val failure = (error as? ProxyException)?.error
-                writeStatus(writable, failure?.httpStatus ?: 500, failure?.httpReason ?: "Internal Server Error")
+                val failure = error as? ProxyException
+                writeStatus(writable, failure?.error?.httpStatus ?: 500, failure?.error?.httpReason ?: "Internal Server Error",
+                    *(failure?.diagnosticHeaders() ?: emptyArray()))
             }
             Unit
         }) { output ->
@@ -197,10 +198,10 @@ class HttpProxyServer(
             }catch(cancel:CancellationException){why=lease.reason?:cancelReason.get()?:"echo-cancelled";throw cancel}
             catch(failure:ProxyException){currentCoroutineContext().ensureActive();if(!lease.isCurrent)throw CancellationException("Echo ${lease.reason}")
                 why=failure.stage?:"echo-failed";trace.failed(host,why,failure.error)
-                when{failure.error==ProxyError.TooManyConnections->writeStatus(output,429,"Too Many Requests")
-                    failure.stage=="echo-too-large"->writeStatus(output,413,"Content Too Large")
-                    failure.stage=="echo-unavailable"->writeStatus(output,501,"Not Implemented")
-                    else->writeStatus(output,failure.error.httpStatus,failure.error.httpReason)}
+                when{failure.error==ProxyError.TooManyConnections->writeStatus(output,429,"Too Many Requests",*failure.diagnosticHeaders())
+                    failure.stage=="echo-too-large"->writeStatus(output,413,"Content Too Large",*failure.diagnosticHeaders())
+                    failure.stage=="echo-unavailable"->writeStatus(output,501,"Not Implemented",*failure.diagnosticHeaders())
+                    else->writeStatus(output,failure.error.httpStatus,failure.error.httpReason,*failure.diagnosticHeaders())}
             }catch(error:IOException){currentCoroutineContext().ensureActive();why="echo-io";trace.failed(host,why,error.javaClass.simpleName)}
             finally{trace.tunnelClosed(host,why,up,down)}}
         }
@@ -217,8 +218,9 @@ class HttpProxyServer(
         val trace=RequestTrace.open(protocol,client.socket().port)
         return requestBoundary(trace, question.ruleHost, output, onFailure = { writable, error ->
             if (writable != null) {
-                val failure = (error as? ProxyException)?.error
-                writeStatus(writable, failure?.httpStatus ?: 500, failure?.httpReason ?: "Internal Server Error")
+                val failure = error as? ProxyException
+                writeStatus(writable, failure?.error?.httpStatus ?: 500, failure?.error?.httpReason ?: "Internal Server Error",
+                    *(failure?.diagnosticHeaders() ?: emptyArray()))
             }
             Unit
         }) { output ->
@@ -261,8 +263,8 @@ class HttpProxyServer(
                 catch(failure:ProxyException){
                     currentCoroutineContext().ensureActive();if(!lease.isCurrent)throw CancellationException("DNS ${lease.reason}")
                     why=failure.stage?:"dns-failed";trace.failed(question.ruleHost,why,failure.error)
-                    if(failure.error==ProxyError.TooManyConnections)writeStatus(output,429,"Too Many Requests")
-                    else writeStatus(output,failure.error.httpStatus,failure.error.httpReason)
+                    if(failure.error==ProxyError.TooManyConnections)writeStatus(output,429,"Too Many Requests",*failure.diagnosticHeaders())
+                    else writeStatus(output,failure.error.httpStatus,failure.error.httpReason,*failure.diagnosticHeaders())
                 }catch(error:IOException){currentCoroutineContext().ensureActive();why="dns-io";trace.failed(question.ruleHost,why,error.javaClass.simpleName)}
                 finally{trace.tunnelClosed(question.ruleHost,why,up,down)}
             }
@@ -292,8 +294,9 @@ class HttpProxyServer(
         val trace = RequestTrace.open("HTTP", client.socket().port)
         return requestBoundary(trace, target.host, output, onFailure = { writable, error ->
             if (writable != null) {
-                val failure = (error as? ProxyException)?.error
-                writeStatus(writable, failure?.httpStatus ?: 500, failure?.httpReason ?: "Internal Server Error")
+                val failure = error as? ProxyException
+                writeStatus(writable, failure?.error?.httpStatus ?: 500, failure?.error?.httpReason ?: "Internal Server Error",
+                    *(failure?.diagnosticHeaders() ?: emptyArray()))
             }
             Unit
         }) { output ->
@@ -335,7 +338,7 @@ class HttpProxyServer(
                         if (!lease.isCurrent) throw CancellationException("UDP ${lease.reason ?: "route-changed"}")
                         trace.failed(target.host, failure.stage ?: "udp-setup", failure.error)
                         writeStatus(output, failure.error.httpStatus, failure.error.httpReason,
-                            *retryAfterHeader(failure), body = failureBody(target.host, target.port, failure.error))
+                            *(retryAfterHeader(failure) + failure.diagnosticHeaders()), body = failureBody(target.host, target.port, failure.error))
                         return
                     }
                     prepared.use {
@@ -394,8 +397,9 @@ class HttpProxyServer(
         val trace = RequestTrace.open("HTTP", clientPort)
         return requestBoundary(trace, hp.first, output, onFailure = { writable, error ->
             if (writable != null) {
-                val failure = (error as? ProxyException)?.error
-                writeStatus(writable, failure?.httpStatus ?: 500, failure?.httpReason ?: "Internal Server Error")
+                val failure = error as? ProxyException
+                writeStatus(writable, failure?.error?.httpStatus ?: 500, failure?.error?.httpReason ?: "Internal Server Error",
+                    *(failure?.diagnosticHeaders() ?: emptyArray()))
             }
             Unit
         }) { output ->
@@ -440,7 +444,7 @@ class HttpProxyServer(
                     trace.failed(hp.first, e.stage ?: if (timedOut) "connect-phase-timeout" else "connect", e.error)
                     writeStatus(
                         output, e.error.httpStatus, e.error.httpReason,
-                        *retryAfterHeader(e),
+                        *(retryAfterHeader(e) + e.diagnosticHeaders()),
                         body = failureBody(hp.first, hp.second, e.error),
                     )
                     return
@@ -474,7 +478,7 @@ class HttpProxyServer(
                 trace.failed(hp.first, e.stage ?: if (timedOutBlocking) "connect-phase-timeout" else "connect", e.error)
                 writeStatus(
                     output, e.error.httpStatus, e.error.httpReason,
-                    *retryAfterHeader(e),
+                    *(retryAfterHeader(e) + e.diagnosticHeaders()),
                     body = failureBody(hp.first, hp.second, e.error),
                 )
                 return
@@ -538,8 +542,9 @@ class HttpProxyServer(
         val trace = RequestTrace.open("HTTP", client.port)
         return requestBoundary(trace, host, output, onFailure = { writable, error ->
             if (writable != null) {
-                val failure = (error as? ProxyException)?.error
-                writeStatus(writable, failure?.httpStatus ?: 500, failure?.httpReason ?: "Internal Server Error")
+                val failure = error as? ProxyException
+                writeStatus(writable, failure?.error?.httpStatus ?: 500, failure?.error?.httpReason ?: "Internal Server Error",
+                    *(failure?.diagnosticHeaders() ?: emptyArray()))
             }
             false
         }) { output ->
@@ -574,7 +579,7 @@ class HttpProxyServer(
                 trace.failed(host, e.stage ?: if (plainTimedOut) "connect-phase-timeout" else "connect", e.error)
                 writeStatus(
                     output, e.error.httpStatus, e.error.httpReason,
-                    *retryAfterHeader(e),
+                    *(retryAfterHeader(e) + e.diagnosticHeaders()),
                     body = if (wantsBody) failureBody(host, port, e.error) else null,
                 )
                 return false
@@ -772,6 +777,8 @@ class HttpProxyServer(
             "cause: ${err.label} (${err.code})\n" +
             (if (err === ProxyError.LocalNetworkBlocked)
                 "action: Configure your client to bypass the proxy for local network targets, or enable Allow local network targets in hxmy proxy. Phone-side DIRECT is not client-side bypass.\n" else "") +
+            (if (err === ProxyError.ResolvedLocalNetworkBlocked)
+                "action: Check this network's DNS or sign-in page. A private DNS answer was blocked; local network protection is still enabled.\n" else "") +
             (if (retryAfter != null) "retry after: ${retryAfter}s\n" else "")
 
     /** 规则拦截的说明正文；与 `X-Proxy-Rule` 头同源，便于不看 header 的客户端也能读到。 */

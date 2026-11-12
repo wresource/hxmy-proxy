@@ -1,0 +1,15 @@
+<en-US>
+• Improve DNS caching to reduce repeat lookups during heavy use.
+• Improve recovery and guidance for unusual DNS answers.
+• Clearly identify temporary DNS congestion.
+• Fix incorrect listening-port status after restarting sharing.
+• Reduce redundant notification updates while keeping status and language changes responsive.
+• Improve connection diagnostics and error reporting with compatible Mac companions.
+</en-US>
+<zh-CN>
+• 优化 DNS 缓存，减少大量访问时不必要的重复解析。
+• 改善异常 DNS 答案的恢复与提示，明确区分解析繁忙和连接失败。
+• 修复重启共享后监听端口状态偶尔不准确的问题。
+• 减少重复通知刷新，保持状态和语言更新及时。
+• 完善连接诊断及 Mac 配套的错误原因显示。
+</zh-CN>

@@ -33,6 +33,8 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
     private val activity = RequestActivity.store.open(id, proto)
     private val terminal = AtomicBoolean(false)
     private val failureRecorded = AtomicBoolean(false)
+    @Volatile private var connectedNetwork: Long? = null
+    @Volatile private var connectedAddress: String? = null
 
     private val startNs = System.nanoTime()
     private val startRealtimeMs = android.os.SystemClock.elapsedRealtime()
@@ -91,6 +93,8 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
 
     /** 建连成功：**记下真正连上的那个地址**，此前完全不可见。 */
     fun connected(host: String, ip: String?, port: Int, netId: Long?) {
+        connectedNetwork = netId
+        connectedAddress = ip
         RequestActivity.store.connected(activity, ip)
         Ev.i(
             LogCat.EGRESS, "req.connected",
@@ -199,6 +203,18 @@ class RequestTrace private constructor(val id: Int, val proto: String, val clien
         Ev.i(LogCat.RELAY, "req.relay", "id" to id,
             "clientPeer" to endpoint(client.remoteSocketAddress), "clientLocal" to endpoint(client.localSocketAddress),
             "upstreamLocal" to endpoint(upstream.localSocketAddress), "upstreamPeer" to endpoint(upstream.remoteSocketAddress))
+    }
+
+    internal fun relayProgress(host: String?, mode: String, sample: RelayProgressSample) {
+        val activity = sample.activity
+        Ev.i(LogCat.RELAY, "req.progress", "id" to id, "host" to host, "mode" to mode,
+            "netId" to connectedNetwork, "ip" to connectedAddress, "windowMs" to sample.windowMs,
+            "upDelta" to sample.upDelta, "downDelta" to sample.downDelta,
+            "up" to sample.upTotal, "down" to sample.downTotal, "idleMs" to activity.idleMs,
+            "clientReadAgoMs" to activity.directionAgesMs[0], "clientWriteAgoMs" to activity.directionAgesMs[1],
+            "upstreamReadAgoMs" to activity.directionAgesMs[2], "upstreamWriteAgoMs" to activity.directionAgesMs[3],
+            "pendingUp" to activity.pendingUp, "pendingDown" to activity.pendingDown,
+            "ms" to elapsedMs(), "rt" to realtimeMs())
     }
 
     internal fun tunnelClosed(host: String?, evidence: RelayCloseEvidence, up: Long, down: Long, idle: RelayIdleSnapshot? = null) {

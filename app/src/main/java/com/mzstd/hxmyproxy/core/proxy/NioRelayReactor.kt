@@ -319,6 +319,7 @@ private class SelectorWorker(name: String, private val sweepMs: Long) {
             when {
                 it.idleExpired(now) -> { it.markClosing("idle"); it.close(this) }
                 it.externallyClosed() -> { it.markClosing("peer-closed"); it.close(this) }
+                else -> it.reportProgress(now)
             }
         }
     }
@@ -412,6 +413,7 @@ private class Tunnel(
 
     /** 隧道建立时刻，用于给 stall 时长算占比分母（见 [RelayStallStats]）。 */
     private val startNs = System.nanoTime()
+    private val progress = RelayProgressMonitor(startNs)
     private val closed = AtomicBoolean(false)
 
     init {
@@ -486,6 +488,17 @@ private class Tunnel(
     }
 
     fun idleExpired(now: Long): Boolean = idleMs > 0 && (now - lastActivity) > idleMs * 1_000_000L
+
+    fun reportProgress(now: Long) {
+        val sink = trace ?: return
+        runCatching {
+            progress.poll(now, upBytes, downBytes, com.mzstd.hxmyproxy.core.log.FileLog.enabled) {
+                RelayIdleSnapshot(idleMs, (now - lastActivity) / 1_000_000,
+                    directionActivity.map { (now - it) / 1_000_000 },
+                    if (up.draining) up.buf.remaining() else 0, if (down.draining) down.buf.remaining() else 0)
+            }?.let { sink.relayProgress(host, "nio", it) }
+        }
+    }
 
     /** 任一端已被外部关闭（准入收缩 evict 等）——隧道应拆，由 sweep 周期兜底调用。 */
     fun externallyClosed(): Boolean = !cCtx.channel.isOpen || !uCtx.channel.isOpen

@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy
 
 import android.graphics.Bitmap
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
@@ -28,10 +29,10 @@ class ReviewRuleUiTest {
         val custom=mutableStateOf(false)
         lateinit var proxyLabel:String
         lateinit var clearLabel:String
+        lateinit var windowContext:android.content.Context
         compose.setContent {
             val context=LocalContext.current
-            proxyLabel=context.getString(R.string.top_domain_proxy)
-            clearLabel=context.getString(R.string.top_domain_clear)
+            SideEffect { windowContext=context }
             MaterialTheme {
                 TopDomainRuleDialog(
                     host="example.com", current=current.value,
@@ -44,6 +45,10 @@ class ReviewRuleUiTest {
                     onDismiss={},
                 )
             }
+        }
+        compose.runOnIdle {
+            proxyLabel=windowContext.getString(R.string.top_domain_proxy)
+            clearLabel=windowContext.getString(R.string.top_domain_clear)
         }
         compose.onAllNodesWithText(clearLabel).assertCountEquals(0)
         compose.onNodeWithText(proxyLabel).performClick()

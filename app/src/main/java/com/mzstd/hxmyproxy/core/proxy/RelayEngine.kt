@@ -42,6 +42,7 @@ class RelayEngine(
         val evidence = RelayCloseEvidence()
         val idle = RelayIdleClock(idleMillis)
         val up = AtomicLong(); val down = AtomicLong()
+        val progress = RelayProgressMonitor()
         var clientStreams: DuplexSocketStreams? = null
         var upstreamStreams: DuplexSocketStreams? = null
         val closeAll: () -> Unit = {
@@ -63,11 +64,16 @@ class RelayEngine(
                 val cancelled = { relayJob?.isCancelled == true }
                 // Also covers both pumps blocked writing, or a half-closed flow with no reader.
                 // A suspended timer uses no dedicated thread and is cancelled with the relay.
-                val idleWatch = if (idleMillis > 0) launch(Dispatchers.Default) {
+                val idleWatch = if (idleMillis > 0 || trace != null) launch(Dispatchers.Default) {
                     while (isActive) {
-                        delay(idle.remainingMs())
+                        delay(if (trace == null) idle.remainingMs() else minOf(idle.remainingMs(), 30_000L))
                         if (cancelled()) break
                         if (idle.claimTimeout()) { evidence.terminate("idle"); closeAll(); break }
+                        if (trace != null) runCatching {
+                            progress.poll(System.nanoTime(), up.get(), down.get(),
+                                com.mzstd.hxmyproxy.core.log.FileLog.enabled, idle::snapshot)
+                                ?.let { trace.relayProgress(host, "blocking", it) }
+                        }
                     }
                 } else null
                 // 双向各一协程，都派发到受限的 relayDispatcher（搬字节并行度由它控制）。

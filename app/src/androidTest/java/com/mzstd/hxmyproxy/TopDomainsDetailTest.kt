@@ -2,6 +2,7 @@ package com.mzstd.hxmyproxy
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -43,13 +44,17 @@ class TopDomainsDetailTest {
         val domains = mutableStateOf(accounting.snapshot().topDomains)
         lateinit var trafficLabel: String
         lateinit var recentLabel: String
+        lateinit var windowContext: android.content.Context
         compose.setContent {
             val context = LocalContext.current
-            trafficLabel = context.getString(R.string.domains_sort_traffic)
-            recentLabel = context.getString(R.string.domains_sort_recent)
+            SideEffect { windowContext = context }
             MaterialTheme {
                 TopDomainsDetailContent(domains.value, onBack = {}, actionForHost = { null }, onEdit = {})
             }
+        }
+        compose.runOnIdle {
+            trafficLabel = windowContext.getString(R.string.domains_sort_traffic)
+            recentLabel = windowContext.getString(R.string.domains_sort_recent)
         }
         compose.onNodeWithTag("domain_search").performTextReplacement("chatgpt.com")
         compose.onAllNodes(hasText("chatgpt.com") and !hasTestTag("domain_search")).assertCountEquals(2)

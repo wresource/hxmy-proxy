@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
@@ -86,10 +87,13 @@ class RuleInputDeviceTest {
 
     @Test fun addFormKeepsBadTextAndPreservesSelectedScopeForUrls() {
         val saved = mutableListOf<String>(); lateinit var add: String
+        lateinit var windowContext: android.content.Context
         compose.setContent {
-            add = LocalContext.current.getString(R.string.rules_add)
+            val context = LocalContext.current
+            SideEffect { windowContext = context }
             MaterialTheme { RulePillInputRow(allowAccent()) { saved += it } }
         }
+        compose.runOnIdle { add = windowContext.getString(R.string.rules_add) }
         compose.onNode(hasSetTextAction()).performTextInput("https://1password.com/login?q=1")
         compose.onNodeWithText(add).performClick()
         compose.runOnIdle { assertEquals(listOf("*.1password.com"), saved) }
@@ -101,10 +105,13 @@ class RuleInputDeviceTest {
 
     @Test fun editorRejectsInvalidSaveAndShowsNormalizedResult() {
         val saved = mutableListOf<String>(); lateinit var save: String
+        lateinit var windowContext: android.content.Context
         compose.setContent {
-            save = LocalContext.current.getString(R.string.ruleset_save)
+            val context = LocalContext.current
+            SideEffect { windowContext = context }
             MaterialTheme { RuleEditDialog(RuleEntry("*.apple.com"), { saved += it }, {}, {}) }
         }
+        compose.runOnIdle { save = windowContext.getString(R.string.ruleset_save) }
         compose.onNodeWithTag("rule_edit_input").performTextReplacement("bad..example")
         compose.onNodeWithText(save).assertIsNotEnabled()
         compose.onNodeWithTag("rule_edit_input").performTextReplacement("https://developer.apple.com/store")
@@ -114,9 +121,10 @@ class RuleInputDeviceTest {
 
     @Test fun actualMissingDirectEgressHasVisibleLocalizedExplanation() {
         val failed = mutableStateOf(true); lateinit var message: String
+        lateinit var windowContext: android.content.Context
         compose.setContent {
             val context = LocalContext.current
-            message = context.getString(R.string.direct_egress_missing, context.getString(R.string.egress_wifi))
+            SideEffect { windowContext = context }
             MaterialTheme { Surface { Column(Modifier.safeDrawingPadding()) {
                 WarnBanners(MainUiState(settings = ProxySettings(directEgressChoice = DirectEgressChoice.WIFI),
                     share = ShareState(running = true, admissionEmpty = false,
@@ -124,6 +132,7 @@ class RuleInputDeviceTest {
                         directEgressUnavailable = failed.value)))
             } } }
         }
+        compose.runOnIdle { message = windowContext.getString(R.string.direct_egress_missing, windowContext.getString(R.string.egress_wifi)) }
         compose.onNodeWithText(message).assertIsDisplayed()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
